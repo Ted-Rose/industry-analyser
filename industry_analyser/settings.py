@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'fetcher',
     'accounts',
+    'django_crontab',
 ]
 
 MIDDLEWARE = [
@@ -123,3 +124,9 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Call fetcher method every day between 12:01 and 12:30
+CRONJOBS = [
+    ('1-30 0 * * *', 'fetcher.views.fetcher'),
+]
+# Call `python manage.py crontab add` to add cron jobs

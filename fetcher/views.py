@@ -41,3 +41,5 @@ def fetcher(request):
         )
 
   return render(request, 'fetcher/home.html')
+
+# every 24 hours call method fetcher
