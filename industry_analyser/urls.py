@@ -16,9 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from fetcher import views
+from fetcher import views as fetcher
+from accounts import views as accounts
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('fetcher/', views.fetcher, name='fetcher'),
+    path('fetcher/', fetcher.fetcher, name='fetcher'),
+    path('accounts/', accounts.accounts, name='accounts'),
 ]

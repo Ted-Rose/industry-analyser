@@ -1,7 +1,7 @@
 from django.shortcuts import render
 import requests
 from bs4 import BeautifulSoup
-from .models import Vacancy, Company
+# from .models import Vacancy, Company
 import uuid
 
 def fetcher(request):
@@ -31,7 +31,7 @@ def fetcher(request):
         # Store vacancy in db
         Vacancy.update_or_create(
             uuid = uuid.uuid4(),
-            company = company
+            company = company,
             title = vacancy_content.title,
             url = vacancy_url,
             application_deadline = vacancy_content.deadline,
