@@ -1,8 +1,10 @@
 apturl==0.5.2
 asgiref==3.8.1
 bcrypt==3.2.0
+beautifulsoup4==4.12.3
 blinker==1.4
 Brlapi==0.8.3
+bs4==0.0.2
 certifi==2020.6.20
 chardet==4.0.0
 click==8.0.3
@@ -15,6 +17,7 @@ defer==1.0.6
 distro==1.7.0
 distro-info==1.1+ubuntu0.2
 Django==5.0.4
+django-crontab==0.7.1
 duplicity==0.8.21
 fasteners==0.14.1
 future==0.18.2
@@ -61,6 +64,7 @@ reportlab==3.6.8
 requests==2.25.1
 SecretStorage==3.3.1
 six==1.16.0
+soupsieve==2.5
 sqlparse==0.5.0
 systemd-python==234
 typing_extensions==4.11.0
