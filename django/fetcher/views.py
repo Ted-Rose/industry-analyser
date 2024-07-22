@@ -40,9 +40,9 @@ def fetcher(request):
             vacancy_contains_keywords = vacancy_contains_keywords,
         )
       
-      # Fetch all vacancies from database with creation date today
+      Fetch all vacancies from database with creation date today
 
-      # For user in users table assing vacancies that match user desired keywords
-      # Notify user about all vacancies if notification settings match the finding
+      For user in users table assing vacancies that match user desired keywords
+      Notify user about all vacancies if notification settings match the finding
 
   return render(request, 'fetcher/home.html')
