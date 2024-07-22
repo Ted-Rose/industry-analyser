@@ -1,0 +1,11 @@
+{
+  "keywords_list": [
+    "CEO",
+    "CFO",
+    "CTO"
+  ],
+  "portal_search_base_urls": [
+    "www.bigsite.com",
+    "www.longsite.com"
+  ]
+}

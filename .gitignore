@@ -1,0 +1,5 @@
+__pycache__
+/django/static/
+django/wsgi_for_pythonanywhere.py
+django/fetcher/config.json
+django/settings.json

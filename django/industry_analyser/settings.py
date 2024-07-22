@@ -11,10 +11,13 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
+import json
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+private_settings = json.load(open(os.path.join(BASE_DIR, 'settings.json'), 'r'))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -76,10 +79,16 @@ WSGI_APPLICATION = 'industry_analyser.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
+
+# DATABASES = private_settings.get('DATABASES')
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'industryanalyser',
+        'USER': 'postgresql',
+        'PASSWORD': 'password',
+        'HOST': '127.0.0.1',  # Set to the host of your PostgreSQL server
+        'PORT': '5432',       # Default PostgreSQL port
     }
 }
 

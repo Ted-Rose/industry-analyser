@@ -1,4 +1,0 @@
-__pycache__
-/django/static/
-db.sqlite3
-wsgi_for_pythonanywhere.py
