@@ -8,6 +8,7 @@ import os
 import json
 from django.conf import settings
 import time
+from datetime import datetime
 
 
 def fetcher(request):
@@ -58,7 +59,6 @@ def fetcher(request):
 
         vacancy_content = vacancy.content.decode("utf-8")
         print("vacancy_content:\n", vacancy_content)
-        return render(request, 'fetcher/home.html')
         # if vacancy_content: 
       #   # Store company in db
       #   company = Company.update_or_create(
@@ -71,17 +71,12 @@ def fetcher(request):
       #     if searchable_keywords in vacancy_content:
       #       vacancy_contains_keywords.add(searchable_keywords)
 
-      #   # Store vacancy in db
-      #   Vacancy.update_or_create(
-      #       uuid = uuid.uuid4(),
-      #       company = company,
-      #       title = vacancy_content.title,
-      #       url = vacancy_url,
-      #       application_deadline = vacancy_content.deadline,
-      #       state  ="fetched", # State might be "error" or "fetched"
-      #       vacancy_found_by_keywords = keywords,
-      #       vacancy_contains_keywords = vacancy_contains_keywords,
-      #   )
+        # Store vacancy in db
+        Vacancy.objects.create(
+            id = uuid.uuid4(),
+            url = vacancy_url,
+            first_seen=datetime.now(),        )
+        return render(request, 'fetcher/home.html')
       
       # Fetch all vacancies from database with creation date today
 
