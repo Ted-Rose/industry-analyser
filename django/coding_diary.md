@@ -1,3 +1,7 @@
+4. Issues with venv creation on pythonanywhere. This path worked:
+  1. `python3.10 -m venv venv`
+  2. `source venv/bin/activate`
+  3. `pip install -r requirements.txt`
 3. Local postgresql setup:
   - sudo systemctl start postgresql
   - sudo -i -u postgres

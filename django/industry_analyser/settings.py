@@ -42,7 +42,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'fetcher',
     'accounts',
-    'django_crontab',
+    # crontab app breaks pythonanywhere
+    # 'django_crontab',
 ]
 
 MIDDLEWARE = [
