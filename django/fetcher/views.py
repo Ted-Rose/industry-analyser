@@ -31,6 +31,7 @@ def fetcher(request):
       print("portal:", portal['base_url'])
       print("portal:", portal['search_href'])
       search_url = portal['base_url'] + portal['search_href']
+#TODO handle error responses with a retry for few times
       search_response = requests.get(search_url, params={
         portal['keywords_param']: keywords,
         portal['limit_param']:1000,
