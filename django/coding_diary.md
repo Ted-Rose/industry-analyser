@@ -1,3 +1,4 @@
+5. Won't deploy on pythonanywhere as its proxy is blocking requests to portals
 4. Issues with venv creation on pythonanywhere. This path worked:
   1. `python3.10 -m venv venv`
   2. `source venv/bin/activate`

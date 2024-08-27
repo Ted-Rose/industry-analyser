@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-h@m%a6xnm25_f5xqp_r6a+&!+(5zz#6c*8a=5ak9*0v+ik&k5b
 DEBUG = True
 
 ALLOWED_HOSTS = [
-  'industryanalyser.pythonanywhere.com'
+  '127.0.0.1'
 ]
 
 
@@ -44,8 +44,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'fetcher',
     'accounts',
-    # crontab app breaks pythonanywhere
-    # 'django_crontab',
 ]
 
 MIDDLEWARE = [
@@ -90,8 +88,8 @@ DATABASES = {
         'NAME': 'industryanalyser',
         'USER': 'postgresql',
         'PASSWORD': 'password',
-        'HOST': '127.0.0.1',  # Set to the host of your PostgreSQL server
-        'PORT': '5432',       # Default PostgreSQL port
+        'HOST': '127.0.0.1',
+        'PORT': '5432',
     }
 }
 
@@ -136,9 +134,3 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-# Call fetcher method every day between 12:01 and 12:30
-CRONJOBS = [
-    ('1-30 0 * * *', 'fetcher.views.fetcher'),
-]
-# Call `python manage.py crontab add` to add cron jobs

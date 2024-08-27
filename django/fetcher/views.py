@@ -31,35 +31,37 @@ def fetcher(request):
       print("portal:", portal['base_url'])
       print("portal:", portal['search_href'])
       search_url = portal['base_url'] + portal['search_href']
-#TODO handle error responses with a retry for few times
+      #TODO handle error responses with a retry for few times
       search_response = requests.get(search_url, params={
         portal['keywords_param']: keywords,
         portal['limit_param']:1000,
       })
-      vacancy_urls = BeautifulSoup(search_response.content, 'html.parser').find_all('a')
-      print("vacancy_urls: ", len(vacancy_urls), vacancy_urls[17])
+      links = BeautifulSoup(search_response.content, 'html.parser').find_all('a')
 
-      for vacancy_url in vacancy_urls:
-        href = vacancy_url.get('href')
+      for link in links:
+        href = link.get('href')
         if not href or not href.startswith(portal["vacancy_base_href"]):
-          # Now all hrefs are links to vacancies, some might be links to logos, etc
+          # Not all hrefs link to vacancies, some link to company logos, etc
           continue
         
-        vacancy_url = portal['base_url'] + href
-        if Vacancy.objects.filter(url=vacancy_url).exists():
+        title = link.text.strip()
+
+        print("title:", title)
+        url = portal['base_url'] + href
+        if Vacancy.objects.filter(url=url).exists():
             print("Skipping - href already exists in the Vacancies table.")
             continue
 
         try:
-            vacancy = requests.get(vacancy_url)
+            vacancy = requests.get(url)
         except IncompleteRead as e:
             print("IncompleteRead: ", e)
             print("Retrying in 5s...")
             time.sleep(5)
-            vacancy = requests.get(vacancy_url)
+            vacancy = requests.get(url)
 
         vacancy_content = vacancy.content.decode("utf-8")
-        print("vacancy_content:\n", vacancy_content)
+        # print("vacancy_content:\n", vacancy_content)
         # if vacancy_content: 
       #   # Store company in db
       #   company = Company.update_or_create(
@@ -75,7 +77,7 @@ def fetcher(request):
         # Store vacancy in db
         Vacancy.objects.create(
             id = uuid.uuid4(),
-            url = vacancy_url,
+            url = url,
             first_seen=datetime.now(),        )
         return render(request, 'fetcher/home.html')
       
