@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from http.client import IncompleteRead
 import requests
+import re
 from bs4 import BeautifulSoup
 from .models import Vacancy
 import uuid
@@ -36,54 +37,82 @@ def fetcher(request):
         portal['keywords_param']: keywords,
         portal['limit_param']:1000,
       })
+      print("search_response", search_response.content)
+      links = None
       links = BeautifulSoup(search_response.content, 'html.parser').find_all('a')
+      print("links", links)
 
-      for link in links:
-        href = link.get('href')
-        if not href or not href.startswith(portal["vacancy_base_href"]):
-          # Not all hrefs link to vacancies, some link to company logos, etc
-          continue
-        
-        title = link.text.strip()
+      parsed_content = None
 
-        print("title:", title)
-        url = portal['base_url'] + href
-        if Vacancy.objects.filter(url=url).exists():
-            print("Skipping - href already exists in the Vacancies table.")
+      if search_response and 'application/json' in search_response:
+        parsed_content = json.loads(search_response.content)
+
+      if parsed_content:
+        for vacancy in parsed_content.get('vacancies'):
+            position = vacancy.get('positionTitle')
+            print("position", position)
+            vacancy_portal_id = vacancy.get('id')
+            print("vacancy_portal_id", vacancy_portal_id)
+
+        # company_id =
+        # job_portal_id =
+        # salary_from =
+        # salary_to =
+        # url =
+        # first_seen =
+        # last_seen =
+        # days_open =
+        # vacancy_portal_id =
+        # application_deadline =
+        # state =
+      else: 
+        for link in links:
+          href = link.get('href')
+          if not href or not href.startswith(portal["vacancy_base_href"]):
+            # Not all hrefs link to vacancies, some link to company logos, etc
             continue
+          
+          url = portal['base_url'] + href
+          if Vacancy.objects.filter(url=url).exists():
+              print("Skipping - href already exists in the Vacancies table.")
+              continue
 
-        try:
-            vacancy = requests.get(url)
-        except IncompleteRead as e:
-            print("IncompleteRead: ", e)
-            print("Retrying in 5s...")
-            time.sleep(5)
-            vacancy = requests.get(url)
+          try:
+            headers = {
+              'Accept': 'application/json',
+            }
 
-        vacancy_content = vacancy.content.decode("utf-8")
-        # print("vacancy_content:\n", vacancy_content)
-        # if vacancy_content: 
-      #   # Store company in db
-      #   company = Company.update_or_create(
-      #       uuid = uuid.uuid4(),
-      #       name = vacancy_content.company,
-      #   )
+            # Send the GET request with the headers
+            vacancy = requests.get(url, headers=headers)
+          except IncompleteRead as e:
+              print("IncompleteRead: ", e)
+              print("Retrying in 5s...")
+              time.sleep(5)
+              vacancy = requests.get(url)
 
-      #   vacancy_contains_keywords = []
-      #   for searchable_keywords in keywords_list:
-      #     if searchable_keywords in vacancy_content:
-      #       vacancy_contains_keywords.add(searchable_keywords)
+          vacancy_content = vacancy.content.decode("utf-8")
+          title = link.text.strip()
+          print("title:", title)
 
-        # Store vacancy in db
-        Vacancy.objects.create(
-            id = uuid.uuid4(),
-            url = url,
-            first_seen=datetime.now(),        )
-        return render(request, 'fetcher/home.html')
-      
-      # Fetch all vacancies from database with creation date today
+          # print("vacancy_content:\n", vacancy_content)
 
-      # For user in users table assing vacancies that match user desired keywords
-      # Notify user about all vacancies if notification settings match the finding
+          # if vacancy_content: 
+        #   # Store company in db
+        #   company = Company.update_or_create(
+        #       uuid = uuid.uuid4(),
+        #       name = vacancy_content.company,
+        #   )
 
+        #   vacancy_contains_keywords = []
+        #   for searchable_keywords in keywords_list:
+        #     if searchable_keywords in vacancy_content:
+        #       vacancy_contains_keywords.add(searchable_keywords)
+
+          # Store vacancy in db
+          Vacancy.objects.create(
+              id = uuid.uuid4(),
+              url = url,
+              first_seen=datetime.now(),        )
+          return render(request, 'fetcher/home.html')
+        
   return render(request, 'fetcher/home.html')
