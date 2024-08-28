@@ -9,7 +9,7 @@ import os
 import json
 from django.conf import settings
 import time
-from datetime import datetime
+from django.utils import timezone
 
 
 def fetcher(request):
@@ -48,24 +48,32 @@ def fetcher(request):
             vacancy_portal_id = vacancy.get('id')
             print("vacancy_portal_id: ", vacancy_portal_id)
             url = portal['vacancy_base_url'] + portal['vacancy_base_href'] + str(vacancy_portal_id)
-            if Vacancy.objects.filter(url=url).exists():
-              print("Skipping - href already exists with 'www' in the Vacancies table.")
-              continue
 
-            Vacancy.objects.create(
-              id = uuid.uuid4(),
-              company_name = vacancy.get('employerName'),
-              job_portal_id = portal['id'],
-              title = vacancy.get('positionTitle'),
-              salary_from = vacancy.get('salaryFrom'),
-              salary_to = vacancy.get('salaryTo'),
-              url = url,
-              first_seen = vacancy.get('publishDate'),
-              last_seen = datetime.now(),
-              vacancy_portal_id = vacancy_portal_id,
-              application_deadline = vacancy.get('expirationDate'),
-              state = "CREATED",
-            )
+            existing_vacancy = Vacancy.objects.filter(url=url).first()
+
+            if existing_vacancy:
+                existing_vacancy.last_seen = timezone.now()
+                existing_vacancy.title = vacancy.get('positionTitle')
+                existing_vacancy.salary_from = vacancy.get('salaryFrom')
+                existing_vacancy.salary_to = vacancy.get('salaryTo')
+                existing_vacancy.application_deadline = vacancy.get('expirationDate')
+                existing_vacancy.state = "UPDATED",
+                existing_vacancy.save()
+            else:
+              Vacancy.objects.create(
+                id = uuid.uuid4(),
+                company_name = vacancy.get('employerName'),
+                job_portal_id = portal['id'],
+                title = vacancy.get('positionTitle'),
+                salary_from = vacancy.get('salaryFrom'),
+                salary_to = vacancy.get('salaryTo'),
+                url = url,
+                first_seen = vacancy.get('publishDate'),
+                last_seen = timezone.now(),
+                vacancy_portal_id = vacancy_portal_id,
+                application_deadline = vacancy.get('expirationDate'),
+                state = "CREATED",
+              )
       else: 
         for link in links:
           href = link.get('href')
@@ -97,7 +105,7 @@ def fetcher(request):
           Vacancy.objects.create(
               id = uuid.uuid4(),
               url = url,
-              first_seen=datetime.now(),        
+              first_seen=timezone.now(),        
           )
           return render(request, 'fetcher/home.html')
         
