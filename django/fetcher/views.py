@@ -3,13 +3,26 @@ from http.client import IncompleteRead
 import requests
 # import re
 from bs4 import BeautifulSoup
-from .models import Keyword, Vacancy
+from .models import Keyword, Vacancy, VacancyContainsKeyword
 import uuid
 import os
 import json
 from django.conf import settings
 import time
+import random
 from django.utils import timezone
+
+
+def save_or_update_keywords(vacancy_id, content):
+    vacancy = Vacancy.objects.filter(id=vacancy_id).first()
+    keywords = Keyword.objects.all()
+
+    for keyword in keywords:
+        if keyword.name.lower() in content.lower():
+            VacancyContainsKeyword.objects.get_or_create(
+                vacancy=vacancy,
+                keyword=keyword
+            )
 
 
 def fetcher(request):
@@ -23,6 +36,8 @@ def fetcher(request):
   print("portals", portals)
   
   for keywords in keywords_list:
+    # Don't overwhelm portals with a request burst
+    time.sleep(random.uniform(5, 10))
     print("\n\n\nSearching for keywords: ", keywords)
     for _, portal in portals.items():
       print("portal:", portal)
@@ -59,9 +74,11 @@ def fetcher(request):
                 existing_vacancy.application_deadline = vacancy.get('expirationDate')
                 existing_vacancy.state = "UPDATED",
                 existing_vacancy.save()
+                vacancy_id = existing_vacancy.id
             else:
+              vacancy_id = uuid.uuid4()
               Vacancy.objects.create(
-                id = uuid.uuid4(),
+                id = vacancy_id,
                 company_name = vacancy.get('employerName'),
                 job_portal_id = portal['id'],
                 title = vacancy.get('positionTitle'),
@@ -74,6 +91,9 @@ def fetcher(request):
                 application_deadline = vacancy.get('expirationDate'),
                 state = "CREATED",
               )
+            vacancy_content = vacancy.get('positionContent', '')
+            print("vacancy_content: ", vacancy_content)
+            save_or_update_keywords(vacancy_id, vacancy_content)
       else: 
         for link in links:
           href = link.get('href')
