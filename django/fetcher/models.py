@@ -5,7 +5,7 @@ import uuid
 
 class Vacancy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    company_id = models.IntegerField(null=True)
+    company_name = models.CharField(null=True, max_length=255)
     job_portal_id = models.IntegerField(null=True)
     title = models.CharField(null=True, max_length=255)
     salary_from = models.FloatField(null=True, )
