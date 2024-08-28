@@ -27,44 +27,52 @@ def fetcher(request):
   # portal_search_base_urls = config['portal_search_base_urls']
   
   for keywords in keywords_list:
+    print("\n\n\nSearching for keywords: ", keywords)
     for _, portal in portals.items():
       print("portal:", portal)
-      print("portal:", portal['base_url'])
-      print("portal:", portal['search_href'])
+      # print("portal:", portal['base_url'])
+      # print("portal:", portal['search_href'])
+      job_portal_id = portal['id']
       search_url = portal['base_url'] + portal['search_href']
       #TODO handle error responses with a retry for few times
       search_response = requests.get(search_url, params={
         portal['keywords_param']: keywords,
         portal['limit_param']:1000,
       })
-      print("search_response", search_response.content)
       links = None
       links = BeautifulSoup(search_response.content, 'html.parser').find_all('a')
-      print("links", links)
+      # print("links", links)
 
+      # print("search_response", search_response.content)
       parsed_content = None
 
-      if search_response and 'application/json' in search_response:
-        parsed_content = json.loads(search_response.content)
+      try:
+          parsed_content = json.loads(search_response.content)
+      except json.JSONDecodeError:
+          parsed_content = None
+          print("The content is not valid JSON.")
 
       if parsed_content:
         for vacancy in parsed_content.get('vacancies'):
             position = vacancy.get('positionTitle')
-            print("position", position)
+            print("\n\nposition", position)
             vacancy_portal_id = vacancy.get('id')
             print("vacancy_portal_id", vacancy_portal_id)
-
-        # company_id =
-        # job_portal_id =
-        # salary_from =
-        # salary_to =
-        # url =
-        # first_seen =
-        # last_seen =
-        # days_open =
-        # vacancy_portal_id =
-        # application_deadline =
-        # state =
+            url = portal['vacancy_base_url'] + portal['vacancy_base_href'] + str(vacancy_portal_id)
+            print("url", url)
+            company_id = vacancy.get('employerName')
+            print("company_id", company_id)
+            print("job_portal_id", job_portal_id)
+            salary_from = vacancy.get('salaryFrom')
+            print("salary_from", salary_from)
+            salary_to = vacancy.get('salaryTo')
+            print("salary_to", salary_to)
+            first_seen = vacancy.get('publishDate')
+            print("first_seen", first_seen)
+            last_seen = datetime.now()
+            print("last_seen", last_seen)
+            application_deadline = vacancy.get('expirationDate')
+            print("application_deadline", application_deadline)
       else: 
         for link in links:
           href = link.get('href')
@@ -92,7 +100,7 @@ def fetcher(request):
 
           vacancy_content = vacancy.content.decode("utf-8")
           title = link.text.strip()
-          print("title:", title)
+          # print("title:", title)
 
           # print("vacancy_content:\n", vacancy_content)
 
@@ -112,7 +120,8 @@ def fetcher(request):
           Vacancy.objects.create(
               id = uuid.uuid4(),
               url = url,
-              first_seen=datetime.now(),        )
+              first_seen=datetime.now(),        
+          )
           return render(request, 'fetcher/home.html')
         
   return render(request, 'fetcher/home.html')
