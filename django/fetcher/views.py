@@ -1,9 +1,9 @@
 from django.shortcuts import render
 from http.client import IncompleteRead
 import requests
-import re
+# import re
 from bs4 import BeautifulSoup
-from .models import Vacancy
+from .models import Keyword, Vacancy
 import uuid
 import os
 import json
@@ -17,8 +17,8 @@ def fetcher(request):
 
   with open(config_path, 'r') as file:
       config = json.load(file)
-
-  keywords_list = config['keywords_list']
+  keywords_queryset = Keyword.objects.all()
+  keywords_list = [keyword.name for keyword in keywords_queryset]
   portals = config['portals']
   print("portals", portals)
   

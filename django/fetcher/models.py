@@ -20,3 +20,14 @@ class Vacancy(models.Model):
 
     def __str__(self):
         return self.title
+
+class Keyword(models.Model):
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255, unique=True)
+
+class VacancyContainsKeyword(models.Model):
+    id = models.AutoField(primary_key=True)
+    vacancy = models.ForeignKey(Vacancy, on_delete=models.CASCADE)
+    keyword = models.ForeignKey(Keyword, on_delete=models.CASCADE)
+    class Meta:
+      db_table = 'fetcher_vacancy_contains_keyword'
