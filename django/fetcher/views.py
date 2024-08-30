@@ -43,11 +43,18 @@ def fetcher(request):
     for _, portal in portals.items():
       print("Searching in portal: ", portal)
       search_url = portal['base_url'] + portal['search_href']
-      #TODO handle error responses with a retry for few times
-      search_response = requests.get(search_url, params={
-        portal['keywords_param']: keywords,
-        portal['limit_param']:1000,
-      })
+      try:
+        search_response = requests.get(search_url, params={
+          portal['keywords_param']: keywords,
+          portal['limit_param']:1000,
+        })
+      except requests.exceptions.RequestException as e:
+        print("Error in fetching data: ", e, "\n Retrying...")
+        time.sleep(random.uniform(5, 10))
+        search_response = requests.get(search_url, params={
+          portal['keywords_param']: keywords,
+          portal['limit_param']:1000,
+        })
       links = None
       links = BeautifulSoup(search_response.content, 'html.parser').find_all('a')
 
@@ -112,17 +119,11 @@ def fetcher(request):
               continue
 
           try:
-            headers = {
-              'Accept': 'application/json',
-            }
-
-            # Send the GET request with the headers
-            vacancy = requests.get(url, headers=headers)
-          except IncompleteRead as e:
-              print("IncompleteRead: ", e)
-              print("Retrying in 5s...")
-              time.sleep(5)
-              vacancy = requests.get(url)
+            vacancy = requests.get(url)
+          except requests.exceptions.RequestException as e:
+            print("Error in fetching data: ", e, "\n Retrying...")
+            time.sleep(random.uniform(5, 10))
+            vacancy = requests.get(url)
 
           vacancy_content = vacancy.content.decode("utf-8")
           title = link.text.strip()
