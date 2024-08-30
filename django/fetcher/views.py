@@ -14,15 +14,17 @@ from django.utils import timezone
 
 
 def save_or_update_keywords(vacancy_id, content):
-    vacancy = Vacancy.objects.filter(id=vacancy_id).first()
-    keywords = Keyword.objects.all()
+  if not content:
+    return
+  vacancy = Vacancy.objects.filter(id=vacancy_id).first()
+  keywords = Keyword.objects.all()
 
-    for keyword in keywords:
-        if keyword.name.lower() in content.lower():
-            VacancyContainsKeyword.objects.get_or_create(
-                vacancy=vacancy,
-                keyword=keyword
-            )
+  for keyword in keywords:
+      if keyword.name.lower() in content.lower():
+          VacancyContainsKeyword.objects.get_or_create(
+              vacancy=vacancy,
+              keyword=keyword
+          )
 
 
 def fetcher(request):
@@ -33,14 +35,13 @@ def fetcher(request):
   keywords_queryset = Keyword.objects.all()
   keywords_list = [keyword.name for keyword in keywords_queryset]
   portals = config['portals']
-  print("portals", portals)
   
   for keywords in keywords_list:
     # Don't overwhelm portals with a request burst
     time.sleep(random.uniform(5, 10))
     print("\n\n\nSearching for keywords: ", keywords)
     for _, portal in portals.items():
-      print("portal:", portal)
+      print("Searching in portal: ", portal)
       search_url = portal['base_url'] + portal['search_href']
       #TODO handle error responses with a retry for few times
       search_response = requests.get(search_url, params={
@@ -91,7 +92,11 @@ def fetcher(request):
                 application_deadline = vacancy.get('expirationDate'),
                 state = "CREATED",
               )
-            vacancy_content = vacancy.get('positionContent', '')
+            vacancy_content = vacancy.get('positionContent')
+            if not vacancy_content:
+               vacancy_content = str(vacancy.get('keywords'))
+            if not vacancy_content:
+               vacancy_content = keywords
             print("vacancy_content: ", vacancy_content)
             save_or_update_keywords(vacancy_id, vacancy_content)
       else: 
