@@ -135,13 +135,15 @@ def fetcher(request):
 
 
 def find_vacancies(request):
-    query = "python"
+  keywords = Keyword.objects.all()
 
-    keyword = Keyword.objects.filter(name__iexact=query).first()
+  selected_keywords = request.GET.getlist('keywords')
+  
+  if selected_keywords:
+      vacancies = Vacancy.objects.filter(
+          vacancycontainskeyword__keyword__name__in=selected_keywords
+      ).distinct()
+  else:
+      vacancies = "Please select a keyword!"
 
-    if not keyword:
-        query_result = ["No vacancies found for these keywords: " + query]
-    else:
-        query_result = Vacancy.objects.filter(vacancycontainskeyword__keyword=keyword).distinct()
-
-    return render(request, 'fetcher/vacancies.html', {'vacancies': query_result})
+  return render(request, 'fetcher/vacancies.html', {'vacancies': vacancies, 'keywords': keywords})
