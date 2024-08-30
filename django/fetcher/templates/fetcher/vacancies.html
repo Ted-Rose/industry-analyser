@@ -1,19 +1,26 @@
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vacancies</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
 </head>
 <body>
-    <div class="container text-center">
-        <!-- Form for Keyword Search -->
+    <div class="container">
+        <h1 class="text-center">Search Vacancies</h1>
         <form method="GET" action="{% url 'find_vacancies' %}">
             <div class="form-group">
-                <label for="keywords">Select Keywords:</label>
-                <select id="keywords" name="keywords" class="form-control" multiple>
+                <label for="include_keywords">Include Keywords:</label>
+                <select id="include_keywords" name="include_keywords" class="form-control" multiple>
+                    {% for keyword in keywords %}
+                        <option value="{{ keyword.name }}">{{ keyword.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="exclude_keywords">Exclude Keywords:</label>
+                <select id="exclude_keywords" name="exclude_keywords" class="form-control" multiple>
                     {% for keyword in keywords %}
                         <option value="{{ keyword.name }}">{{ keyword.name }}</option>
                     {% endfor %}
@@ -22,8 +29,9 @@
             <button type="submit" class="btn btn-primary">Search</button>
         </form>
 
-        <!-- Table of Vacancies -->
-        <table class="table mt-4">
+        <!-- Display the results -->
+        <h2 class="mt-5">Vacancies</h2>
+        <table class="table">
             <thead>
                 <tr>
                     <th>Title</th>
@@ -38,16 +46,20 @@
             </thead>
             <tbody>
                 {% for vacancy in vacancies %}
-                <tr>
-                    <td>{{ vacancy.title }}</td>
-                    <td>{{ vacancy.company_name }}</td>
-                    <td>{{ vacancy.salary_from }}</td>
-                    <td>{{ vacancy.salary_to }}</td>
-                    <td><a href="https://{{ vacancy.url }}" target="_blank">Link</a></td>
-                    <td>{{ vacancy.first_seen|date:"Y.m.d" }}</td>
-                    <td>{{ vacancy.last_seen|date:"Y.m.d" }}</td>
-                    <td>{{ vacancy.application_deadline|date:"Y.m.d" }}</td>
-                </tr>
+                    <tr>
+                        <td>{{ vacancy.title }}</td>
+                        <td>{{ vacancy.company_name }}</td>
+                        <td>{{ vacancy.salary_from }}</td>
+                        <td>{{ vacancy.salary_to }}</td>
+                        <td><a href="{{ vacancy.url }}" target="_blank">Link</a></td>
+                        <td>{{ vacancy.first_seen|date:"Y.m.d" }}</td>
+                        <td>{{ vacancy.last_seen|date:"Y.m.d" }}</td>
+                        <td>{{ vacancy.application_deadline|date:"Y.m.d" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8">No vacancies found.</td>
+                    </tr>
                 {% endfor %}
             </tbody>
         </table>

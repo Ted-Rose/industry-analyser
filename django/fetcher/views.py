@@ -135,15 +135,27 @@ def fetcher(request):
 
 
 def find_vacancies(request):
-  keywords = Keyword.objects.all()
+    keywords = Keyword.objects.all()
 
-  selected_keywords = request.GET.getlist('keywords')
-  
-  if selected_keywords:
-      vacancies = Vacancy.objects.filter(
-          vacancycontainskeyword__keyword__name__in=selected_keywords
-      ).distinct()
-  else:
+    include_keywords = request.GET.getlist('include_keywords')
+    exclude_keywords = request.GET.getlist('exclude_keywords')
+    #TODO Don't fetch all vacancies
+    vacancies = Vacancy.objects.all()
+
+    if include_keywords:
+        vacancies = vacancies.filter(
+            vacancycontainskeyword__keyword__name__in=include_keywords
+        ).distinct()
+
+    if exclude_keywords:
+        vacancies = vacancies.exclude(
+            vacancycontainskeyword__keyword__name__in=exclude_keywords
+        ).distinct()
+    
+    if not vacancies:
       vacancies = "Please select a keyword!"
 
-  return render(request, 'fetcher/vacancies.html', {'vacancies': vacancies, 'keywords': keywords})
+    return render(request, 'fetcher/vacancies.html', {
+        'vacancies': vacancies,
+        'keywords': keywords
+    })
