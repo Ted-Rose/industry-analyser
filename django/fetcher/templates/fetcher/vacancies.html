@@ -51,7 +51,7 @@
                         <td>{{ vacancy.company_name }}</td>
                         <td>{{ vacancy.salary_from }}</td>
                         <td>{{ vacancy.salary_to }}</td>
-                        <td><a href="{{ vacancy.url }}" target="_blank">Link</a></td>
+                        <td><a href="https://{{ vacancy.url }}" target="_blank">Link</a></td>
                         <td>{{ vacancy.first_seen|date:"Y.m.d" }}</td>
                         <td>{{ vacancy.last_seen|date:"Y.m.d" }}</td>
                         <td>{{ vacancy.application_deadline|date:"Y.m.d" }}</td>

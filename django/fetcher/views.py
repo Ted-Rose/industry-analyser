@@ -71,12 +71,13 @@ def fetcher(request):
             vacancy_portal_id = vacancy.get('id')
             print("vacancy_portal_id: ", vacancy_portal_id)
             url = portal['vacancy_base_url'] + portal['vacancy_base_href'] + str(vacancy_portal_id)
+            title = vacancy.get('positionTitle')
 
             existing_vacancy = Vacancy.objects.filter(url=url).first()
 
             if existing_vacancy:
                 existing_vacancy.last_seen = timezone.now()
-                existing_vacancy.title = vacancy.get('positionTitle')
+                existing_vacancy.title = title
                 existing_vacancy.salary_from = vacancy.get('salaryFrom')
                 existing_vacancy.salary_to = vacancy.get('salaryTo')
                 existing_vacancy.application_deadline = vacancy.get('expirationDate')
@@ -89,7 +90,7 @@ def fetcher(request):
                 id = vacancy_id,
                 company_name = vacancy.get('employerName'),
                 job_portal_id = portal['id'],
-                title = vacancy.get('positionTitle'),
+                title = title,
                 salary_from = vacancy.get('salaryFrom'),
                 salary_to = vacancy.get('salaryTo'),
                 url = url,
@@ -99,7 +100,18 @@ def fetcher(request):
                 application_deadline = vacancy.get('expirationDate'),
                 state = "CREATED",
               )
-            vacancy_content = vacancy.get('positionContent') + str(vacancy.get('keywords'))
+            vacancy_content = vacancy.get('positionContent')
+            # Get keywords and ensure it's a list or an empty list if None
+            keywords = vacancy.get('keywords', [])
+            if not isinstance(keywords, list):
+                keywords = []
+
+            # Convert the list of keywords to a single string, separated by spaces
+            keywords_str = ' '.join(keywords) if keywords else ''
+            if vacancy_content:
+              vacancy_content = (title + vacancy_content + keywords_str).lower()
+            else:
+               vacancy_content = (title + keywords_str).lower()
             print("vacancy_content: ", vacancy_content)
             save_or_update_keywords(vacancy_id, vacancy_content)
       else: 
@@ -121,7 +133,7 @@ def fetcher(request):
             time.sleep(random.uniform(5, 10))
             vacancy = requests.get(url)
 
-          vacancy_content = vacancy.content.decode("utf-8")
+          vacancy_content = vacancy.content.decode("utf-8").lower()
           title = link.text.strip()
 
           Vacancy.objects.create(

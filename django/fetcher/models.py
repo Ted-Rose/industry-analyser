@@ -24,6 +24,14 @@ class Vacancy(models.Model):
 class Keyword(models.Model):
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, unique=True)
+    only_filter = models.BooleanField(default=False)
+
+    def save(self, *args, **kwargs):
+        self.name = self.name.lower()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
 
 class VacancyContainsKeyword(models.Model):
     id = models.AutoField(primary_key=True)
