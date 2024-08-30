@@ -99,11 +99,7 @@ def fetcher(request):
                 application_deadline = vacancy.get('expirationDate'),
                 state = "CREATED",
               )
-            vacancy_content = vacancy.get('positionContent')
-            if not vacancy_content:
-               vacancy_content = str(vacancy.get('keywords'))
-            if not vacancy_content:
-               vacancy_content = keywords
+            vacancy_content = vacancy.get('positionContent') + str(vacancy.get('keywords'))
             print("vacancy_content: ", vacancy_content)
             save_or_update_keywords(vacancy_id, vacancy_content)
       else: 
@@ -136,3 +132,16 @@ def fetcher(request):
           return render(request, 'fetcher/home.html')
         
   return render(request, 'fetcher/home.html')
+
+
+def find_vacancies(request):
+    query = "python"
+
+    keyword = Keyword.objects.filter(name__iexact=query).first()
+
+    if not keyword:
+        query_result = ["No vacancies found for these keywords: " + query]
+    else:
+        query_result = Vacancy.objects.filter(vacancycontainskeyword__keyword=keyword).distinct()
+
+    return render(request, 'fetcher/vacancies.html', {'vacancies': query_result})

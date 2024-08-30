@@ -22,5 +22,6 @@ from accounts import views as accounts
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('fetcher/', fetcher.fetcher, name='fetcher'),
+    path('vacancies/', fetcher.find_vacancies, name='vacancies'),
     path('accounts/', accounts.accounts, name='accounts'),
 ]
