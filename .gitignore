@@ -3,3 +3,4 @@ __pycache__
 django/wsgi_for_pythonanywhere.py
 django/fetcher/config.json
 django/settings.json
+django/ca.pem
