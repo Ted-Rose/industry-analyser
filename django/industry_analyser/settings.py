@@ -26,10 +26,11 @@ private_settings = json.load(open(os.path.join(BASE_DIR, 'settings.json'), 'r'))
 SECRET_KEY = 'django-insecure-h@m%a6xnm25_f5xqp_r6a+&!+(5zz#6c*8a=5ak9*0v+ik&k5b'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = private_settings.get('DEBUG')
 
 ALLOWED_HOSTS = [
-  '127.0.0.1'
+  '127.0.0.1',
+  'industryanalyser.pythonanywhere.com'
 ]
 
 
