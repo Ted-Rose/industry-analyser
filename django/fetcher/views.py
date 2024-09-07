@@ -1,5 +1,5 @@
 import logging
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from http.client import IncompleteRead
 import requests
 from bs4 import BeautifulSoup
@@ -11,19 +11,19 @@ from django.conf import settings
 import time
 import random
 from django.utils import timezone
+from .forms import KeywordForm
 
 
 logger = logging.getLogger(__name__)
 today = timezone.now().date()
 
 def save_or_update_keywords(vacancy_id, content):
-  if not content:
-    return
-  vacancy = Vacancy.objects.filter(id=vacancy_id).first()
-  keywords = Keyword.objects.all()
+    if not content:
+        return
+    vacancy = Vacancy.objects.filter(id=vacancy_id).first()
 
-  for keyword in keywords:
-      if keyword.name.lower() in content.lower():
+    for keyword in keywords:
+        if keyword.name.lower() in content.lower():
             existing_entries = VacancyContainsKeyword.objects.filter(
                 vacancy=vacancy,
                 keyword=keyword
@@ -43,7 +43,7 @@ def fetcher(request):
 
     with open(config_path, 'r') as file:
         config = json.load(file)
-    keywords_queryset = Keyword.objects.all()
+    keywords = Keyword.objects.filter(only_filter=False)
     keywords_list = [keyword.name for keyword in keywords_queryset]
     portals = config['portals']
 
@@ -201,3 +201,22 @@ def find_vacancies(request):
         'vacancies': vacancies,
         'keywords': keywords
     })
+
+def add_keyword(request):
+    hardcoded_password = settings.HARD_CODED_PASSWORD
+    if request.method == 'POST':
+        name = request.POST.get('name')
+        only_filter = request.POST.get('only_filter') == 'on'  # Checkbox value is 'on' if checked
+        password = request.POST.get('password')
+
+        if password != hardcoded_password:
+            return render(request, 'add_keyword.html', {'error': 'Invalid password.'})
+
+    if request.method == 'POST':
+        form = KeywordForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect('find_vacancies')
+    else:
+        form = KeywordForm()
+    return render(request, 'fetcher/add_keyword.html', {'form': form})

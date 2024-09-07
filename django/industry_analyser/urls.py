@@ -24,4 +24,5 @@ urlpatterns = [
     path('fetcher/', fetcher.fetcher, name='fetcher'),
     path('vacancies/', fetcher.find_vacancies, name='find_vacancies'),
     path('accounts/', accounts.accounts, name='accounts'),
+    path('add_keyword/', fetcher.add_keyword, name='add_keyword'),
 ]
