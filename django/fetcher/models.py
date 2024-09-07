@@ -25,6 +25,7 @@ class Keyword(models.Model):
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, unique=True)
     only_filter = models.BooleanField(default=False)
+    added = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
         self.name = self.name.lower()
