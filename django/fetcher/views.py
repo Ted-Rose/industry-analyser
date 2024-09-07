@@ -14,7 +14,7 @@ from django.utils import timezone
 
 
 logger = logging.getLogger(__name__)
-
+today = timezone.now().date()
 
 def save_or_update_keywords(vacancy_id, content):
   if not content:
@@ -38,6 +38,7 @@ def save_or_update_keywords(vacancy_id, content):
 
 
 def fetcher(request):
+    logger.info(f"Fetching initiated on {today}")
     config_path = os.path.join(settings.BASE_DIR, 'fetcher/config.json')
 
     with open(config_path, 'r') as file:
@@ -47,6 +48,19 @@ def fetcher(request):
     portals = config['portals']
 
     for keywords in keywords_list:
+
+        keyword_obj = Keyword.objects.filter(name=keywords).first()
+        if not keyword_obj:
+            continue
+
+        newest_entry = VacancyContainsKeyword.objects.filter(
+            keyword=keyword_obj
+        ).order_by('-vacancy__last_seen').first()
+
+        if newest_entry and newest_entry.vacancy.last_seen.date() <= today:
+            logger.info(f"Keyword {keywords} already fetched today. Skipping.")
+            continue
+
         # Don't overwhelm portals with a request burst
         time.sleep(random.uniform(5, 10))
         logger.info(f"Searching for keywords: {keywords}")
@@ -54,12 +68,10 @@ def fetcher(request):
             logger.info(f"Searching in portal: {portal['vacancy_base_url']}")
             search_url = portal['base_url'] + portal['search_href']
             try:
-                print("in try call")
                 search_response = requests.get(search_url, params={
                     portal['keywords_param']: keywords,
                     portal['limit_param']:1000,
                 })
-                print("search_response: {search_response}")
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error in fetching data: {e}. Retrying...")
                 time.sleep(random.uniform(5, 10))

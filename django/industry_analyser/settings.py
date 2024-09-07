@@ -41,6 +41,7 @@ LOGGING = {
             'level': 'INFO',
             'class': 'logging.FileHandler',
             'filename': os.path.join(BASE_DIR, 'django.log'),
+            'encoding': 'utf-8',
         },
         'console': {
             'level': 'INFO',
