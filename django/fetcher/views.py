@@ -189,9 +189,11 @@ def fetcher(request):
 
 def find_vacancies(request):
     keywords = Keyword.objects.all()
+    industries = Industry.objects.all()
 
     include_keywords = request.GET.getlist('include_keywords')
     exclude_keywords = request.GET.getlist('exclude_keywords')
+    include_industries = request.GET.getlist('include_industries')
     #TODO Don't fetch all vacancies
     vacancies = Vacancy.objects.all()
 
@@ -210,7 +212,8 @@ def find_vacancies(request):
 
     return render(request, 'fetcher/vacancies.html', {
         'vacancies': vacancies,
-        'keywords': keywords
+        'keywords': keywords,
+        'industries': industries,
     })
 
 def add_keyword(request):
