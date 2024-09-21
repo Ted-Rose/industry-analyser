@@ -3,7 +3,7 @@ from django.shortcuts import render, redirect
 from http.client import IncompleteRead
 import requests
 from bs4 import BeautifulSoup
-from .models import Keyword, Vacancy, VacancyContainsKeyword
+from .models import Keyword, Vacancy, VacancyContainsKeyword, Industry
 import uuid
 import os
 import json
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 today = timezone.now().date()
 
 def save_or_update_keywords(vacancy_id, content, keywords_queryset):
+    # TODO Pass vacancy_obj to save_or_update_keywords
     if not content:
         return
     vacancy = Vacancy.objects.filter(id=vacancy_id).first()
@@ -109,26 +110,34 @@ def fetcher(request):
                         existing_vacancy.save()
                         logger.info(f"Updated title and url: {title, url}")
                         vacancy_id = existing_vacancy.id
+                        vacancy_obj = existing_vacancy
                     else:
                         vacancy_id = uuid.uuid4()
-                        Vacancy.objects.create(
-                        id = vacancy_id,
-                        company_name = vacancy.get('employerName'),
-                        job_portal_id = portal['id'],
-                        title = title,
-                        industry = vacancy.get('categories'),
-                        salary_from = vacancy.get('salaryFrom'),
-                        salary_to = vacancy.get('salaryTo'),
-                        url = url,
-                        first_seen = vacancy.get('publishDate'),
-                        last_seen = timezone.now(),
-                        vacancy_portal_id = vacancy_portal_id,
-                        application_deadline = vacancy.get('expirationDate'),
-                        state = "CREATED",
+                        vacancy_obj = Vacancy.objects.create(
+                            id = vacancy_id,
+                            company_name = vacancy.get('employerName'),
+                            job_portal_id = portal['id'],
+                            title = title,
+                            salary_from = vacancy.get('salaryFrom'),
+                            salary_to = vacancy.get('salaryTo'),
+                            url = url,
+                            first_seen = vacancy.get('publishDate'),
+                            last_seen = timezone.now(),
+                            vacancy_portal_id = vacancy_portal_id,
+                            application_deadline = vacancy.get('expirationDate'),
+                            state = "CREATED",
                         )
                         logger.info(f"Saved title and url: {title, url}")
-                    
-                    
+
+                    categories = vacancy.get('categories')
+                    if categories is None or not isinstance(categories, list):
+                        categories = []
+                    for category in categories:
+                        category_str = str(category)
+                        if category_str in portal['industry_mapping']:
+                            industry_name = portal['industry_mapping'][category_str]
+                            vacancy_obj.industries.add(Industry.objects.get(name=industry_name))
+
                     vacancy_content = vacancy.get('positionContent')
                     # Get keywords and ensure it's a list or an empty list if None
                     keywords = vacancy.get('keywords', [])
@@ -141,7 +150,6 @@ def fetcher(request):
                         vacancy_content = (title + vacancy_content + keywords_str).lower()
                     else:
                         vacancy_content = (title + keywords_str).lower()
-                    # print("vacancy_content: ", vacancy_content)
                     save_or_update_keywords(vacancy_id, vacancy_content, keywords_queryset)
             else:
                 for link in links:

@@ -30,6 +30,10 @@ class VacancyIndustries(models.Model):
     vacancy = models.ForeignKey('Vacancy', on_delete=models.CASCADE)
     industry = models.ForeignKey('Industry', on_delete=models.CASCADE)
 
+    class Meta:
+        unique_together = (('vacancy', 'industry'),)
+        db_table = 'fetcher_vacancy_industries'
+
 class Keyword(models.Model):
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, unique=True)
