@@ -17,12 +17,12 @@ from .forms import KeywordForm
 logger = logging.getLogger(__name__)
 today = timezone.now().date()
 
-def save_or_update_keywords(vacancy_id, content):
+def save_or_update_keywords(vacancy_id, content, keywords_queryset):
     if not content:
         return
     vacancy = Vacancy.objects.filter(id=vacancy_id).first()
 
-    for keyword in keywords:
+    for keyword in keywords_queryset:
         if keyword.name.lower() in content.lower():
             existing_entries = VacancyContainsKeyword.objects.filter(
                 vacancy=vacancy,
@@ -43,7 +43,7 @@ def fetcher(request):
 
     with open(config_path, 'r') as file:
         config = json.load(file)
-    keywords = Keyword.objects.filter(only_filter=False)
+    keywords_queryset = Keyword.objects.filter(only_filter=False)
     keywords_list = [keyword.name for keyword in keywords_queryset]
     portals = config['portals']
 
@@ -53,13 +53,13 @@ def fetcher(request):
         if not keyword_obj:
             continue
 
-        newest_entry = VacancyContainsKeyword.objects.filter(
-            keyword=keyword_obj
-        ).order_by('-vacancy__last_seen').first()
+        # newest_entry = VacancyContainsKeyword.objects.filter(
+        #     keyword=keyword_obj
+        # ).order_by('-vacancy__last_seen').first()
 
-        if newest_entry and newest_entry.vacancy.last_seen.date() <= today:
-            logger.info(f"Keyword {keywords} already fetched today. Skipping.")
-            continue
+        # if newest_entry.vacancy.last_seen.date() <= today:
+        #     logger.info(f"Keyword {keywords} already fetched today. Skipping.")
+        #     continue
 
         # Don't overwhelm portals with a request burst
         time.sleep(random.uniform(5, 10))
@@ -116,6 +116,7 @@ def fetcher(request):
                         company_name = vacancy.get('employerName'),
                         job_portal_id = portal['id'],
                         title = title,
+                        industry = vacancy.get('categories'),
                         salary_from = vacancy.get('salaryFrom'),
                         salary_to = vacancy.get('salaryTo'),
                         url = url,
@@ -126,6 +127,8 @@ def fetcher(request):
                         state = "CREATED",
                         )
                         logger.info(f"Saved title and url: {title, url}")
+                    
+                    
                     vacancy_content = vacancy.get('positionContent')
                     # Get keywords and ensure it's a list or an empty list if None
                     keywords = vacancy.get('keywords', [])
@@ -139,7 +142,7 @@ def fetcher(request):
                     else:
                         vacancy_content = (title + keywords_str).lower()
                     # print("vacancy_content: ", vacancy_content)
-                    save_or_update_keywords(vacancy_id, vacancy_content)
+                    save_or_update_keywords(vacancy_id, vacancy_content, keywords_queryset)
             else:
                 for link in links:
                     href = link.get('href')

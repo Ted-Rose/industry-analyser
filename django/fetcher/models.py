@@ -8,6 +8,7 @@ class Vacancy(models.Model):
     company_name = models.CharField(null=True, max_length=255)
     job_portal_id = models.IntegerField(null=True)
     title = models.CharField(null=True, max_length=255)
+    industries = models.ManyToManyField('Industry', through='VacancyIndustries')
     salary_from = models.FloatField(null=True, )
     salary_to = models.FloatField(null=True)
     url = models.URLField(max_length=200)
@@ -20,6 +21,14 @@ class Vacancy(models.Model):
 
     def __str__(self):
         return self.title
+
+class Industry(models.Model):
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255, unique=True)
+
+class VacancyIndustries(models.Model):
+    vacancy = models.ForeignKey('Vacancy', on_delete=models.CASCADE)
+    industry = models.ForeignKey('Industry', on_delete=models.CASCADE)
 
 class Keyword(models.Model):
     id = models.AutoField(primary_key=True)

@@ -31,6 +31,7 @@ HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 
 ALLOWED_HOSTS = [
   '127.0.0.1',
+  private_settings.get('local_ip'),
   'industryanalyser.pythonanywhere.com'
 ]
 
