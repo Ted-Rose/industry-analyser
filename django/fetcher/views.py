@@ -1,5 +1,6 @@
 import logging
 from django.shortcuts import render, redirect
+from django.core.paginator import Paginator
 from http.client import IncompleteRead
 import requests
 from bs4 import BeautifulSoup
@@ -192,23 +193,32 @@ def find_vacancies(request):
     industries = Industry.objects.all()
 
     include_keywords = request.GET.getlist('include_keywords')
+    if include_keywords == []:
+        include_keywords = None
     exclude_keywords = request.GET.getlist('exclude_keywords')
+    if exclude_keywords == []:
+        exclude_keywords == None
     include_industries = request.GET.getlist('include_industries')
-    #TODO Don't fetch all vacancies
-    vacancies = Vacancy.objects.all()
 
-    if include_keywords:
-        vacancies = vacancies.filter(
-            vacancycontainskeyword__keyword__name__in=include_keywords
-        ).distinct()
+    vacancies = Vacancy.objects.filter(
+        **{
+            'industries__name__in': include_industries
+        } if include_industries else {},
+        **{
+            'vacancycontainskeyword__keyword__name__in': include_keywords
+        } if include_keywords else {}
+    ).exclude(
+        vacancycontainskeyword__keyword__name__in=exclude_keywords
+    ).distinct()
 
-    if exclude_keywords:
-        vacancies = vacancies.exclude(
-            vacancycontainskeyword__keyword__name__in=exclude_keywords
-        ).distinct()
-
-    if not vacancies:
-      vacancies = "Please select a keyword!"
+    paginator = Paginator(vacancies, 300)
+    page = request.GET.get('page')
+    try:
+        vacancies = paginator.get_page(page)
+    except PageNotAnInteger:
+        vacancies = paginator.get_page(1)
+    except EmptyPage:
+        vacancies = paginator.get_page(paginator.num_pages)
 
     return render(request, 'fetcher/vacancies.html', {
         'vacancies': vacancies,
