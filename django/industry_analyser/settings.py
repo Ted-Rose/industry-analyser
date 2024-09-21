@@ -32,7 +32,7 @@ HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 ALLOWED_HOSTS = [
   '127.0.0.1',
   private_settings.get('local_ip'),
-  'industryanalyser.pythonanywhere.com'
+  '.vercel.app'
 ]
 
 LOGGING = {
@@ -105,7 +105,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'industry_analyser.wsgi.application'
+WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
 
 # Database
