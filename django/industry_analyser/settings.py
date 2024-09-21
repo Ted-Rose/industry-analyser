@@ -11,10 +11,13 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
+import json
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+private_settings = json.load(open(os.path.join(BASE_DIR, 'settings.json'), 'r'))
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
@@ -23,10 +26,43 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-h@m%a6xnm25_f5xqp_r6a+&!+(5zz#6c*8a=5ak9*0v+ik&k5b'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = private_settings.get('DEBUG')
+HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+  '127.0.0.1',
+  private_settings.get('local_ip'),
+  'industryanalyser.pythonanywhere.com'
+]
 
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'django.log'),
+            'encoding': 'utf-8',
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'fetcher': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
 # Application definition
 
@@ -37,6 +73,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'fetcher',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -73,12 +111,18 @@ WSGI_APPLICATION = 'industry_analyser.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
+
+DATABASES = private_settings.get('DATABASES')
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'industryanalyser',
+#         'USER': 'postgresql',
+#         'PASSWORD': 'password',
+#         'HOST': '127.0.0.1',
+#         'PORT': '5432',
+#     }
+# }
 
 
 # Password validation

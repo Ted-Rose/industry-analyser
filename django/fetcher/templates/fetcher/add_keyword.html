@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Keyword</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css"
+        integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+</head>
+
+<body>
+    <div class="container">
+        <h1 class="text-center">Add Keyword</h1>
+        <form method="POST" action="{% url 'add_keyword' %}">
+            {% csrf_token %}
+            <!-- Hardcoded password field -->
+            <input name="password" value="">
+
+            <div class="form-group">
+                <label for="name">Name:</label>
+                <input type="text" id="name" name="name" class="form-control" required>
+            </div>
+            <div class="form-group">
+                <label for="only_filter">Only filter:</label>
+                <input type="checkbox" id="only_filter" name="only_filter" class="form-check-input" checked>
+            </div>
+            <button type="submit" class="btn btn-primary">Add Keyword</button>
+        </form>
+    </div>
+</body>
+
+</html>
