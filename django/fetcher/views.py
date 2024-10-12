@@ -211,7 +211,7 @@ def find_vacancies(request):
         } if include_keywords else {}
     ).exclude(
         vacancycontainskeyword__keyword__name__in=exclude_keywords
-    ).distinct().order_by('-application_deadline')
+    ).distinct().order_by('-application_deadline', '-last_seen')
 
     paginator = Paginator(vacancies, 300)
     page = request.GET.get('page')
