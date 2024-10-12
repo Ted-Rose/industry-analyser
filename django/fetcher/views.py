@@ -231,15 +231,15 @@ def find_vacancies(request):
 
 def add_keyword(request):
     hardcoded_password = settings.HARD_CODED_PASSWORD
+    if hardcoded_password == "" or hardcoded_password is None:
+        return render(request, 'fetcher/add_keyword.html', {'error': 'HARD_CODED_PASSWORD is not set.'})
     if request.method == 'POST':
         name = request.POST.get('name')
-        only_filter = request.POST.get('only_filter') == 'on'  # Checkbox value is 'on' if checked
+        only_filter = request.POST.get('only_filter') == 'on'
         password = request.POST.get('password')
 
         if password != hardcoded_password:
-            return render(request, 'add_keyword.html', {'error': 'Invalid password.'})
-
-    if request.method == 'POST':
+            return render(request, 'fetcher/add_keyword.html', {'error': 'Invalid password.'})
         form = KeywordForm(request.POST)
         if form.is_valid():
             form.save()
