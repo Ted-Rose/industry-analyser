@@ -14,12 +14,15 @@
         <h1 class="text-center">Add Keyword</h1>
         <form method="POST" action="{% url 'add_keyword' %}">
             {% csrf_token %}
-            <!-- Hardcoded password field -->
             <input name="password" value="">
-
             <div class="form-group">
                 <label for="name">Name:</label>
                 <input type="text" id="name" name="name" class="form-control" required>
+                {% if error %}
+                <div>
+                    Error: {{ error }}
+                </div>
+                {% endif %}
             </div>
             <div class="form-group">
                 <label for="only_filter">Only filter:</label>
