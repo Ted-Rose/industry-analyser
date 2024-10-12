@@ -18,24 +18,24 @@ from .forms import KeywordForm
 logger = logging.getLogger(__name__)
 today = timezone.now().date()
 
-def save_or_update_keywords(vacancy_id, content, keywords_queryset):
+def save_or_update_keywords(vacancy_id, content, keywords):
     # TODO Pass vacancy_obj to save_or_update_keywords
     if not content:
         return
     vacancy = Vacancy.objects.filter(id=vacancy_id).first()
 
-    for keyword in keywords_queryset:
-        if keyword.name.lower() in content.lower():
+    for keyword in keywords:
+        if keyword.lower() in content.lower():
             existing_entries = VacancyContainsKeyword.objects.filter(
                 vacancy=vacancy,
-                keyword=keyword
+                keyword__name=keyword
             )
             if existing_entries.exists():
                 continue
             else:
                 VacancyContainsKeyword.objects.create(
                     vacancy=vacancy,
-                    keyword=keyword
+                    keyword__name=keyword
                 )
 
 
@@ -45,11 +45,13 @@ def fetcher(request):
 
     with open(config_path, 'r') as file:
         config = json.load(file)
-    keywords_queryset = Keyword.objects.filter(only_filter=False)
-    keywords_list = [keyword.name for keyword in keywords_queryset]
+    all_keywords = Keyword.objects.values('name')
+    all_keywords = [keyword['name'] for keyword in all_keywords]
+    searchable_keywords = Keyword.objects.filter(only_filter=False).values('name')
+    searchable_keywords = [keyword['name'] for keyword in searchable_keywords]
     portals = config['portals']
 
-    for keywords in keywords_list:
+    for keywords in searchable_keywords:
 
         keyword_obj = Keyword.objects.filter(name=keywords).first()
         if not keyword_obj:
@@ -151,7 +153,7 @@ def fetcher(request):
                         vacancy_content = (title + vacancy_content + keywords_str).lower()
                     else:
                         vacancy_content = (title + keywords_str).lower()
-                    save_or_update_keywords(vacancy_id, vacancy_content, keywords_queryset)
+                    save_or_update_keywords(vacancy_id, vacancy_content, all_keywords)
             else:
                 for link in links:
                     href = link.get('href')
@@ -176,11 +178,12 @@ def fetcher(request):
                     vacancy_content = vacancy.content.decode("utf-8").lower()
                     title = link.text.strip()
 
-                    Vacancy.objects.create(
+                    vacancy_obj = Vacancy.objects.create(
                         id = uuid.uuid4(),
                         url = url,
                         first_seen=timezone.now(),
                     )
+                    vacancy_obj.industries.add(Industry.objects.get(name="it"))
                     print("Saved url: ", url)
                     logger.info(f"Saved url: {url}")
             return render(request, 'fetcher/home.html')
