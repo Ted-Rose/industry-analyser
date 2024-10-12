@@ -25,17 +25,17 @@ def save_or_update_keywords(vacancy_id, content, keywords):
     vacancy = Vacancy.objects.filter(id=vacancy_id).first()
 
     for keyword in keywords:
-        if keyword.lower() in content.lower():
+        if keyword.name.lower() in content.lower():
             existing_entries = VacancyContainsKeyword.objects.filter(
                 vacancy=vacancy,
-                keyword__name=keyword
+                keyword=keyword
             )
             if existing_entries.exists():
                 continue
             else:
                 VacancyContainsKeyword.objects.create(
                     vacancy=vacancy,
-                    keyword__name=keyword
+                    keyword=keyword
                 )
 
 
@@ -45,8 +45,7 @@ def fetcher(request):
 
     with open(config_path, 'r') as file:
         config = json.load(file)
-    all_keywords = Keyword.objects.values('name')
-    all_keywords = [keyword['name'] for keyword in all_keywords]
+    all_keyword_obj = Keyword.objects.all()
     searchable_keywords = Keyword.objects.filter(only_filter=False).values('name')
     searchable_keywords = [keyword['name'] for keyword in searchable_keywords]
     portals = config['portals']
@@ -153,7 +152,7 @@ def fetcher(request):
                         vacancy_content = (title + vacancy_content + keywords_str).lower()
                     else:
                         vacancy_content = (title + keywords_str).lower()
-                    save_or_update_keywords(vacancy_id, vacancy_content, all_keywords)
+                    save_or_update_keywords(vacancy_id, vacancy_content, all_keyword_obj)
             else:
                 for link in links:
                     href = link.get('href')
