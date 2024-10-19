@@ -1,0 +1,18 @@
+{
+    "builds": [
+        {
+            "src": "industry_analyser/wsgi.py",
+            "use": "@vercel/python",
+            "config": {
+                "maxLambdaSize": "15mb",
+                "runtime": "python3.11"
+            }
+        }
+    ],
+    "routes": [
+        {
+            "src": "/(.*)",
+            "dest": "industry_analyser/wsgi.py"
+        }
+    ]
+}
