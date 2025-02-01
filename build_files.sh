@@ -1,6 +1,6 @@
 python3 -m pip install -r requirements.txt
 
-python3 django_apps/console_tasks/build.py create_ca_pem create_private_settings_json
+python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_settings_json
 
 # Collect static files
 python3 manage.py collectstatic --noinput
