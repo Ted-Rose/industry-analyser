@@ -66,6 +66,7 @@ def fetcher(request):
         #     continue
 
         # Don't overwhelm portals with a request burst
+        print("Sleeping")
         time.sleep(random.uniform(5, 10))
         logger.info(f"Searching for keywords: {keywords}")
         for _, portal in portals.items():
@@ -78,7 +79,7 @@ def fetcher(request):
                 })
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error in fetching data: {e}. Retrying...")
-                time.sleep(random.uniform(5, 10))
+                time.sleep(random.uniform(25, 30))
                 search_response = requests.get(search_url, params={
                     portal['keywords_param']: keywords,
                     portal['limit_param']:1000,
@@ -169,10 +170,12 @@ def fetcher(request):
 
                     try:
                         vacancy = requests.get(url)
+                        print("Sleeping")
+                        time.sleep(random.uniform(1, 3))
                     except requests.exceptions.RequestException as e:
                         print("Error in fetching data: ", e, "\n Retrying...")
                         logger.error(f"Error in fetching data: {e}. Retrying...")
-                        time.sleep(random.uniform(5, 10))
+                        time.sleep(random.uniform(25, 30))
                         vacancy = requests.get(url)
 
                     vacancy_content = vacancy.content.decode("utf-8").lower()
@@ -246,3 +249,5 @@ def add_keyword(request):
     else:
         form = KeywordForm()
     return render(request, 'fetcher/add_keyword.html', {'form': form})
+
+fetcher('some_request')

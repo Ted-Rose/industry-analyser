@@ -1,3 +1,5 @@
+6. Startup command on Windows terminal
+ - `python projects\industry-analyser\django\manage.py runserver`
 5. Won't deploy on pythonanywhere as its proxy is blocking requests to portals
 4. Issues with venv creation on pythonanywhere. This path worked:
   1. `python3.10 -m venv venv`
