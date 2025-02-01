@@ -4,5 +4,5 @@ wsgi_for_pythonanywhere.py
 django.log
 fetcher/config.json
 venv
-settings.json
+private_settings.json
 ca.pem
