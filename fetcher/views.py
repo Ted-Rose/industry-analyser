@@ -251,5 +251,5 @@ def add_keyword(request):
         form = KeywordForm()
     return render(request, 'fetcher/add_keyword.html', {'form': form})
 
-
+# Test
 # fetcher('some_request')
