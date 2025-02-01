@@ -3,6 +3,6 @@ static/
 wsgi_for_pythonanywhere.py
 django.log
 fetcher/config.json
-# General django settings
+venv
 settings.json
 ca.pem
