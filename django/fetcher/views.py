@@ -231,6 +231,7 @@ def find_vacancies(request):
         'industries': industries,
     })
 
+
 def add_keyword(request):
     hardcoded_password = settings.HARD_CODED_PASSWORD
     if hardcoded_password == "" or hardcoded_password is None:
@@ -249,5 +250,6 @@ def add_keyword(request):
     else:
         form = KeywordForm()
     return render(request, 'fetcher/add_keyword.html', {'form': form})
+
 
 fetcher('some_request')
