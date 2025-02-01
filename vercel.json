@@ -9,7 +9,7 @@
             }
         },
         {
-            "src": "industry-analyser/wsgi.py",
+        "src": "industry_analyser/wsgi.py",
             "use": "@vercel/python",
             "config": {
                 "maxLambdaSize": "15mb",
@@ -24,7 +24,7 @@
         },
         {
             "src": "/(.*)",
-            "dest": "industry-analyser/wsgi.py"
+            "dest": "industry_analyser/wsgi.py"
         }
     ]
 }
