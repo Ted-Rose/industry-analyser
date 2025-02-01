@@ -1,18 +1,30 @@
 {
+    "version": 2,
     "builds": [
         {
-            "src": "industry_analyser/wsgi.py",
+            "src": "build_files.sh",
+            "use": "@vercel/static-build",
+            "config": {
+                "distDir": "staticfiles"
+            }
+        },
+        {
+            "src": "industry-analyser/wsgi.py",
             "use": "@vercel/python",
             "config": {
                 "maxLambdaSize": "15mb",
-                "runtime": "python3.11"
+                "runtime": "python3.12"
             }
         }
     ],
     "routes": [
         {
+            "src": "/static/(.*)",
+            "dest": "static/$1"
+        },
+        {
             "src": "/(.*)",
-            "dest": "industry_analyser/wsgi.py"
+            "dest": "industry-analyser/wsgi.py"
         }
     ]
 }
