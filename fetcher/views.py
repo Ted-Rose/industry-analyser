@@ -252,4 +252,4 @@ def add_keyword(request):
     return render(request, 'fetcher/add_keyword.html', {'form': form})
 
 
-fetcher('some_request')
+# fetcher('some_request')
