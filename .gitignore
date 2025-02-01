@@ -1,12 +1,8 @@
 __pycache__
-/django/static/
-django/wsgi_for_pythonanywhere.py
-django/django.log
-
-# Fetcher configuration
-django/fetcher/config.json
+static/
+wsgi_for_pythonanywhere.py
+django.log
+fetcher/config.json
 # General django settings
-django/settings.json
-
-# Database certificate
-django/ca.pem
+settings.json
+ca.pem
