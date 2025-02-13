@@ -13,6 +13,7 @@ import time
 import random
 from django.utils import timezone
 from .forms import KeywordForm
+from lxml import html
 
 
 logger = logging.getLogger(__name__)
@@ -65,10 +66,11 @@ def fetcher(request):
         #     continue
 
         # Don't overwhelm portals with a request burst
+        print("Sleeping")
         time.sleep(random.uniform(5, 10))
         logger.info(f"Searching for keywords: {keywords}")
         for _, portal in portals.items():
-            logger.info(f"Searching in portal: {portal['vacancy_base_url']}")
+            logger.info(f"Searching in portal: {portal['base_url']}")
             search_url = portal['base_url'] + portal['search_href']
             try:
                 search_response = requests.get(search_url, params={
@@ -77,7 +79,7 @@ def fetcher(request):
                 })
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error in fetching data: {e}. Retrying...")
-                time.sleep(random.uniform(5, 10))
+                time.sleep(random.uniform(25, 30))
                 search_response = requests.get(search_url, params={
                     portal['keywords_param']: keywords,
                     portal['limit_param']:1000,
@@ -91,8 +93,9 @@ def fetcher(request):
                 parsed_content = json.loads(search_response.content)
             except json.JSONDecodeError:
                 parsed_content = None
-                print("The content is not valid JSON.")
                 logger.warning("The content is not valid JSON.")
+                vacancies_tree = html.fromstring(search_response.content)
+                links = vacancies_tree.xpath('//a')
 
             if parsed_content:
                 for vacancy in parsed_content.get('vacancies'):
@@ -110,7 +113,6 @@ def fetcher(request):
                         existing_vacancy.application_deadline = vacancy.get('expirationDate')
                         existing_vacancy.state = "UPDATED",
                         existing_vacancy.save()
-                        logger.info(f"Updated title and url: {title, url}")
                         vacancy_id = existing_vacancy.id
                         vacancy_obj = existing_vacancy
                     else:
@@ -168,10 +170,12 @@ def fetcher(request):
 
                     try:
                         vacancy = requests.get(url)
+                        print("Sleeping")
+                        time.sleep(random.uniform(1, 3))
                     except requests.exceptions.RequestException as e:
                         print("Error in fetching data: ", e, "\n Retrying...")
                         logger.error(f"Error in fetching data: {e}. Retrying...")
-                        time.sleep(random.uniform(5, 10))
+                        time.sleep(random.uniform(25, 30))
                         vacancy = requests.get(url)
 
                     vacancy_content = vacancy.content.decode("utf-8").lower()
@@ -185,7 +189,6 @@ def fetcher(request):
                     vacancy_obj.industries.add(Industry.objects.get(name="it"))
                     print("Saved url: ", url)
                     logger.info(f"Saved url: {url}")
-            return render(request, 'fetcher/home.html')
 
     return render(request, 'fetcher/home.html')
 
@@ -228,6 +231,7 @@ def find_vacancies(request):
         'industries': industries,
     })
 
+
 def add_keyword(request):
     hardcoded_password = settings.HARD_CODED_PASSWORD
     if hardcoded_password == "" or hardcoded_password is None:
@@ -246,3 +250,5 @@ def add_keyword(request):
     else:
         form = KeywordForm()
     return render(request, 'fetcher/add_keyword.html', {'form': form})
+
+# fetcher('some_request')

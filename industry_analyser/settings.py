@@ -17,16 +17,23 @@ import os
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-private_settings = json.load(open(os.path.join(BASE_DIR, 'settings.json'), 'r'))
+PRIVATE_SETTINGS_JSON_PATH = os.path.join(BASE_DIR, 'private_settings.json')
+
+if os.path.isfile(PRIVATE_SETTINGS_JSON_PATH):
+    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
+        private_settings = json.load(file)
+else:
+    raise FileNotFoundError(
+        'Private settings do not exist. Please provide private settings.')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-h@m%a6xnm25_f5xqp_r6a+&!+(5zz#6c*8a=5ak9*0v+ik&k5b'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = private_settings.get('DEBUG')
+SECRET_KEY = private_settings.get('SECRET_KEY')
+DEBUG = private_settings.get('debug')
+BASE_URL = private_settings.get('base_url')
 HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 
 ALLOWED_HOSTS = [
@@ -38,13 +45,17 @@ ALLOWED_HOSTS = [
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
-    'handlers': {
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'django.log'),
-            'encoding': 'utf-8',
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} ({name}) {message}',
+            'style': '{',
         },
+        'simple': {
+            'format': '[{levelname}] {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
         'console': {
             'level': 'INFO',
             'class': 'logging.StreamHandler',
@@ -52,14 +63,29 @@ LOGGING = {
     },
     'loggers': {
         'django': {
-            'handlers': ['file', 'console'],
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'django.request': {
+            'handlers': ['console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        '__main__': {
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': True,
         },
         'fetcher': {
-            'handlers': ['file', 'console'],
+            'handlers': ['console'],
             'level': 'INFO',
-            'propagate': False,
+            'propagate': True,
         },
     },
 }
@@ -159,7 +185,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles', 'static')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
