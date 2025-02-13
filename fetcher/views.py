@@ -70,7 +70,8 @@ def fetcher(request):
         time.sleep(random.uniform(5, 10))
         logger.info(f"Searching for keywords: {keywords}")
         for _, portal in portals.items():
-            logger.info(f"Searching in portal: {portal['base_url']}")
+            logger.info(f"Searching in portal: '{portal['base_url']}' \
+                for keywords: {keywords}")
             search_url = portal['base_url'] + portal['search_href']
             try:
                 search_response = requests.get(search_url, params={
@@ -86,11 +87,12 @@ def fetcher(request):
                 })
             links = None
             links = BeautifulSoup(search_response.content, 'html.parser').find_all('a')
-
+            logger.info(f"{len(links)} links found.")
             parsed_content = None
 
             try:
                 parsed_content = json.loads(search_response.content)
+                logger.info(f"The content is valid JSON.")
             except json.JSONDecodeError:
                 parsed_content = None
                 logger.warning("The content is not valid JSON.")
@@ -102,9 +104,13 @@ def fetcher(request):
                     vacancy_portal_id = vacancy.get('id')
                     url = portal['vacancy_base_url'] + portal['vacancy_base_href'] + str(vacancy_portal_id)
                     title = vacancy.get('positionTitle')
+                    logger.info("Checking if vacancy exists")
+                    now = timezone.now()
 
                     existing_vacancy = Vacancy.objects.filter(url=url).first()
 
+                    db_query_duration = (timezone.now() - now).total_seconds()
+                    logger.info(f"DB query duration: {db_query_duration}")
                     if existing_vacancy:
                         existing_vacancy.last_seen = timezone.now()
                         existing_vacancy.title = title
@@ -112,6 +118,7 @@ def fetcher(request):
                         existing_vacancy.salary_to = vacancy.get('salaryTo')
                         existing_vacancy.application_deadline = vacancy.get('expirationDate')
                         existing_vacancy.state = "UPDATED",
+                        now = timezone.now()
                         existing_vacancy.save()
                         vacancy_id = existing_vacancy.id
                         vacancy_obj = existing_vacancy
@@ -251,4 +258,4 @@ def add_keyword(request):
         form = KeywordForm()
     return render(request, 'fetcher/add_keyword.html', {'form': form})
 
-# fetcher('some_request')
+fetcher('some_request')
