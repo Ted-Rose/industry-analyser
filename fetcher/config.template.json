@@ -1,6 +1,64 @@
 {
-  "portal_search_base_urls": [
-    "www.bigsite.com",
-    "www.longsite.com"
+  "portals": [
+    {
+      "base_url": "tet.lv",
+      "actions": [
+        {
+          "loop_array": [
+            "filmzone_hd",
+            "ltv7_hd",
+            "ltv1_hd"
+          ],
+          "yields": "element"
+        },
+        {
+          "loop_from_to": {
+            "from": {
+              "days_in_past": "7"
+            },
+            "to": {
+              "days_in_future": "7"
+            },
+            "yields": "day"
+          }
+        },
+        {
+          "fetch": {
+            "href": "/televizija/tv-programma?tv-type=interactive&view-type=list&date={date_string}&channel={channel}",
+            "update_dynamic_href": {
+              "{date_string}": "day",
+              "{channel}": "element"
+            },
+            "returns": "response"
+          }
+        },
+        {
+          "soup": {
+            "find_all": [
+              "div",
+              "class_='show-expander-content'"
+            ],
+            "returns": "elements"
+          }
+        },
+        {
+          "loop_array": [
+            "{elements}"
+          ],
+          "yields": "element"
+        },
+        {
+          "analyze_program": "element",
+          "returns": "boolean"
+        }
+      ],
+      "config": {
+        "sleep_between_requests": "1-3"
+      }
+    },
+    {
+      "base_url": "www.longsite.com",
+      "config": {}
+    }
   ]
 }
