@@ -290,6 +290,8 @@ class TVProgramScraper(BaseScraper):
 
         return self.scrape_tv_programs()
 
+    run()
+
 
 def fetch_tv_program_details():
     """
@@ -298,6 +300,6 @@ def fetch_tv_program_details():
     Returns:
         list: List of saved program objects
     """
-    config = {} 
+    config = {}
     scraper = TVProgramScraper(config)
     return scraper.run()
