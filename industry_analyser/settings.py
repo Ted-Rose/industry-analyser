@@ -36,12 +36,31 @@ DEBUG = private_settings.get('debug')
 BASE_URL = private_settings.get('base_url')
 HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 
+ON_VERCEL = os.environ.get('VERCEL', False)
+
 ALLOWED_HOSTS = [
   '127.0.0.1',
   '0.0.0.0',
   private_settings.get('ip_address'),
   '.vercel.app'
 ]
+
+handlers = {
+    'console': {
+        'level': 'INFO',
+        'class': 'logging.StreamHandler',
+        'formatter': 'verbose',
+    }
+}
+
+# Only add file handler if not on Vercel (which has a read-only filesystem)
+if not ON_VERCEL:
+    handlers['file'] = {
+        'level': 'INFO',
+        'class': 'logging.FileHandler',
+        'filename': os.path.join(BASE_DIR, 'logs', 'debug.log'),
+        'formatter': 'verbose',
+    }
 
 LOGGING = {
     'version': 1,
@@ -56,64 +75,40 @@ LOGGING = {
             'style': '{',
         },
     },
-    'handlers': {
-        'console': {
-            'level': 'INFO',
-            'class': 'logging.StreamHandler',
-            'formatter': 'verbose',
-        },
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'debug.log'),
-            'formatter': 'verbose',
-        },
-    },
+    'handlers': handlers,
     'loggers': {
         'django': {
-            'handlers': ['console'] if not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'django.request': {
-            'handlers': (
-                ['console'] if not DEBUG else ['console', 'file']
-            ),
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'ERROR',
             'propagate': False,
         },
         'django.security': {
-            'handlers': (
-                ['console'] if not DEBUG else ['console', 'file']
-            ),
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
         '__main__': {
-            'handlers': (
-                ['console'] if not DEBUG else ['console', 'file']
-            ),
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'fetcher': {
-            'handlers': (
-                ['console'] if not DEBUG else ['console', 'file']
-            ),
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'tv_programs': {
-            'handlers': (
-                ['console'] if not DEBUG else ['console', 'file']
-            ),
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'core_scraper': {
-            'handlers': (
-                ['console'] if not DEBUG else ['console', 'file']
-            ),
+            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
         },
@@ -165,21 +160,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
 
-# Database
-# https://docs.djangoproject.com/en/5.0/ref/settings/#databases
-
-
 DATABASES = private_settings.get('DATABASES')
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': 'industryanalyser',
-#         'USER': 'postgresql',
-#         'PASSWORD': 'password',
-#         'HOST': '127.0.0.1',
-#         'PORT': '5432',
-#     }
-# }
 
 
 # Password validation
