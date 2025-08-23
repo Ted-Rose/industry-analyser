@@ -38,6 +38,7 @@ HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 
 ALLOWED_HOSTS = [
   '127.0.0.1',
+  '0.0.0.0',
   private_settings.get('ip_address'),
   '.vercel.app'
 ]

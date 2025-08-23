@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Content Feed</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f0f2f5;
+        margin: 0;
+        padding: 0;
+      }
+
+      .feed-container {
+        width: 60%;
+        margin: 20px auto;
+      }
+
+      .filter-form {
+        background: white;
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .filter-form label {
+        margin-right: 10px;
+        font-weight: bold;
+      }
+
+      .filter-form input,
+      .filter-form button {
+        margin-right: 10px;
+        padding: 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+
+      .feed-card {
+        background: white;
+        margin-bottom: 20px;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: row;
+      }
+
+      .feed-card img {
+        width: 120px;
+        height: 120px;
+        object-fit: cover;
+        border-radius: 8px;
+        margin-right: 15px;
+      }
+
+      .feed-content {
+        flex: 1;
+      }
+
+      .feed-title {
+        font-size: 18px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+
+      .feed-description {
+        color: #555;
+        margin-bottom: 10px;
+      }
+
+      .feed-metadata {
+        font-size: 14px;
+        color: #777;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="feed-container">
+      <!-- Filtering Form -->
+      <form class="filter-form" method="GET">
+        <label for="content_rating">Content Rating:</label>
+        <input
+          type="text"
+          name="content_rating"
+          id="content_rating"
+          value="{{ request.GET.content_rating }}"
+        />
+
+        <label for="not_content_rating">Exclude Exact Rating:</label>
+        <input
+          type="text"
+          name="not_content_rating"
+          id="not_content_rating"
+          value="{{ request.GET.not_content_rating }}"
+          placeholder="e.g., R"
+        />
+
+        <label for="rating_value">Minimum Rating:</label>
+        <input
+          type="number"
+          step="0.1"
+          name="rating_value"
+          id="rating_value"
+          value="{{ request.GET.rating_value }}"
+        />
+
+        <label for="start_date">Start Date:</label>
+        <input
+          type="date"
+          name="start_date"
+          id="start_date"
+          value="{{ request.GET.start_date }}"
+        />
+
+        <label for="end_date">End Date:</label>
+        <input
+          type="date"
+          name="end_date"
+          id="end_date"
+          value="{{ request.GET.end_date }}"
+        />
+
+        <label for="ratio">Ratio:</label>
+        <input
+          type="number"
+          step="0.1"
+          name="ratio"
+          id="ratio"
+          value="{{ request.GET.ratio }}"
+        />
+
+        <label for="channel">Channel:</label>
+        <input
+          type="text"
+          name="channel"
+          id="channel"
+          value="{{ request.GET.channel }}"
+        />
+
+        <label for="not_channel">Not Channel:</label>
+        <input
+          type="text"
+          name="not_channel"
+          id="not_channel"
+          value="{{ request.GET.not_channel }}"
+        />
+
+        <button type="submit">Filter</button>
+      </form>
+
+      <!-- Feed Content -->
+      {% for program in programs %}
+      <div class="feed-card">
+        <img
+          src="{{ program.image_url|default:'https://via.placeholder.com/120' }}"
+          alt="{{ program.title_eng }}"
+        />
+        <div class="feed-content">
+          <div class="feed-title">{{ program.title_lv }}</div>
+          <div class="feed-description">{{ program.description_lv }}</div>
+          <div class="feed-metadata">
+            <span>Rating: {{ program.imdb_rating }}</span> |
+            <span>Channel: {{ program.channel }}</span> |
+            <span>Start Time: {{ program.start_time }}</span> |
+            <span>Match Ratio: {{ program.title_match_ratio|floatformat:2 }}</span>
+          </div>
+        </div>
+      </div>
+      {% empty %}
+      <div>No programs available</div>
+      {% endfor %}
+    </div>
+  </body>
+</html>

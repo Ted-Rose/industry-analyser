@@ -156,6 +156,7 @@ class TVProgramScraper(BaseScraper):
         ratings = self.get_ratings(title_lv, 'tv')
         if not ratings:
             logger.info(f"No ratings found for: {title_lv}")
+            # TODO: Add to skippable programs
             return None
 
         # Calculate match ratio between original and translated titles with IMDb data
