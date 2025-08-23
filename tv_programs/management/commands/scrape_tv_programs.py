@@ -1,10 +1,11 @@
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 import logging
 
 from tv_programs.scraper import TVProgramScraper
 
-logger = logging.getLogger(__name__)
+# Use the app name as the logger name to match settings configuration
+logger = logging.getLogger('tv_programs')
 
 
 class Command(BaseCommand):
@@ -28,8 +29,10 @@ class Command(BaseCommand):
 
         force = options.get('force', False)
         if force:
-            self.stdout.write("Force mode enabled - will scrape regardless of existing data")
-            
+            self.stdout.write(
+                "Force mode enabled - will scrape regardless of existing data"
+            )
+
         try:
             scraper = TVProgramScraper()
             programs = scraper.run()
@@ -39,17 +42,23 @@ class Command(BaseCommand):
             if programs:
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"Successfully scraped {len(programs)} TV programs in {duration:.2f} seconds"
+                        f"Successfully scraped {len(programs)} TV programs in "
+                        f"{duration:.2f} seconds"
                     )
                 )
             else:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"No TV programs were scraped. Completed in {duration:.2f} seconds"
+                        f"No TV programs were scraped. Completed in "
+                        f"{duration:.2f} seconds"
                     )
                 )
 
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"Error running TV program scraper"))
+            self.stdout.write(
+                self.style.ERROR("Error running TV program scraper")
+            )
             self.stderr.write(str(e))
-            raise CommandError(f"Error running TV program scraper: {str(e)}")
+            raise CommandError(
+                f"Error running TV program scraper: {str(e)}"
+            )

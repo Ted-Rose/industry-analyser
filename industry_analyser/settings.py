@@ -59,31 +59,53 @@ LOGGING = {
         'console': {
             'level': 'INFO',
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'logs', 'debug.log'),
+            'formatter': 'verbose',
         },
     },
     'loggers': {
         'django': {
-            'handlers': ['console'],
+            'handlers': ['console'] if not DEBUG else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'django.request': {
-            'handlers': ['console'],
+            'handlers': (
+                ['console'] if not DEBUG else ['console', 'file']
+            ),
             'level': 'ERROR',
             'propagate': False,
         },
         'django.security': {
-            'handlers': ['console'],
+            'handlers': (
+                ['console'] if not DEBUG else ['console', 'file']
+            ),
             'level': 'DEBUG',
             'propagate': False,
         },
         '__main__': {
-            'handlers': ['console'],
+            'handlers': (
+                ['console'] if not DEBUG else ['console', 'file']
+            ),
             'level': 'INFO',
             'propagate': True,
         },
         'fetcher': {
-            'handlers': ['console'],
+            'handlers': (
+                ['console'] if not DEBUG else ['console', 'file']
+            ),
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'tv_programs': {
+            'handlers': (
+                ['console'] if not DEBUG else ['console', 'file']
+            ),
             'level': 'INFO',
             'propagate': True,
         },
@@ -157,7 +179,9 @@ DATABASES = private_settings.get('DATABASES')
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'
+        ),
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
