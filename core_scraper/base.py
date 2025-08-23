@@ -3,11 +3,13 @@ import logging
 import time
 import random
 import urllib3
+from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
 
-logger = logging.getLogger(__name__)
+# Use the app name as the logger name to match settings configuration
+logger = logging.getLogger('core_scraper')
 
 
 class BaseScraper(abc.ABC):
@@ -24,6 +26,8 @@ class BaseScraper(abc.ABC):
             config (dict, optional): Configuration for the scraper
         """
         self.config = config or {}
+        self.last_sleep_by_domain = {}
+        self.default_domain = 'default'
 
         retry_strategy = Retry(
             total=3,
@@ -32,8 +36,6 @@ class BaseScraper(abc.ABC):
         )
         self.http = urllib3.PoolManager(
             retries=retry_strategy,
-            # cert_reqs='CERT_REQUIRED',
-            # ca_certs=certifi.where()
         )
 
         self.default_headers = {
@@ -57,7 +59,8 @@ class BaseScraper(abc.ABC):
         """
         headers = headers or self.default_headers
 
-        self.throttle()
+        domain = urlparse(url).netloc
+        self.sleep(domain=domain)
 
         try:
             return self.http.request(method, url, headers=headers)
@@ -83,14 +86,39 @@ class BaseScraper(abc.ABC):
             logger.warning("The content is not valid JSON.")
             return None
 
-    def throttle(self, min_seconds=1, max_seconds=3):
+    def sleep(self, min_seconds=1, max_seconds=3, domain=None):
         """
-        Throttle requests to avoid overwhelming the target site.
+        Sleep between requests to avoid overwhelming the target site.
+        Only sleeps if necessary based on the time since the last sleep.
+        Uses per-domain tracking when domain is provided.
 
         Args:
             min_seconds (float): Minimum seconds to wait
             max_seconds (float): Maximum seconds to wait
+            domain (str, optional): The domain being accessed, for throttling
         """
+        current_time = time.time()
         sleep_time = random.uniform(min_seconds, max_seconds)
-        logger.debug(f"Throttling for {sleep_time:.2f} seconds")
-        time.sleep(sleep_time)
+
+        domain_key = domain if domain else self.default_domain
+        last_sleep_time = self.last_sleep_by_domain.get(domain_key, 0)
+
+        time_since_last_sleep = current_time - last_sleep_time
+        domain_info = f" for {domain}" if domain else ""
+
+        if time_since_last_sleep < sleep_time:
+            actual_sleep_time = sleep_time - time_since_last_sleep
+            logger.info(
+                f"Time since last sleep{domain_info}: "
+                f"{time_since_last_sleep:.2f}s, "
+                f"sleeping for {actual_sleep_time:.2f}s"
+            )
+            time.sleep(actual_sleep_time)
+        else:
+            logger.info(
+                f"No sleep needed{domain_info}. "
+                f"Time since last sleep: {time_since_last_sleep:.2f}s "
+                f"(required: {sleep_time:.2f}s)"
+            )
+
+        self.last_sleep_by_domain[domain_key] = time.time()

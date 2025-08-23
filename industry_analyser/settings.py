@@ -109,6 +109,13 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'core_scraper': {
+            'handlers': (
+                ['console'] if not DEBUG else ['console', 'file']
+            ),
+            'level': 'DEBUG',
+            'propagate': True,
+        },
     },
 }
 
