@@ -290,8 +290,6 @@ class TVProgramScraper(BaseScraper):
 
         return self.scrape_tv_programs()
 
-    run()
-
 
 def fetch_tv_program_details():
     """

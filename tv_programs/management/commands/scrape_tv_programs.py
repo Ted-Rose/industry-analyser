@@ -7,7 +7,7 @@ from tv_programs.scraper import TVProgramScraper
 logger = logging.getLogger(__name__)
 
 
-class ScrapeTVProgramsCommand(BaseCommand):
+class Command(BaseCommand):
     help = 'Runs the TV program scraper to fetch and store TV program data'
 
     def add_arguments(self, parser):
@@ -15,6 +15,11 @@ class ScrapeTVProgramsCommand(BaseCommand):
             '--force',
             action='store_true',
             help='Force scraping even if recent data exists',
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help='Dry run mode - will not save to database',
         )
 
     def handle(self, *args, **options):
@@ -24,29 +29,27 @@ class ScrapeTVProgramsCommand(BaseCommand):
         force = options.get('force', False)
         if force:
             self.stdout.write("Force mode enabled - will scrape regardless of existing data")
-
+            
         try:
             scraper = TVProgramScraper()
             programs = scraper.run()
-
             end_time = timezone.now()
-            duration = end_time - start_time
+            duration = (end_time - start_time).total_seconds()
 
             if programs:
-                msg = (
-                    f"Successfully scraped {len(programs)} TV programs "
-                    f"in {duration.total_seconds():.2f} seconds"
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Successfully scraped {len(programs)} TV programs in {duration:.2f} seconds"
+                    )
                 )
-                self.stdout.write(self.style.SUCCESS(msg))
             else:
-                msg = (
-                    f"No TV programs were scraped. "
-                    f"Completed in {duration.total_seconds():.2f} seconds"
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"No TV programs were scraped. Completed in {duration:.2f} seconds"
+                    )
                 )
-                self.stdout.write(self.style.WARNING(msg))
 
         except Exception as e:
-            logger.exception("Error running TV program scraper")
-            self.stdout.write(
-                self.style.ERROR(f"Error running TV program scraper: {str(e)}")
-            )
+            self.stdout.write(self.style.ERROR(f"Error running TV program scraper"))
+            self.stderr.write(str(e))
+            raise CommandError(f"Error running TV program scraper: {str(e)}")

@@ -101,6 +101,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'fetcher',
     'accounts',
+    'tv_programs',
 ]
 
 MIDDLEWARE = [

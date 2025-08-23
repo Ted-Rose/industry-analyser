@@ -10,7 +10,7 @@
       "django": true,
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
-      "python": "${command:python.interpreterPath}",
+      "python": "${workspaceFolder}/venv/bin/python",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -24,7 +24,7 @@
       "django": true,
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
-      "python": "${command:python.interpreterPath}",
+      "python": "${workspaceFolder}/venv/bin/python",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -38,7 +38,7 @@
       "django": true,
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
-      "python": "${command:python.interpreterPath}",
+      "python": "${workspaceFolder}/venv/bin/python",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
