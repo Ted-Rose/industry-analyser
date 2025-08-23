@@ -78,37 +78,37 @@ LOGGING = {
     'handlers': handlers,
     'loggers': {
         'django': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'django.request': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'ERROR',
             'propagate': False,
         },
         'django.security': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,
         },
         '__main__': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'fetcher': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'tv_programs': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'INFO',
             'propagate': True,
         },
         'core_scraper': {
-            'handlers': ['console'] if ON_VERCEL or not DEBUG else ['console', 'file'],
+            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
             'level': 'DEBUG',
             'propagate': True,
         },
