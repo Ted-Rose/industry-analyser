@@ -11,7 +11,8 @@ from core_scraper.base import BaseScraper
 from .models import Program, Channel, Category, ProgramCategory
 from .utils import translate_lv_to_eng
 
-logger = logging.getLogger(__name__)
+# Use the app name as the logger name to match settings configuration
+logger = logging.getLogger('tv_programs')
 
 
 class TVProgramScraper(BaseScraper):
@@ -219,17 +220,24 @@ class TVProgramScraper(BaseScraper):
         program, created = Program.objects.update_or_create(
             url=processed_item["url"],
             defaults={
-                'title': processed_item["title_eng"],
-                'description': processed_item.get("description_eng", ""),
+                'title_lv': processed_item.get("title_lv", ""),
+                'title_eng': processed_item["title_eng"],
+                'description_lv': processed_item.get("description_lv", ""),
+                'description_eng': processed_item.get("description_eng", ""),
                 'channel': channel,
                 'start_time': datetime.strptime(start_date, '%Y-%m-%d'),
-                # 'duration_minutes': processed_item.get("duration_minutes", 120),
+                'duration_minutes': processed_item.get("duration_minutes", 120),
                 'url': processed_item["url"],
+                'image_url': processed_item.get("image", None),
+                'imdb_rating': processed_item.get("rating_value", None),
+                'pg_rating': processed_item.get("content_rating", None),
+                'title_match_ratio': processed_item.get("match_ratio", 0),
+                'combined_match_ratio': processed_item.get("match_ratio", 0)
             }
         )
 
         action = 'Created' if created else 'Updated'
-        logger.info(f"{action} program: {program.title}")
+        logger.info(f"{action} program: {program.title_eng}")
         return program
 
     def scrape_tv_programs(self):
