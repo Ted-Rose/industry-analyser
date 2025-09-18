@@ -3,6 +3,7 @@ import logging
 import time
 import random
 import urllib3
+from typing import List
 from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
@@ -44,6 +45,55 @@ class BaseScraper(abc.ABC):
         }
 
         logger.debug(f"Initialized {self.__class__.__name__}")
+
+    def run(self):
+        for search_url in self.search_urls:
+            new_or_updated_resources = self.search_portal(search_url)
+            if new_or_updated_resources:
+                self.save_resources(new_or_updated_resources)
+        return
+
+    def search_portal(self, search_url):
+        search_results = self.make_request(search_url)
+        # Format and prune redundant resources
+        formatted_results = self.format_results(search_results)
+
+        if not formatted_results:
+            return
+
+        pruned_results = self.remove_redundant_resources(formatted_results)
+
+        return self.extract_resources(pruned_results)
+
+    def format_results(self, search_results):
+        raise NotImplementedError
+
+    def extract_resources(self, search_results):
+        if not self.resource_content_in_search_results:
+            resource_links = self.get_resource_links(search_results)
+            resources = []
+            for resource_link in resource_links:
+                resource = self.get_resource(resource_link)
+                if resource:
+                    resources.append(resource)
+            return resources
+        else:
+            return self.get_resources(search_results)
+
+    def get_resource_links(self, search_results):
+        raise NotImplementedError
+
+    def get_resource(self, resource_link) -> 'self.resource_model':
+        raise NotImplementedError
+
+    def get_resources(self, search_results) -> List['resource_model']:
+        raise NotImplementedError
+
+    def remove_redundant_resources(self, resources):
+        raise NotImplementedError
+
+    def save_resources(self, resources):
+        return
 
     def make_request(self, url, headers=None, method="GET"):
         """
