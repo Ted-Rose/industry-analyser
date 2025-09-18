@@ -47,7 +47,7 @@ class BaseScraper(abc.ABC):
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     def run(self):
-        for search_url in self.search_urls:
+        for search_url in self.get_search_urls():
             new_or_updated_resources = self.search_portal(search_url)
             if new_or_updated_resources:
                 self.save_resources(new_or_updated_resources)

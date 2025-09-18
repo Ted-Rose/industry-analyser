@@ -27,8 +27,13 @@ class TVProgramScraper(BaseScraper):
         Args:
             config (dict, optional): Configuration for the scraper
         """
+        self.channels = {
+            "filmzone_hd": "filmzone_hd",
+            "ltv7_hd": "ltv7_hd",
+            "ltv1_hd": "ltv1_hd",
+        }
         super().__init__(config)
-        self.excluded_programs = [
+        self.excluded_resources = [
             'Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma',
             'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas',
             'Saki Jā!', 'Spiegu spēles', 'De Facto', 'Laika ziņas',
@@ -38,6 +43,43 @@ class TVProgramScraper(BaseScraper):
             'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks',
             'SuperBingo', 'Kobra 17', 'Tāskmāsters'
         ]
+
+    def get_search_urls(self):
+        day_range, start_date = self.get_days()
+        base_url = "https://www.tet.lv/televizija/tv-programma?tv-type=interactive&view-type=list&date={date_string}&channel={channel_id}"
+
+        for day in day_range:
+            date = start_date + timedelta(days=day)
+            for channel in self.channels:
+                url = base_url.format(date_string=date.strftime('%Y-%m-%d'), channel_id=channel)
+                yield url
+        return
+
+    def get_days(self):
+        days_in_past = self.config.get(
+          'days_in_past',
+          7
+        )
+        days_in_future = self.config.get(
+          'days_in_future',
+          7
+        )
+        day_range = range(days_in_past + days_in_future)
+        start_date = datetime.now() - timedelta(days=days_in_past)
+        return day_range, start_date
+
+    def format_results(self, search_results):
+        html_content = search_results.data
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        programs = soup.find_all('div', class_="show-expander-content")
+        return programs
+
+    def remove_redundant_resources(self, programs):
+        for program in programs:
+            if program.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
+                programs.remove(program)
+        return programs
 
     def get_ratings(self, query, content_type=None):
         """
@@ -288,7 +330,7 @@ class TVProgramScraper(BaseScraper):
 
         return saved_programs
 
-    def run(self):
+    def old_run(self):
         """
         Run the TV program scraper.
 
