@@ -7,3 +7,4 @@ venv
 private_settings.json
 ca.pem
 logs/*
+config_v2.json

@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from urllib.parse import quote_plus
+from .models import Keyword, Vacancy, VacancyContainsKeyword, Industry
 
 from core_scraper.base import BaseScraper
 
@@ -15,9 +16,9 @@ logger = logging.getLogger('tv_programs')
 
 
 class VacancyScrapper(BaseScraper):
-    def __init__(self):
+    def __init__(self, portal_id=1):
         super().__init__()
-        self.config = self.load_config
+        self.config = self.load_config(portal_id)
         self.excluded_resources = [
             'Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma',
             'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas',
@@ -29,20 +30,20 @@ class VacancyScrapper(BaseScraper):
             'SuperBingo', 'Kobra 17', 'Tāskmāsters'
         ]
 
-    def load_config(self):
-        config_path = os.path.join(settings.BASE_DIR, 'fetcher/config.json')
+    def load_config(self, portal_id):
+        config_path = os.path.join(settings.BASE_DIR, 'fetcher/config_v2.json')
         with open(config_path, 'r') as file:
-            return json.load(file)
+            config = json.load(file)
+            return config['portals'].get(str(portal_id))
 
     def get_search_urls(self):
-        searchable_keywords = Keyword.objects.filter(only_filter=False).values('name')
-        base_url = self.config['base_url'] + self.config['search_href']
+        keywords = Keyword.objects.filter(only_filter=False).values('name')
+        keywords = [keyword['name'] for keyword in keywords]
 
-        for day in day_range:
-            date = start_date + timedelta(days=day)
-            for channel in self.channels:
-                url = base_url.format(date_string=date.strftime('%Y-%m-%d'), channel_id=channel)
-                yield url
+        base_url = self.config['base_url'] + self.config['search_href']
+        for keyword in keywords:
+            url = base_url + f"?limit=1000&keywords%5B0%5D={keyword}"
+            yield url
         return
 
     def get_days(self):
