@@ -6,4 +6,4 @@ fetcher/config.json
 venv
 private_settings.json
 ca.pem
-logs/
+logs/*

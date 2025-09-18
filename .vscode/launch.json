@@ -2,6 +2,23 @@
   "version": "0.2.0",
   "configurations": [
     {
+        "name": "Scrape 1st vacany portal",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/manage.py",
+        "args": [
+            "scrape_first_vacancy_portal.py",
+            "--force"
+        ],
+        "django": true,
+        "justMyCode": true,
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/venv/bin/python",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        }
+    },
+    {
       "name": "Django: Scrape TV Programs (Force)",
       "type": "debugpy",
       "request": "launch",
@@ -16,7 +33,7 @@
       }
     },
     {
-      "name": "Django: Scrape TV Programs",
+      "name": "Scrape TV Programs",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/manage.py",

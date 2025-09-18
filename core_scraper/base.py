@@ -26,10 +26,6 @@ class BaseScraper(abc.ABC):
         Args:
             config (dict, optional): Configuration for the scraper
         """
-        self.config = config or {}
-        self.last_sleep_by_domain = {}
-        self.default_domain = 'default'
-
         retry_strategy = Retry(
             total=3,
             backoff_factor=30,
