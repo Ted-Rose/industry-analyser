@@ -61,13 +61,19 @@ class VacancyScrapper(BaseScraper):
         start_date = datetime.now() - timedelta(days=days_in_past)
         return day_range, start_date
 
-    def format_results(self, search_results: urllib3.response.HTTPResponse) -> List['div']:
+    def format_results(
+        self,
+        search_results: urllib3.response.HTTPResponse
+    ) -> List:
         if search_results.headers['Content-Type'] == 'application/json':
+            self.resource_content_in_search_results = True
+
             json_content = search_results.data.decode('utf-8')
             data = json.loads(json_content)
             vacancies = data.get('vacancies', [])
             return vacancies
         else:
+            self.resource_content_in_search_results = True
             html_content = search_results.data
             soup = BeautifulSoup(html_content, 'html.parser')
             vacancies = soup.find_all('div', class_="show-expander-content")
@@ -75,6 +81,10 @@ class VacancyScrapper(BaseScraper):
 
     def remove_redundant_resources(self, programs):
         for program in programs:
+            if isinstance(program, dict):
+                # Handle the case when program is a dictionary
+                # For example, you can skip the iteration or handle it differently
+                continue
             if program.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
                 programs.remove(program)
         return programs
