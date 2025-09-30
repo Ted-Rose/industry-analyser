@@ -49,7 +49,7 @@ class BaseScraper(abc.ABC):
         for search_url in self.get_search_urls():
             new_or_updated_resources = self.search_portal(search_url)
             if new_or_updated_resources:
-                self.save_resources(new_or_updated_resources)
+                self.create_or_update_resources(new_or_updated_resources)
         return
 
     def search_portal(self, search_url):
@@ -60,7 +60,7 @@ class BaseScraper(abc.ABC):
         if not formatted_results:
             return
 
-        pruned_results = self.remove_redundant_resources(formatted_results)
+        pruned_results = self.remove_redundant_results(formatted_results)
 
         return self.extract_resources(pruned_results)
 
@@ -72,26 +72,26 @@ class BaseScraper(abc.ABC):
             resource_links = self.get_resource_links(search_results)
             resources = []
             for resource_link in resource_links:
-                resource = self.get_resource(resource_link)
+                resource = self.initiate_resource(resource_link)
                 if resource:
                     resources.append(resource)
             return resources
         else:
-            return self.get_resources(search_results)
+            return self.initiate_resources(search_results)
 
     def get_resource_links(self, search_results):
         raise NotImplementedError
 
-    def get_resource(self, resource_link) -> 'self.resource_model':
+    def initiate_resource(self, resource_link) -> 'self.resource_model':
         raise NotImplementedError
 
-    def get_resources(self, search_results) -> List['resource_model']:
+    def initiate_resources(self, search_results) -> List['resource_model']:
         raise NotImplementedError
 
-    def remove_redundant_resources(self, resources):
+    def remove_redundant_results(self, resources):
         raise NotImplementedError
 
-    def save_resources(self, resources):
+    def create_or_update_resources(self, resources):
         return
 
     def make_request(self, url, headers=None, method="GET"):

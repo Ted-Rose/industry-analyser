@@ -75,7 +75,7 @@ class TVProgramScraper(BaseScraper):
         programs = soup.find_all('div', class_="show-expander-content")
         return programs
 
-    def remove_redundant_resources(self, programs):
+    def remove_redundant_results(self, programs):
         for program in programs:
             if program.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
                 programs.remove(program)

@@ -10,6 +10,7 @@ from urllib.parse import quote_plus
 import urllib3
 from .models import Keyword, Vacancy, VacancyContainsKeyword, Industry
 from typing import List
+from django.utils import timezone
 
 from core_scraper.base import BaseScraper
 
@@ -66,6 +67,7 @@ class VacancyScrapper(BaseScraper):
         search_results: urllib3.response.HTTPResponse
     ) -> List:
         if search_results.headers['Content-Type'] == 'application/json':
+            # Address this methods side effect
             self.resource_content_in_search_results = True
 
             json_content = search_results.data.decode('utf-8')
@@ -79,15 +81,77 @@ class VacancyScrapper(BaseScraper):
             vacancies = soup.find_all('div', class_="show-expander-content")
             return vacancies
 
-    def remove_redundant_resources(self, programs):
-        for program in programs:
-            if isinstance(program, dict):
-                # Handle the case when program is a dictionary
-                # For example, you can skip the iteration or handle it differently
-                continue
-            if program.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
-                programs.remove(program)
-        return programs
+    def remove_redundant_results(self, vacancy_search_results):
+        if isinstance(vacancy_search_results, List):
+            return vacancy_search_results
+        if isinstance(vacancy_search_results, html):
+            for vacancy_result in vacancy_search_results:
+                if vacancy_result.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
+                    vacancy_search_results.remove(vacancy_result)
+            return vacancy_search_results
+
+    def initiate_resources(self, search_results) -> List[Vacancy]:
+        vacancies = []
+        # IS "state" redundant?
+        for result in search_results:
+            vacancy_portal_id = result.get('vacancy_portal_id')
+            url = self.config['vacancy_base_url'] +\
+                self.config['vacancy_base_href'] + str(vacancy_portal_id)
+
+            vacancy_data = {
+                'vacancy_portal_id': vacancy_portal_id,
+                'title': result.get('positionTitle'),
+                'company_name': result.get('employerName'),
+                'salary_from': result.get('salaryFrom'),
+                'salary_to': result.get('salaryTo'),
+                'url': url,
+                'first_seen': result.get('publishDate'),
+                'last_seen': timezone.now(),
+                'application_deadline': result.get('expirationDate'),
+                'state': result.get('state'),
+            }
+
+            vacancy = Vacancy(**vacancy_data)
+            vacancy.save()
+
+            # Handle dependencies (e.g., industries)
+            industries = result.get('industries')
+            if industries:
+                for industry_id in industries:
+                    industry = Industry.objects.get(id=industry_id)
+                    vacancy.industries.add(industry)
+
+            vacancies.append(vacancy)
+        return vacancies
+
+    def create_or_update_resources(self, vacancies):
+        existing_vacancies = (
+            Vacancy.objects
+            .filter(
+                vacancy_portal_id__in=(
+                    v.get('vacancy_portal_id')
+                    for v in vacancies
+                )
+            )
+        )
+
+        for vacancy in existing_vacancies:
+            vacancy_data = next((v for v in vacancies if v['vacancy_portal_id'] == vacancy.vacancy_portal_id), None)
+            if vacancy_data:
+                for field, value in vacancy_data.items():
+                    setattr(vacancy, field, value)
+
+        Vacancy.objects.bulk_update(existing_vacancies, [field for field in existing_vacancies.first().__dict__.keys() if field != 'id'])
+
+        new_vacancies = [
+            v
+            for v in vacancies
+            if not Vacancy.objects.filter(
+                vacancy_portal_id__exact=v['vacancy_portal_id']
+            ).exists()
+        ]
+
+        Vacancy.objects.bulk_create([Vacancy(**v) for v in new_vacancies])
 
     def get_ratings(self, query, content_type=None):
         """
