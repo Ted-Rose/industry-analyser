@@ -18,7 +18,6 @@ class Vacancy(models.Model):
     days_open = models.IntegerField(null=True)
     vacancy_portal_id = models.IntegerField(
         null=True,
-        unique=True,
         help_text="The ID of the vacancy on the job portal",
     )
     application_deadline = models.DateTimeField(null=True)
