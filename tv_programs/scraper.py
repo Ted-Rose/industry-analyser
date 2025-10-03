@@ -27,22 +27,15 @@ class TVProgramScraper(BaseScraper):
         Args:
             config (dict, optional): Configuration for the scraper
         """
+        self.validate_result = True
+        self.enrich_search_results = True
         self.channels = {
             "filmzone_hd": "filmzone_hd",
             "ltv7_hd": "ltv7_hd",
             "ltv1_hd": "ltv1_hd",
         }
         super().__init__(config)
-        self.excluded_resources = [
-            'Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma',
-            'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas',
-            'Saki Jā!', 'Spiegu spēles', 'De Facto', 'Laika ziņas',
-            'Basketbols.Basketbols: NBA.', 'Leģendārais loms', 'Rīta Panorāma',
-            'Aizliegtais paņēmiens', 'UgunsGrēks 4', 'Vides fakti',
-            'Aculiecinieks', '1 :1. Aktuālā intervija', 'Sporta studija',
-            'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks',
-            'SuperBingo', 'Kobra 17', 'Tāskmāsters'
-        ]
+        self.excluded_resources = ['Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma', 'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas', 'Saki Jā!', 'Spiegu spēles', 'De Facto', 'Laika ziņas', 'Basketbols.Basketbols: NBA.', 'Leģendārais loms', 'Rīta Panorāma', 'Aizliegtais paņēmiens', 'UgunsGrēks 4', 'Vides fakti', 'Aculiecinieks', '1 :1. Aktuālā intervija', 'Sporta studija', 'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks', 'SuperBingo', 'Kobra 17', 'Tāskmāsters']
 
     def get_search_urls(self):
         day_range, start_date = self.get_days()
@@ -80,6 +73,43 @@ class TVProgramScraper(BaseScraper):
             if program.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
                 programs.remove(program)
         return programs
+
+    def get_resource_info_link(self, program):
+        title_lv = program.find(class_="tet-font__headline--s").text
+        encoded_title_lv = quote_plus(title_lv, encoding='utf-8')
+        return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
+
+    def validate_and_return(self, result, extra_info):
+        soup = BeautifulSoup(extra_info.data, 'html.parser')
+        summary = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
+        if summary is None:
+            logger.info(f"Summary not found for: {result}")
+            return None
+
+        link_element = summary.find('a')
+        if link_element:
+            link = "https://www.imdb.com/" + link_element['href']
+        else:
+            logger.info("Link not found")
+            return None
+
+        content_description = self.make_request(link)
+        return self.process_item(result)
+
+    def initiate_resource(self, resource_link):
+        return Program.objects.create(
+            title=resource_link['title'],
+            description=resource_link['description'],
+            image=resource_link['image'],
+            url=resource_link['url'],
+            content_rating=resource_link['content_rating'],
+            rating_value=resource_link['rating_value'],
+            published_date=resource_link['published_date'],
+        )
+
+    def create_or_update_resources(self, resources):
+      
+        return
 
     def get_ratings(self, query, content_type=None):
         """
@@ -179,10 +209,6 @@ class TVProgramScraper(BaseScraper):
         title_element = program_data.find(class_="tet-font__headline--s")
         if title_element:
             title_lv = title_element.text.strip()
-
-            if title_lv in self.excluded_programs:
-                logger.info(f"Skipping excluded program: {title_lv}")
-                return None
         else:
             logger.info("No title found for program")
             return None
@@ -196,6 +222,7 @@ class TVProgramScraper(BaseScraper):
                 description_element.text.strip()
             )
         ratings = self.get_ratings(title_lv, 'tv')
+        # TODO CONTINUE HERE as something here breaks
         if not ratings:
             logger.info(f"No ratings found for: {title_lv}")
             # TODO: Add to skippable programs

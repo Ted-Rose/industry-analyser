@@ -68,18 +68,38 @@ class BaseScraper(abc.ABC):
         raise NotImplementedError
 
     def extract_resources(self, search_results):
-        if not self.resource_content_in_search_results:
-            resource_links = self.get_resource_links(search_results)
+        if self.enrich_search_results:
             resources = []
-            for resource_link in resource_links:
-                resource = self.initiate_resource(resource_link)
-                if resource:
-                    resources.append(resource)
+            for result in search_results:
+                enriched_result = self.enrich_result(result)
+                
+                if not enriched_result:
+                    self.excluded_resources.append(result)
+                    continue
+                
+                resource = self.initiate_resource(enriched_result)
+                resources.append(resource)
+                
+                if len(resources) >= 2:
+                    break
+            
             return resources
         else:
             return self.initiate_resources(search_results)
 
-    def get_resource_links(self, search_results):
+    def enrich_result(self, result):
+        info_link = self.get_resource_info_link(result)
+        extra_info = self.make_request(info_link)
+
+        if self.validate_result:
+            return self.validate_and_return(result, extra_info)
+        else:
+            return result
+
+    def validate_and_return(self, result, extra_info):
+        raise NotImplementedError
+
+    def get_resource_info_links(self, search_results):
         raise NotImplementedError
 
     def initiate_resource(self, resource_link) -> 'self.resource_model':
@@ -92,7 +112,7 @@ class BaseScraper(abc.ABC):
         raise NotImplementedError
 
     def create_or_update_resources(self, resources):
-        return
+        raise NotImplementedError
 
     def make_request(self, url, headers=None, method="GET"):
         """

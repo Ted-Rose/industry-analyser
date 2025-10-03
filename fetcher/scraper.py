@@ -69,14 +69,14 @@ class VacancyScrapper(BaseScraper):
     ) -> List:
         if search_results.headers['Content-Type'] == 'application/json':
             # Address this methods side effect
-            self.resource_content_in_search_results = True
+            self.enrich_search_results = True
 
             json_content = search_results.data.decode('utf-8')
             data = json.loads(json_content)
             vacancies = data.get('vacancies', [])
             return vacancies
         else:
-            self.resource_content_in_search_results = True
+            self.enrich_search_results = True
             html_content = search_results.data
             soup = BeautifulSoup(html_content, 'html.parser')
             vacancies = soup.find_all('div', class_="show-expander-content")
