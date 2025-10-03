@@ -11,6 +11,7 @@ import urllib3
 from .models import Keyword, Vacancy, VacancyContainsKeyword, Industry
 from typing import List
 from django.utils import timezone
+from django.forms.models import model_to_dict
 
 from core_scraper.base import BaseScraper
 
@@ -108,7 +109,7 @@ class VacancyScrapper(BaseScraper):
                 'first_seen': result.get('publishDate'),
                 'last_seen': timezone.now(),
                 'application_deadline': result.get('expirationDate'),
-                'state': result.get('state'),
+                'state': "CREATED",
             }
 
             vacancy = Vacancy(**vacancy_data)
@@ -129,8 +130,8 @@ class VacancyScrapper(BaseScraper):
             Vacancy.objects
             .filter(
                 vacancy_portal_id__in=(
-                    v.get('vacancy_portal_id')
-                    for v in vacancies
+                    vacancy.vacancy_portal_id
+                    for vacancy in vacancies
                 )
             )
         )
@@ -141,17 +142,23 @@ class VacancyScrapper(BaseScraper):
                 for field, value in vacancy_data.items():
                     setattr(vacancy, field, value)
 
-        Vacancy.objects.bulk_update(existing_vacancies, [field for field in existing_vacancies.first().__dict__.keys() if field != 'id'])
+        if existing_vacancies:
+            vacancy_ids = [v.id for v in existing_vacancies]
+            if Vacancy.objects.filter(id__in=vacancy_ids).exists():
+                fields_to_update = [field for field in existing_vacancies.first().__dict__.keys() if field != 'id']
+                Vacancy.objects.bulk_update(existing_vacancies, fields_to_update)
 
         new_vacancies = [
             v
             for v in vacancies
-            if not Vacancy.objects.filter(
-                vacancy_portal_id__exact=v['vacancy_portal_id']
-            ).exists()
+            if not next(
+                (existing_v for existing_v in existing_vacancies if existing_v.vacancy_portal_id == v.vacancy_portal_id), None
+            )
         ]
 
-        Vacancy.objects.bulk_create([Vacancy(**v) for v in new_vacancies])
+        Vacancy.objects.bulk_create([model_to_dict(v, fields=['vacancy_portal_id', 'title', 'company_name', 'salary_from', 'salary_to', 'url', 'first_seen', 'last_seen', 'application_deadline', 'state']) for v in new_vacancies])
+
+        return
 
     def get_ratings(self, query, content_type=None):
         """
