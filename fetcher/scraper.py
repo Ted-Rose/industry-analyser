@@ -12,6 +12,8 @@ from .models import Keyword, Vacancy, VacancyContainsKeyword, Industry
 from typing import List
 from django.utils import timezone
 from django.forms.models import model_to_dict
+import uuid
+from django.db import connection
 
 from core_scraper.base import BaseScraper
 
@@ -33,6 +35,8 @@ class VacancyScrapper(BaseScraper):
             'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks',
             'SuperBingo', 'Kobra 17', 'Tāskmāsters'
         ]
+        self.keywords = Keyword.objects
+        self.industries = Industry.objects
 
     def load_config(self, portal_id):
         config_path = os.path.join(settings.BASE_DIR, 'fetcher/config_v2.json')
@@ -41,7 +45,7 @@ class VacancyScrapper(BaseScraper):
             return config['portals'].get(str(portal_id))
 
     def get_search_urls(self):
-        keywords = Keyword.objects.filter(only_filter=False).values('name')
+        keywords = self.keywords.filter(only_filter=False).values('name')
         keywords = [keyword['name'] for keyword in keywords]
 
         base_url = self.config['base_url'] + self.config['search_href']
@@ -95,7 +99,7 @@ class VacancyScrapper(BaseScraper):
         vacancies = []
         # IS "state" redundant?
         for result in search_results:
-            vacancy_portal_id = result.get('vacancy_portal_id')
+            vacancy_portal_id = result.get('id')
             url = self.config['vacancy_base_url'] +\
                 self.config['vacancy_base_href'] + str(vacancy_portal_id)
 
@@ -112,15 +116,24 @@ class VacancyScrapper(BaseScraper):
                 'state': "CREATED",
             }
 
-            vacancy = Vacancy(**vacancy_data)
-            vacancy.save()
+            vacancy = Vacancy.objects.using('default').create(**vacancy_data)
+            # vacancy.save()
 
             # Handle dependencies (e.g., industries)
-            industries = result.get('industries')
-            if industries:
-                for industry_id in industries:
-                    industry = Industry.objects.get(id=industry_id)
-                    vacancy.industries.add(industry)
+            portal_industries = result.get('categories')
+            if portal_industries:
+                for portal_industry in portal_industries:
+                    industry = self.industries.filter(name=portal_industry).first()
+                    if industry:
+                        vacancy.industries.add(industry)
+
+            # Handle dependencies (e.g., keywords)
+            portal_keywords = result.get('keywords')
+            if portal_keywords:
+                for portal_keyword in portal_keywords:
+                    keyword = self.keywords.filter(name=portal_keyword).first()
+                    if keyword:
+                        vacancy.VacancyContainsKeyword.add(keyword)
 
             vacancies.append(vacancy)
         return vacancies
@@ -156,7 +169,9 @@ class VacancyScrapper(BaseScraper):
             )
         ]
 
-        Vacancy.objects.bulk_create([model_to_dict(v, fields=['vacancy_portal_id', 'title', 'company_name', 'salary_from', 'salary_to', 'url', 'first_seen', 'last_seen', 'application_deadline', 'state']) for v in new_vacancies])
+        if new_vacancies:
+            Vacancy.objects.bulk_create(new_vacancies)  # _vacancies.save()
+        # Vacancy.objects.bulk_create([model_to_dict(v, fields=['vacancy_portal_id', 'title', 'company_name', 'salary_from', 'salary_to', 'url', 'first_seen', 'last_seen', 'application_deadline', 'state']) for v in new_vacancies])
 
         return
 
