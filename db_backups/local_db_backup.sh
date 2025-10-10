@@ -1,16 +1,26 @@
 #!/bin/bash
 
-# Read the private settings from the JSON file
-private_settings=$(cat private_settings.json | tr -d '\n' | tr -d ' ' | tr -d '"' | tr -d '{,}')
-IFS=':' read -r -a settings <<< "$private_settings"
+# Ensure jq is installed
+if ! command -v jq &> /dev/null
+then
+    echo "Error: jq is not installed. Please install it to continue."
+    echo "On macOS, you can use Homebrew: brew install jq"
+    exit 1
+fi
 
-# Extract the database settings
-DB_NAME=$(echo $private_settings | cut -d ' ' -f 4)
-DB_USER=$(echo $private_settings | cut -d ' ' -f 5)
-DB_PASSWORD=$(echo $private_settings | cut -d ' ' -f 6)
-DB_HOST=$(echo $private_settings | cut -d ' ' -f 7)
-DB_PORT=$(echo $private_settings | cut -d ' ' -f 8)
-DB_SSLROOTCERT=$(echo $private_settings | cut -d ' ' -f 11)
+# Read the private settings from the JSON file using jq
+CONFIG_FILE="private_settings.json"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "Error: Configuration file '$CONFIG_FILE' not found."
+    exit 1
+fi
+
+DB_NAME=$(jq -r '.DATABASES.default.NAME' "$CONFIG_FILE")
+DB_USER=$(jq -r '.DATABASES.default.USER' "$CONFIG_FILE")
+DB_PASSWORD=$(jq -r '.DATABASES.default.PASSWORD' "$CONFIG_FILE")
+DB_HOST=$(jq -r '.DATABASES.default.HOST' "$CONFIG_FILE")
+DB_PORT=$(jq -r '.DATABASES.default.PORT' "$CONFIG_FILE")
 
 DB_ENGINE='django.db.backends.postgresql'
 DB_SSLMODE='verify-full'
