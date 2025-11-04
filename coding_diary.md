@@ -1,3 +1,5 @@
+7. Database backup:
+  - `./db_backups/local_db_backup.sh`
 6. Startup command on Windows terminal
  - `.\projects\industry-analyser\venv\Scripts\activate && python projects\industry-analyser\manage.py runserver`
 5. Won't deploy on pythonanywhere as its proxy is blocking requests to portals

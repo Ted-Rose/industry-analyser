@@ -25,6 +25,9 @@ DB_PORT=$(jq -r '.DATABASES.default.PORT' "$CONFIG_FILE")
 DB_ENGINE='django.db.backends.postgresql'
 DB_SSLMODE='verify-full'
 
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="db_backups/${DB_NAME}_${TIMESTAMP}.dump" # Example: mydbname_20251104_093503.dump
+
 # Debug output
 echo "Extracted values:"
 echo "ENGINE: $DB_ENGINE"
