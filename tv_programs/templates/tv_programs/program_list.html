@@ -75,6 +75,38 @@
         font-size: 14px;
         color: #777;
       }
+
+      @media (max-width: 768px) {
+        .feed-container {
+          width: 100%;
+          padding: 10px;
+          margin: 0;
+        }
+
+        .filter-form label,
+        .filter-form input,
+        .filter-form button {
+          display: block;
+          width: calc(100% - 20px); /* Adjust for padding */
+          margin-bottom: 10px;
+        }
+
+        .feed-card {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .feed-card img {
+          width: 100%;
+          max-width: 300px; /* Limit image size on mobile */
+          height: auto;
+          margin-bottom: 15px;
+        }
+
+        .feed-content {
+          padding: 0;
+        }
+      }
     </style>
   </head>
 
