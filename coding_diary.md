@@ -1,7 +1,10 @@
 7. Database backup:
   - `./db_backups/local_db_backup.sh`
-6. Startup command on Windows terminal
- - `.\projects\industry-analyser\venv\Scripts\activate && python projects\industry-analyser\manage.py runserver`
+6. Startup command
+  - On Windows terminal
+    - `.\projects\industry-analyser\venv\Scripts\activate && python projects\industry-analyser\manage.py runserver`
+  - On unix terminal
+    - `source projects/industry-analyser/venv/bin/activate && python projects/industry-analyser/manage.py runserver`
 5. Won't deploy on pythonanywhere as its proxy is blocking requests to portals
 4. Issues with venv creation on pythonanywhere. This path worked:
   1. `python3.10 -m venv venv`

@@ -35,6 +35,7 @@ class Program(models.Model):
     title_eng = models.CharField(max_length=500)
     description_lv = models.TextField(blank=True, null=True)
     description_eng = models.TextField(blank=True, null=True)
+    # TODO: Consider adding index also for imdb_rating
     imdb_rating = models.CharField(max_length=50, blank=True, null=True)
     pg_rating = models.CharField(max_length=50, blank=True, null=True)
     channel = models.ForeignKey(
@@ -50,6 +51,11 @@ class Program(models.Model):
     title_match_ratio = models.FloatField(default=0)
     description_match_ratio = models.FloatField(default=0)
     combined_match_ratio = models.FloatField(default=0)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['pg_rating', 'start_time']),
+        ]
 
     def __str__(self):
         return f"{self.title_lv} ({self.channel.name})"
