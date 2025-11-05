@@ -166,7 +166,11 @@
             <span>Rating: {{ program.imdb_rating }}</span> |
             <span>Channel: {{ program.channel }}</span> |
             <span>Start Time: {{ program.start_time }}</span> |
-            <span>Match Ratio: {{ program.title_match_ratio|floatformat:2 }}</span>
+            <span>PG Rating: {{ program.pg_rating }}</span> |
+            <span>Match Ratio: {{ program.title_match_ratio|floatformat:2 }}</span> |
+            {% if program.url %}
+              <a href="{{ program.url }}" target="_blank" class="btn btn-secondary btn-sm ml-2">Imdb</a>
+            {% endif %}
           </div>
         </div>
       </div>
