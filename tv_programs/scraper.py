@@ -252,6 +252,12 @@ class TVProgramScraper(BaseScraper):
             "filmzone_hd": "filmzone_hd",
             "ltv7_hd": "ltv7_hd",
             "ltv1_hd": "ltv1_hd",
+            "viasat_kino": "viasat_kino",
+            "viasat_kino_comedy_hd": "viasat_kino_comedy_hd",
+            "viasat_kino_action": "viasat_kino_action",
+            "viasat_kino_world": "viasat_kino_world",
+            "tv6_hd": "tv6_hd",
+            "tv3_hd": "tv3_hd",
         }
         oldest_date = (datetime.now() - timedelta(days=6))
         saved_programs = []
