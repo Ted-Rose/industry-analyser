@@ -17,8 +17,8 @@ def program_list(request):
     rating_value = request.GET.get('rating_value', None)
     start_date = request.GET.get('start_date', None)
     end_date = request.GET.get('end_date', None)
-    channel_id = request.GET.get('channel', None)
-    exclude_channel_id = request.GET.get('exclude_channel', None)
+    channel_name = request.GET.get('channel', None)
+    exclude_channel_name = request.GET.get('exclude_channel', None)
 
     # Build query
     query = Q()
@@ -33,12 +33,12 @@ def program_list(request):
         query &= Q(start_time__date__gte=start_date)
     if end_date:
         query &= Q(start_time__date__lte=end_date)
-    if channel_id:
-        query &= Q(channel_id=channel_id)
-    if exclude_channel_id:
-        query &= ~Q(channel_id=exclude_channel_id)
+    if channel_name:
+        query &= Q(channel__name=channel_name)
+    if exclude_channel_name:
+        query &= ~Q(channel__name=exclude_channel_name)
 
-    programs = Program.objects.select_related('channel').filter(query).order_by('-start_time')
+    programs = Program.objects.select_related('channel').filter(query).order_by('channel__name')
 
     channels = Channel.objects.all()
 
@@ -51,8 +51,8 @@ def program_list(request):
             'rating_value': rating_value,
             'start_date': start_date,
             'end_date': end_date,
-            'channel_id': channel_id,
-            'exclude_channel_id': exclude_channel_id,
+            'channel_name': channel_name,
+            'exclude_channel_name': exclude_channel_name,
         }
     }
 
