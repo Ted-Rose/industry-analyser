@@ -25,8 +25,22 @@
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
       }
 
-      .filter-form label {
-        margin-right: 10px;
+      .filter-form {
+        margin-bottom: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        align-items: flex-end; /* Align items to the bottom */
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .form-group label {
+        margin-bottom: 5px;
+        font-size: 14px;
         font-weight: bold;
       }
 
@@ -114,72 +128,88 @@
     <div class="feed-container">
       <!-- Filtering Form -->
       <form class="filter-form" method="GET">
-        <label for="content_rating">Content Rating:</label>
-        <input
-          type="text"
-          name="content_rating"
-          id="content_rating"
-          value="{{ request.GET.content_rating }}"
-        />
+        <div class="form-group">
+          <label for="content_rating">Content Rating:</label>
+          <input
+            type="text"
+            name="content_rating"
+            id="content_rating"
+            value="{{ request.GET.content_rating }}"
+          />
+        </div>
 
-        <label for="not_content_rating">Exclude Exact Rating:</label>
-        <input
-          type="text"
-          name="not_content_rating"
-          id="not_content_rating"
-          value="{{ request.GET.not_content_rating }}"
-          placeholder="e.g., R"
-        />
+        <div class="form-group">
+                    <label for="not_content_rating">Exclude Rating:</label>
+          <input
+            type="text"
+            name="not_content_rating"
+            id="not_content_rating"
+            value="{{ filters.not_content_rating }}"
+            placeholder="e.g., R"
+          />
+        </div>
 
-        <label for="rating_value">Minimum Rating:</label>
-        <input
-          type="number"
-          step="0.1"
-          name="rating_value"
-          id="rating_value"
-          value="{{ request.GET.rating_value }}"
-        />
+        <div class="form-group">
+          <label for="rating_value">Minimum Rating:</label>
+          <input
+            type="number"
+            step="0.1"
+            name="rating_value"
+            id="rating_value"
+            value="{{ request.GET.rating_value }}"
+          />
+        </div>
 
-        <label for="start_date">Start Date:</label>
-        <input
-          type="date"
-          name="start_date"
-          id="start_date"
-          value="{{ request.GET.start_date }}"
-        />
+        <div class="form-group">
+          <label for="start_date">Start Date:</label>
+          <input
+            type="date"
+            name="start_date"
+            id="start_date"
+            value="{{ filters.start_date }}"
+          />
+        </div>
 
-        <label for="end_date">End Date:</label>
-        <input
-          type="date"
-          name="end_date"
-          id="end_date"
-          value="{{ request.GET.end_date }}"
-        />
+        <div class="form-group">
+          <label for="end_date">End Date:</label>
+          <input
+            type="date"
+            name="end_date"
+            id="end_date"
+            value="{{ filters.end_date }}"
+          />
+        </div>
 
-        <label for="ratio">Ratio:</label>
-        <input
-          type="number"
-          step="0.1"
-          name="ratio"
-          id="ratio"
-          value="{{ request.GET.ratio }}"
-        />
+        <div class="form-group">
+                    <label for="ratio">Min. Match Ratio:</label>
+          <input
+            type="number"
+            step="0.1"
+            name="ratio"
+            id="ratio"
+            value="{{ request.GET.ratio }}"
+          />
+        </div>
 
-        <label for="channel">Channel:</label>
-        <input
-          type="text"
-          name="channel"
-          id="channel"
-          value="{{ request.GET.channel }}"
-        />
+        <div class="form-group">
+          <label for="channel">Channel:</label>
+          <input
+            type="text"
+            name="channel"
+            id="channel"
+            value="{{ request.GET.channel }}"
+          />
+        </div>
 
-        <label for="not_channel">Not Channel:</label>
-        <input
-          type="text"
-          name="not_channel"
-          id="not_channel"
-          value="{{ request.GET.not_channel }}"
-        />
+        <div class="form-group">
+                    <label for="not_channel">Exclude Channel:</label>
+          <input
+            type="text"
+            name="not_channel"
+            id="not_channel"
+            value="{{ request.GET.not_channel }}"
+          />
+        </div>
 
         <button type="submit">Filter</button>
       </form>
@@ -188,7 +218,7 @@
       {% for program in programs %}
       <div class="feed-card">
         <img
-          src="{{ program.image_url|default:'https://via.placeholder.com/120' }}"
+          src="{{ program.image_url|default:'https://via.assets.so/img.jpg?w=400&h=300&bg=e5e7eb&f=png' }}"
           alt="{{ program.title_eng }}"
         />
         <div class="feed-content">
