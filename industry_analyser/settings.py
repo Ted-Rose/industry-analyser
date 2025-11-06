@@ -32,7 +32,7 @@ else:
 
 # SECURITY WARNING: don't run with debug turned on in production!
 SECRET_KEY = private_settings.get('SECRET_KEY')
-DEBUG = private_settings.get('debug')
+DEBUG = private_settings.get('DEBUG')
 BASE_URL = private_settings.get('base_url')
 HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
 
@@ -93,7 +93,15 @@ TEMPLATES = [
 WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
 
-DATABASES = private_settings.get('DATABASES')
+if DEBUG:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
+else:
+    DATABASES = private_settings.get('DATABASES')
 
 
 # Password validation
@@ -172,8 +180,7 @@ LOGGING = {
     'formatters': {
         'verbose': {
             'format': (
-                '{levelname} {asctime} {module} {process:d} {thread:d} '
-                '{message}'
+                '{levelname} {asctime} {module} {process:d} {thread:d} {message}'
             ),
             'style': '{',
         },

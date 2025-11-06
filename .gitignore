@@ -10,3 +10,4 @@ logs/*
 config_v2.json
 db_backups/*
 !db_backups/local_db_backup.sh
+db.sqlite3

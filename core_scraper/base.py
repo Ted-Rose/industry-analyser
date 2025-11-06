@@ -4,6 +4,7 @@ import time
 import random
 import urllib3
 from typing import List
+from django.conf import settings
 from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
@@ -26,6 +27,12 @@ class BaseScraper(abc.ABC):
         Args:
             config (dict, optional): Configuration for the scraper
         """
+        if settings.DEBUG:
+            raise ValueError(
+                "Scrapers should not be run with DEBUG=True. "
+                "This is a safety measure to prevent accidental scraping of live sites during development."
+            )
+
         self.config = config or {}
         self.last_sleep_by_domain = {}
         self.default_domain = 'default'
