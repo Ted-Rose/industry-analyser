@@ -45,75 +45,7 @@ ALLOWED_HOSTS = [
   '.vercel.app'
 ]
 
-handlers = {
-    'console': {
-        'level': 'INFO',
-        'class': 'logging.StreamHandler',
-        'formatter': 'verbose',
-    }
-}
 
-# Only add file handler if not on Vercel (which has a read-only filesystem)
-if not ON_VERCEL:
-    handlers['file'] = {
-        'level': 'INFO',
-        'class': 'logging.FileHandler',
-        'filename': os.path.join(BASE_DIR, 'logs', 'debug.log'),
-        'formatter': 'verbose',
-    }
-
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'verbose': {
-            'format': '[{levelname}] {asctime} ({name}) {message}',
-            'style': '{',
-        },
-        'simple': {
-            'format': '[{levelname}] {message}',
-            'style': '{',
-        },
-    },
-    'handlers': handlers,
-    'loggers': {
-        'django': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'django.request': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'ERROR',
-            'propagate': False,
-        },
-        'django.security': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'DEBUG',
-            'propagate': False,
-        },
-        '__main__': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'fetcher': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'tv_programs': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'core_scraper': {
-            'handlers': ['console'] if ON_VERCEL else ['console', 'file'],
-            'level': 'DEBUG',
-            'propagate': True,
-        },
-    },
-}
 
 # Application definition
 
@@ -127,6 +59,7 @@ INSTALLED_APPS = [
     'fetcher',
     'accounts',
     'tv_programs',
+    'blogs',
 ]
 
 MIDDLEWARE = [
@@ -207,7 +140,11 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles', 'static')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-def create_log_handler(handler_name, level, filename=None, max_bytes=10485760, backup_count=10):
+
+def create_log_handler(
+    handler_name, level, filename=None, max_bytes=10485760, backup_count=10
+):
+    """Creates a log handler, either for a file or null if in debug mode."""
     if DEBUG and filename:
         # Create logs directory if it doesn't exist
         logs_dir = os.path.join(BASE_DIR, 'logs')
@@ -228,12 +165,16 @@ def create_log_handler(handler_name, level, filename=None, max_bytes=10485760, b
             'class': 'logging.NullHandler',
         }
 
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'format': (
+                '{levelname} {asctime} {module} {process:d} {thread:d} '
+                '{message}'
+            ),
             'style': '{',
         },
         'simple': {
