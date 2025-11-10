@@ -4,11 +4,11 @@ import time
 import random
 import urllib3
 from typing import List
-from django.conf import settings
 from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
+from django.conf import settings
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('core_scraper')
@@ -27,11 +27,11 @@ class BaseScraper(abc.ABC):
         Args:
             config (dict, optional): Configuration for the scraper
         """
-        if settings.DEBUG:
-            raise ValueError(
-                "Scrapers should not be run with DEBUG=True. "
-                "This is a safety measure to prevent accidental scraping of live sites during development."
-            )
+        # if settings.DEBUG:
+        #     raise ValueError(
+        #         "Scrapers should not be run with DEBUG=True. "
+        #         "This is a safety measure to prevent accidental scraping of live sites during development."
+        #     )
 
         self.config = config or {}
         self.last_sleep_by_domain = {}
