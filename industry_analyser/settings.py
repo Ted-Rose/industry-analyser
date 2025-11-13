@@ -35,6 +35,7 @@ SECRET_KEY = private_settings.get('SECRET_KEY')
 DEBUG = private_settings.get('DEBUG')
 BASE_URL = private_settings.get('base_url')
 HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
+GEMINI_API_KEY = private_settings.get('gemini_api_key')
 
 ON_VERCEL = os.environ.get('VERCEL', False)
 

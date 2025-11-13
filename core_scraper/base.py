@@ -79,31 +79,31 @@ class BaseScraper(abc.ABC):
             resources = []
             for result in search_results:
                 enriched_result = self.enrich_result(result)
-                
+
                 if not enriched_result:
                     self.excluded_resources.append(result)
                     continue
-                
+
                 resource = self.initiate_resource(enriched_result)
                 resources.append(resource)
-                
+
                 if len(resources) >= 2:
                     break
-            
+
             return resources
         else:
             return self.initiate_resources(search_results)
 
-    def enrich_result(self, result):
-        info_link = self.get_resource_info_link(result)
+    def enrich_result(self, href):
+        info_link = self.get_resource_info_link(href)
         extra_info = self.make_request(info_link)
 
         if self.validate_result:
-            return self.validate_and_return(result, extra_info)
+            return self.validate_and_return(href, extra_info)
         else:
-            return result
+            return extra_info
 
-    def validate_and_return(self, result, extra_info):
+    def validate_and_return(self, href, extra_info):
         raise NotImplementedError
 
     def get_resource_info_links(self, search_results):
