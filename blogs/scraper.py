@@ -1,4 +1,5 @@
 import os
+import json
 import yaml
 import logging
 from google import genai
@@ -6,6 +7,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from django.conf import settings
 from core_scraper.base import BaseScraper
+from .models import Post
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('blogs')
@@ -57,13 +59,15 @@ class BlogScraper(BaseScraper):
         return info_link
 
     def validate_and_return(self, href, extra_info):
+        # TODO: If 
         prompt_path = os.path.join(
             settings.BASE_DIR, 'blogs', 'prompts', 'romantic.txt'
         )
         with open(prompt_path, 'r') as file:
             prompt = file.read()
 
-        full_prompt = prompt + self.format_extra_info(extra_info, href)
+        article_content = self.format_extra_info(extra_info, href)
+        full_prompt = prompt + article_content
 
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
@@ -73,7 +77,13 @@ class BlogScraper(BaseScraper):
         )
         logger.info(f"Gemini response: {response.text}")
 
-        return response.text
+        enriched_result = json.dumps({
+            'title': response.text.strip(),
+            'url': href,
+            'content': article_content
+        })
+
+        return enriched_result
 
     def format_extra_info(self, extra_info, href):
         soup = BeautifulSoup(extra_info.data, 'html.parser')
@@ -137,3 +147,26 @@ class BlogScraper(BaseScraper):
             content = str(container)
 
         return content
+
+    def initiate_resource(self, enriched_result):
+        """Parses the enriched result from the API to create a resource dictionary."""
+        try:
+            post_data = json.loads(enriched_result)
+            logger.info(f"Successfully parsed JSON from API response: {post_data}")
+
+            if 'title' not in post_data or 'url' not in post_data:
+                logger.error("'title' or 'url' missing from API response.")
+                return None
+
+            post = Post(
+                title=post_data['title'],
+                url=post_data['url'],
+                content=post_data.get('content', '')
+            )
+            return post
+        except json.JSONDecodeError:
+            logger.error(
+                f"Failed to decode JSON from API response: {enriched_result}"
+            )
+            return None
+
