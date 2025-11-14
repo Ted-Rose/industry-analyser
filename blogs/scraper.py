@@ -1,10 +1,12 @@
 import os
 import json
+import time
 import yaml
 import logging
 from google import genai
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+from google.api_core import exceptions
 from django.conf import settings
 from core_scraper.base import BaseScraper
 from .models import Post
@@ -70,12 +72,36 @@ class BlogScraper(BaseScraper):
         full_prompt = prompt + article_content
 
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        response = None
+        max_retries = 10
 
-        response = client.models.generate_content(
-            model="gemini-2.5-pro",
-            contents=full_prompt,
-        )
-        logger.info(f"Gemini response: {response.text}")
+        for attempt in range(max_retries):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-2.5-pro",
+                    contents=full_prompt,
+                )
+                logger.info(f"Gemini response: {response.text}")
+                break  # Success, exit the loop
+            except exceptions.ServiceUnavailable as e:
+                logger.warning(
+                    "Gemini API is unavailable, attempt %s of %s. "
+                    "Retrying in %s seconds... Error: %s",
+                    attempt + 1, max_retries, 2 ** attempt, e
+                )
+                time.sleep(2 ** attempt)
+            except Exception as e:
+                logger.error(
+                    "An unexpected error occurred with Gemini API: %s", e
+                )
+                return None
+
+        if not response:
+            logger.error(
+                "Failed to get a response from Gemini API after %s retries.",
+                max_retries
+            )
+            return None
 
         enriched_result = json.dumps({
             'title': response.text.strip(),
@@ -152,16 +178,27 @@ class BlogScraper(BaseScraper):
         """Parses the enriched result from the API to create a resource dictionary."""
         try:
             post_data = json.loads(enriched_result)
-            logger.info(f"Successfully parsed JSON from API response: {post_data}")
+            logger.info(f"Successfully parsed outer JSON: {post_data}")
 
             if 'title' not in post_data or 'url' not in post_data:
                 logger.error("'title' or 'url' missing from API response.")
                 return None
 
+            # Clean and parse the nested JSON from the 'title' field
+            title_json_str = post_data['title'].strip().replace('```json', '').replace('```', '')
+            title_data = json.loads(title_json_str)
+            is_romantic = title_data.get('is_romantic_relationship_focused', False)
+            logger.info(f"'is_romantic_relationship_focused' is set to: {is_romantic}")
+
+            # Extract the actual post title from the content HTML
+            content_html = post_data.get('content', '')
+            soup = BeautifulSoup(content_html, 'html.parser')
+            post_title = soup.find('h1').get_text(strip=True) if soup.find('h1') else "No Title Found"
+
             post = Post(
-                title=post_data['title'],
+                title=post_title,
                 url=post_data['url'],
-                content=post_data.get('content', '')
+                content=content_html
             )
             return post
         except json.JSONDecodeError:

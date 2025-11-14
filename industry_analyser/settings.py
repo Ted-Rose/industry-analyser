@@ -110,9 +110,7 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': (
-            'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'
-        ),
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
@@ -206,6 +204,11 @@ LOGGING = {
             'propagate': True,
         },
         'tv_archive': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'blogs': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,
