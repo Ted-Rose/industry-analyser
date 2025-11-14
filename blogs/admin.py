@@ -1,6 +1,8 @@
 from django.contrib import admin
 
-from .models import Post
+from .models import Page, Theme, PageAnalysis
 
 
-admin.site.register(Post)
+admin.site.register(Page)
+admin.site.register(Theme)
+admin.site.register(PageAnalysis)

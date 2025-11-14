@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from google.api_core import exceptions
 from django.conf import settings
 from core_scraper.base import BaseScraper
-from .models import Post
+from .models import Page, Theme, PageAnalysis
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('blogs')
@@ -83,7 +83,7 @@ class BlogScraper(BaseScraper):
                 )
                 logger.info(f"Gemini response: {response.text}")
                 break  # Success, exit the loop
-            except exceptions.ServiceUnavailable as e:
+            except exceptions.ServerError as e:
                 logger.warning(
                     "Gemini API is unavailable, attempt %s of %s. "
                     "Retrying in %s seconds... Error: %s",
@@ -177,30 +177,40 @@ class BlogScraper(BaseScraper):
     def initiate_resource(self, enriched_result):
         """Parses the enriched result from the API to create a resource dictionary."""
         try:
-            post_data = json.loads(enriched_result)
-            logger.info(f"Successfully parsed outer JSON: {post_data}")
+            page_data = json.loads(enriched_result)
+            logger.info(f"Successfully parsed outer JSON: {page_data}")
 
-            if 'title' not in post_data or 'url' not in post_data:
+            if 'title' not in page_data or 'url' not in page_data:
                 logger.error("'title' or 'url' missing from API response.")
                 return None
 
             # Clean and parse the nested JSON from the 'title' field
-            title_json_str = post_data['title'].strip().replace('```json', '').replace('```', '')
-            title_data = json.loads(title_json_str)
-            is_romantic = title_data.get('is_romantic_relationship_focused', False)
-            logger.info(f"'is_romantic_relationship_focused' is set to: {is_romantic}")
+            title_json_str = page_data['title'].strip().replace('```json', '').replace('```', '')
+            analysis_data = json.loads(title_json_str)
 
-            # Extract the actual post title from the content HTML
-            content_html = post_data.get('content', '')
+            # Extract the actual page title from the content HTML
+            content_html = page_data.get('content', '')
             soup = BeautifulSoup(content_html, 'html.parser')
-            post_title = soup.find('h1').get_text(strip=True) if soup.find('h1') else "No Title Found"
+            page_title = soup.find('h1').get_text(strip=True) if soup.find('h1') else "No Title Found"
 
-            post = Post(
-                title=post_title,
-                url=post_data['url'],
-                content=content_html
+            # Create or get the page
+            page, created = Page.objects.get_or_create(
+                url=page_data['url'],
+                defaults={'title': page_title, 'content': content_html}
             )
-            return post
+
+            # Create or get the theme
+            theme, _ = Theme.objects.get_or_create(name='Romantic Relationship')
+
+            # Create the page analysis
+            PageAnalysis.objects.create(
+                page=page,
+                theme=theme,
+                confidence_score=analysis_data.get('confidence_score'),
+                reasoning_summary=analysis_data.get('reasoning_summary')
+            )
+
+            return page
         except json.JSONDecodeError:
             logger.error(
                 f"Failed to decode JSON from API response: {enriched_result}"
