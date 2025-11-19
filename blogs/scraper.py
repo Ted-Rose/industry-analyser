@@ -8,6 +8,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from google.api_core import exceptions
 from django.conf import settings
+from django.db.models import Count
 from core_scraper.base import BaseScraper
 from .models import Page, Theme, PageAnalysis
 
@@ -24,6 +25,8 @@ class BlogScraper(BaseScraper):
         self.config = self.load_config()
         self.enrich_search_results = True
         self.validate_result = True
+        self.excluded_resources = []
+        self.total_themes_count = Theme.objects.count()
 
     def load_config(self):
         """Loads the scraper's configuration from a YAML file."""
@@ -54,7 +57,37 @@ class BlogScraper(BaseScraper):
 
     def remove_redundant_results(self, formatted_results):
         """Removes redundant results from the list of formatted results."""
-        return formatted_results
+        if self.total_themes_count == 0:
+            logger.info("No themes found in the database.\
+                        Skipping redundancy check.")
+            return formatted_results
+
+        # Find pages that exist and have at least as many analyses as there are themes.
+        # This is a more robust check than equality in case of data inconsistencies.
+        fully_analyzed_pages = Page.objects.filter(
+            url__in=formatted_results
+        ).annotate(
+            analysis_count=Count('pageanalysis')
+        ).filter(
+            analysis_count__gte=self.total_themes_count
+        )
+
+        # Get the URLs of the pages that are already fully analyzed.
+        completed_urls = set(fully_analyzed_pages.values_list('url', flat=True))
+
+        if completed_urls:
+            logger.info(
+                "Found %d fully analyzed pages. Removing them from the queue.",
+                len(completed_urls)
+            )
+            # Filter out the completed URLs from the original list.
+            new_results = [
+                href for href in formatted_results if href not in completed_urls
+            ]
+            return new_results
+        else:
+            logger.info("No fully analyzed pages found. Processing all results.")
+            return formatted_results
 
     def get_resource_info_link(self, resource):
         info_link = self.config['base_url'] + resource
@@ -73,34 +106,56 @@ class BlogScraper(BaseScraper):
 
         client = genai.Client(api_key=settings.GEMINI_API_KEY)
         response = None
-        max_retries = 10
+        models = [
+            "gemini-2.5-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+        ]
+        retries_per_model = 3
+        response_received = False
 
-        for attempt in range(max_retries):
-            try:
-                response = client.models.generate_content(
-                    model="gemini-2.5-pro",
-                    contents=full_prompt,
-                )
-                logger.info(f"Gemini response: {response.text}")
-                break  # Success, exit the loop
-            except exceptions.ServerError as e:
-                logger.warning(
-                    "Gemini API is unavailable, attempt %s of %s. "
-                    "Retrying in %s seconds... Error: %s",
-                    attempt + 1, max_retries, 2 ** attempt, e
-                )
-                time.sleep(2 ** attempt)
-            except Exception as e:
-                logger.error(
-                    "An unexpected error occurred with Gemini API: %s", e
-                )
-                return None
+        try:
+            for model_name in models:
+                for attempt in range(retries_per_model):
+                    try:
+                        logger.info(
+                            f"Attempting model {model_name} (Attempt {attempt + 1}/{retries_per_model})"
+                        )
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=full_prompt,
+                        )
+                        logger.info(f"Success with model: {model_name}")
+                        response_received = True
+                        break  # Exit inner loop on success
+                    except exceptions.ServerError as e:
+                        logger.warning(
+                            "Model %s failed on attempt %s. Retrying in %ss. Error: %s",
+                            model_name, attempt + 1, 2 ** attempt, e
+                        )
+                        time.sleep(2 ** attempt)
+                if response_received:
+                    break  # Exit outer loop on success
+        except Exception as e:
+            logger.error("An unexpected error occurred with Gemini API: %s", e)
+            return None
 
         if not response:
             logger.error(
                 "Failed to get a response from Gemini API after %s retries.",
                 max_retries
             )
+            return None
+        if response.prompt_feedback:
+            logger.error(
+                "Prompt probably blocked by Gemini API: %s",
+                response.prompt_feedback
+            )
+            if response.prompt_feedback.block_reason:
+                logger.error(
+                    "Prompt blocked by Gemini API: %s",
+                    response.prompt_feedback.block_reason
+                )
             return None
 
         enriched_result = json.dumps({
@@ -174,7 +229,7 @@ class BlogScraper(BaseScraper):
 
         return content
 
-    def initiate_resource(self, enriched_result):
+    def create_resource(self, enriched_result):
         """Parses the enriched result from the API to create a resource dictionary."""
         try:
             page_data = json.loads(enriched_result)
@@ -196,24 +251,38 @@ class BlogScraper(BaseScraper):
             # Create or get the page
             page, created = Page.objects.get_or_create(
                 url=page_data['url'],
-                defaults={'title': page_title, 'content': content_html}
+                defaults={'title': page_title}
             )
 
-            # Create or get the theme
-            theme, _ = Theme.objects.get_or_create(name='Romantic Relationship')
+            # Dynamically find the theme key from the analysis data
+            common_keys = {'confidence_score', 'reasoning_summary'}
+            theme_key = next((key for key in analysis_data if key not in common_keys), None)
 
-            # Create the page analysis
-            PageAnalysis.objects.create(
-                page=page,
-                theme=theme,
-                confidence_score=analysis_data.get('confidence_score'),
-                reasoning_summary=analysis_data.get('reasoning_summary')
-            )
-
+            if theme_key and analysis_data.get(theme_key) is True:
+                try:
+                    theme = Theme.objects.get(key_name=theme_key)
+                    PageAnalysis.objects.update_or_create(
+                        page=page,
+                        theme=theme,
+                        defaults={
+                            'confidence_score': analysis_data.get('confidence_score'),
+                            'reasoning_summary': analysis_data.get('reasoning_summary')
+                        }
+                    )
+                    logger.info(
+                        "Created analysis for page %s with theme %s",
+                        page.id, theme.name
+                    )
+                except Theme.DoesNotExist:
+                    logger.warning(
+                        "Theme with key_name '%s' not found in database.",
+                        theme_key
+                    )
             return page
         except json.JSONDecodeError:
             logger.error(
-                f"Failed to decode JSON from API response: {enriched_result}"
+                "Failed to decode JSON from API response: %s",
+                enriched_result
             )
             return None
 

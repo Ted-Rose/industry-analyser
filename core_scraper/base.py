@@ -35,6 +35,7 @@ class BaseScraper(abc.ABC):
 
         self.config = config or {}
         self.last_sleep_by_domain = {}
+        self.bulk_save = False
         self.default_domain = 'default'
         retry_strategy = Retry(
             total=3,
@@ -78,7 +79,7 @@ class BaseScraper(abc.ABC):
         if self.enrich_search_results:
             resources = []
             for result in search_results:
-              
+
                 # TODO: Add a check to see if the result is already in the database
                 # Almost in all cases based on the url
                 enriched_result = self.enrich_result(result)
@@ -87,8 +88,11 @@ class BaseScraper(abc.ABC):
                     self.excluded_resources.append(result)
                     continue
 
-                resource = self.initiate_resource(enriched_result)
-                resources.append(resource)
+                if self.bulk_save:
+                    resource = self.initiate_resource(enriched_result)
+                    resources.append(resource)
+                else:
+                    resource = self.create_resource(enriched_result)
 
                 if len(resources) >= 2:
                     break
