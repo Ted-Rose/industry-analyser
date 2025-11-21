@@ -79,7 +79,6 @@ class BaseScraper(abc.ABC):
         if self.enrich_search_results:
             resources = []
             for result in search_results:
-
                 # TODO: Add a check to see if the result is already in the database
                 # Almost in all cases based on the url
                 enriched_result = self.enrich_result(result)
@@ -88,15 +87,16 @@ class BaseScraper(abc.ABC):
                     self.excluded_resources.append(result)
                     continue
 
-                if self.bulk_save:
+                if self.ai_analysis:
+                    self.analyse_and_save_resource(enriched_result, result)
+                else:
                     resource = self.initiate_resource(enriched_result)
                     resources.append(resource)
-                else:
-                    resource = self.create_resource(enriched_result)
 
-                if len(resources) >= 2:
-                    break
+                    if len(resources) >= 2:
+                        break
 
+            # TODO: Blog scrapper will return empty list - fix logic gap
             return resources
         else:
             return self.initiate_resources(search_results)

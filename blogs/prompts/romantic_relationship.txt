@@ -7,7 +7,7 @@ Consider the following criteria when making your determination:
 
 **Your output must be a single, JSON-formatted object with the following keys:**
 
-1.  `is_romantic_relationship_focused`: (Boolean: `true` or `false`) - The final determination.
+1.  `romantic_relationship`: (Boolean: `true` or `false`) - The final determination.
 2.  `confidence_score`: (Float: 0.0 to 1.0) - Your confidence in the determination (1.0 being fully certain).
 3.  `reasoning_summary`: (String) - A brief (1-2 sentence) explanation of *why* you chose 'true' or 'false', referencing the criteria above.
 
