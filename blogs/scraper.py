@@ -113,8 +113,6 @@ class BlogScraper(BaseScraper):
         aggregated_results = {}
 
         for theme in themes_to_analyse:
-            logger.info("Analyzing content for theme: %s", theme.name)
-
             # 1. Load the prompt dynamically based on the theme's key_name
             try:
                 prompt_path = os.path.join(
@@ -159,6 +157,7 @@ class BlogScraper(BaseScraper):
                                     theme.name, response.prompt_feedback.block_reason
                                 )
                                 synthetic_analysis = {
+                                    theme.name: True,  # Explicitly mark the theme as present
                                     'confidence_score': 1.0,
                                     'reasoning_summary': f"Content analysis blocked by API safety filters. Reason: {response.prompt_feedback.block_reason}",
                                     'model': model_name,
@@ -169,6 +168,7 @@ class BlogScraper(BaseScraper):
                             else:
                                 logger.info(f"Success with model: {model_name} for theme '{theme.name}'")
                                 response_received = True
+                                used_model = model_name  # Keep track of the successful model
                                 break  # Exit inner loop on success
                         except Exception as e:
                             logger.warning(
@@ -192,6 +192,7 @@ class BlogScraper(BaseScraper):
                 # Clean the response from the model to remove markdown formatting
                 cleaned_json_str = response.text.strip().replace('```json', '').replace('```', '').strip()
                 theme_analysis = json.loads(cleaned_json_str)
+                theme_analysis['model'] = used_model  # Add the model info
                 aggregated_results[theme.name] = theme_analysis
             except json.JSONDecodeError:
                 logger.error(
@@ -291,7 +292,7 @@ class BlogScraper(BaseScraper):
             return page
 
         logger.info(
-            "Page '%s' requires analysis for themes: %s",
+            "\nPage '%s' requires analysis for themes: %s",
             page.title, [t.name for t in themes_to_analyse]
         )
 
@@ -315,7 +316,6 @@ class BlogScraper(BaseScraper):
                         'reasoning_summary': results.get('reasoning_summary')
                     }
                 )
-                logger.info("Saved analysis for page '%s' and theme '%s'", page.title, theme.name)
             except Theme.DoesNotExist:
                 logger.warning("Theme '%s' from analysis not found in DB.", theme_key)
             except (TypeError, KeyError) as e:
