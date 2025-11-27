@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from google.api_core import exceptions
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Q
 from core_scraper.base import BaseScraper
 from .models import Page, Theme, PageAnalysis
 
@@ -63,14 +63,22 @@ class BlogScraper(BaseScraper):
                         Skipping redundancy check.")
             return formatted_results
 
-        # Find pages that exist and have at least as many analyses as there are themes.
-        # This is a more robust check than equality in case of data inconsistencies.
+        # Find pages that exist and meet one of two conditions:
+        # 1. They have been fully analyzed (all themes checked).
+        # 2. They have at least one positive match (theme_match=True)
         fully_analyzed_pages = Page.objects.filter(
             url__in=formatted_results
         ).annotate(
-            analysis_count=Count('pageanalysis')
+            analysis_count=Count('pageanalysis'),
+            match_count=Count('pageanalysis', filter=Q(
+              pageanalysis__theme_match=True
+            ))
         ).filter(
-            analysis_count__gte=self.total_themes_count
+            Q(
+              analysis_count__gte=self.total_themes_count
+            ) | Q(
+              match_count__gt=0
+            )
         )
 
         # Get the URLs of the pages that are already fully analyzed.
@@ -130,12 +138,12 @@ class BlogScraper(BaseScraper):
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             response = None
             models = [
-                "gemini-2.5-pro",
-                "gemini-2.5-flash",
+                # "gemini-2.5-pro",
+                # "gemini-2.5-flash",
                 "gemini-2.5-flash-lite",
-                "gemini-2.0-flash",
+                # "gemini-2.0-flash",
                 "gemini-2.0-flash-lite",
-                "gemini-2.0-flash-exp"
+                # "gemini-2.0-flash-exp"
             ]
             retries_per_model = 2
             response_received = False
@@ -157,7 +165,9 @@ class BlogScraper(BaseScraper):
                                     theme.name, response.prompt_feedback.block_reason
                                 )
                                 synthetic_analysis = {
-                                    theme.name: True,  # Explicitly mark the theme as present
+                                    'theme_name': theme.name,
+                                    # TODO: Here we are not sure if there is a theme match, but content ain't good
+                                    'theme_match': True,
                                     'confidence_score': 1.0,
                                     'reasoning_summary': f"Content analysis blocked by API safety filters. Reason: {response.prompt_feedback.block_reason}",
                                     'model': model_name,
@@ -194,6 +204,10 @@ class BlogScraper(BaseScraper):
                 theme_analysis = json.loads(cleaned_json_str)
                 theme_analysis['model'] = used_model  # Add the model info
                 aggregated_results[theme.name] = theme_analysis
+                # Return analysis if page matches the theme for
+                # this content is not appropriate
+                if theme_analysis[theme.name]:
+                    return aggregated_results
             except json.JSONDecodeError:
                 logger.error(
                     "Failed to decode JSON response for theme '%s': %s",
@@ -292,7 +306,7 @@ class BlogScraper(BaseScraper):
             return page
 
         logger.info(
-            "\nPage '%s' requires analysis for themes: %s",
+            "\nPage \n%s\nrequires analysis for themes: %s",
             page.title, [t.name for t in themes_to_analyse]
         )
 
@@ -313,12 +327,17 @@ class BlogScraper(BaseScraper):
                     theme=theme,
                     defaults={
                         'confidence_score': results.get('confidence_score'),
-                        'reasoning_summary': results.get('reasoning_summary')
+                        'reasoning_summary': results.get('reasoning_summary'),
+                        'theme_match': results.get(theme_name)
                     }
                 )
             except Theme.DoesNotExist:
-                logger.warning("Theme '%s' from analysis not found in DB.", theme_key)
+                logger.warning("Theme '%s' from analysis not found in DB.",
+                               theme_name)
             except (TypeError, KeyError) as e:
-                logger.error("Error processing analysis result for theme '%s': %s", theme_key, e)
+                logger.error(
+                  "Error processing analysis result for theme '%s': %s",
+                  theme_name, e
+                )
 
         return page

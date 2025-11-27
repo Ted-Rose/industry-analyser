@@ -23,9 +23,10 @@ class PageAnalysis(models.Model):
     theme = models.ForeignKey(Theme, on_delete=models.CASCADE)
     confidence_score = models.FloatField()
     reasoning_summary = models.TextField()
+    theme_match = models.BooleanField()
 
     class Meta:
         unique_together = ('page', 'theme')
 
     def __str__(self):
-        return f"{self.post.title} - {self.theme.name}"
+        return f"{self.page.title} - {self.theme.name}"
