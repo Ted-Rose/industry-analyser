@@ -165,9 +165,7 @@ class BlogScraper(BaseScraper):
                                     theme.name, response.prompt_feedback.block_reason
                                 )
                                 synthetic_analysis = {
-                                    'theme_name': theme.name,
-                                    # TODO: Here we are not sure if there is a theme match, but content ain't good
-                                    'theme_match': True,
+                                    theme.name: True,
                                     'confidence_score': 1.0,
                                     'reasoning_summary': f"Content analysis blocked by API safety filters. Reason: {response.prompt_feedback.block_reason}",
                                     'model': model_name,
