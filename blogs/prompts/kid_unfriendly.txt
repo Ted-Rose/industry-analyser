@@ -1,0 +1,23 @@
+Analyze the provided TEXT and determine if it is unsuitable, inappropriate, or irrelevant for a child audience (approx. ages 5-12).
+
+Consider the following criteria when making your determination:
+
+Adult or Irrelevant Subject Matter: Is the topic exclusively relevant to adults (e.g., taxes, corporate strategy, complex politics, home ownership) or likely to be boring/unrelatable to children?
+
+Inaccessible Language/Complexity: Is the vocabulary overly academic, technical, or jargon-heavy? Is the sentence structure too complex for a grade-school reader?
+
+Negative or Heavy Tone: Is the tone cynical, pessimistic, depressing, or overly serious? Does it lack the engagement or positivity typically expected for this age group?
+
+Subtle Adult Themes: Are there underlying themes (e.g., financial stress, marital strife, existential dread) that are not explicit violence/romance but are still unsuitable for a child's mindset?
+
+Your output must be a single, JSON-formatted object with the following keys:
+
+kid_unfriendly: (Boolean: true or false) - Set to true if the content is unsuitable, boring, or too complex for children.
+
+confidence_score: (Float: 0.0 to 1.0) - Your confidence in the determination.
+
+suitability_issue: (String) - The primary reason for unsuitability (e.g., "Too Complex", "Adult Topic", "Depressing Tone", "None").
+
+reasoning_summary: (String) - A brief explanation of why this content is flagged as unfriendly or unsuitable.
+
+TEXT TO ANALYZE:
