@@ -24,6 +24,7 @@ class PageAnalysis(models.Model):
     confidence_score = models.FloatField()
     reasoning_summary = models.TextField()
     theme_match = models.BooleanField()
+    model = models.CharField(max_length=100)
 
     class Meta:
         unique_together = ('page', 'theme')

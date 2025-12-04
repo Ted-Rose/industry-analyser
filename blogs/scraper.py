@@ -138,11 +138,12 @@ class BlogScraper(BaseScraper):
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             response = None
             models = [
-                # "gemini-2.5-pro",
+                "gemini-2.5-pro",
+                # Rest of the models provided unsatisfying results
                 # "gemini-2.5-flash",
-                "gemini-2.5-flash-lite",
+                # "gemini-2.5-flash-lite",
                 # "gemini-2.0-flash",
-                "gemini-2.0-flash-lite",
+                # "gemini-2.0-flash-lite",
                 # "gemini-2.0-flash-exp"
             ]
             retries_per_model = 2
@@ -326,7 +327,8 @@ class BlogScraper(BaseScraper):
                     defaults={
                         'confidence_score': results.get('confidence_score'),
                         'reasoning_summary': results.get('reasoning_summary'),
-                        'theme_match': results.get(theme_name)
+                        'theme_match': results.get(theme_name),
+                        'model': results.get('model')
                     }
                 )
             except Theme.DoesNotExist:
