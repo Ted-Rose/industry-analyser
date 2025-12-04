@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth import get_user_model
 
 
 class Theme(models.Model):
@@ -31,3 +32,13 @@ class PageAnalysis(models.Model):
 
     def __str__(self):
         return f"{self.page.title} - {self.theme.name}"
+
+
+class PageAnalysisReviews(models.Model):
+    page_analysis = models.ForeignKey(PageAnalysis, on_delete=models.CASCADE)
+    user = models.ForeignKey(get_user_model(), on_delete=models.CASCADE)
+    analysis_approved = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.page_analysis} - {self.user}"
