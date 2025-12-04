@@ -19,7 +19,7 @@ logger = logging.getLogger('blogs')
 class BlogScraper(BaseScraper):
     """A scraper for fetching blog posts."""
 
-    def __init__(self):
+    def __init__(self, target_theme=None, reanalyze=False):
         """Initializes the scraper and loads its configuration."""
         super().__init__()
         self.config = self.load_config()
@@ -28,6 +28,8 @@ class BlogScraper(BaseScraper):
         self.ai_analysis = True
         self.excluded_resources = []
         self.total_themes_count = Theme.objects.count()
+        self.target_theme = target_theme
+        self.reanalyze = reanalyze
 
     def load_config(self):
         """Loads the scraper's configuration from a YAML file."""
@@ -59,43 +61,74 @@ class BlogScraper(BaseScraper):
     def remove_redundant_results(self, formatted_results):
         """Removes redundant results from the list of formatted results."""
         if self.total_themes_count == 0:
-            logger.info("No themes found in the database.\
-                        Skipping redundancy check.")
+            logger.info(
+                "No themes found in the database. "
+                "Skipping redundancy check."
+            )
             return formatted_results
 
-        # Find pages that exist and meet one of two conditions:
-        # 1. They have been fully analyzed (all themes checked).
-        # 2. They have at least one positive match (theme_match=True)
+        # If analyzing a specific theme with reanalyze=False,
+        # filter out pages that already have analysis for that theme
+        if self.target_theme and not self.reanalyze:
+            pages_with_theme_analysis = Page.objects.filter(
+                url__in=formatted_results,
+                pageanalysis__theme=self.target_theme
+            )
+            analyzed_urls = set(
+                pages_with_theme_analysis.values_list('url', flat=True)
+            )
+
+            if analyzed_urls:
+                logger.info(
+                    "Found %d pages already analyzed for theme '%s'. "
+                    "Removing them from the queue.",
+                    len(analyzed_urls), self.target_theme.name
+                )
+                return [
+                    href for href in formatted_results
+                    if href not in analyzed_urls
+                ]
+            else:
+                logger.info(
+                    "No pages found with existing analysis for "
+                    "theme '%s'.",
+                    self.target_theme.name
+                )
+                return formatted_results
+
+        # Original logic for analyzing all themes
         fully_analyzed_pages = Page.objects.filter(
             url__in=formatted_results
         ).annotate(
             analysis_count=Count('pageanalysis'),
-            match_count=Count('pageanalysis', filter=Q(
-              pageanalysis__theme_match=True
-            ))
-        ).filter(
-            Q(
-              analysis_count__gte=self.total_themes_count
-            ) | Q(
-              match_count__gt=0
+            match_count=Count(
+                'pageanalysis',
+                filter=Q(pageanalysis__theme_match=True)
             )
+        ).filter(
+            Q(analysis_count__gte=self.total_themes_count) |
+            Q(match_count__gt=0)
         )
 
-        # Get the URLs of the pages that are already fully analyzed.
-        completed_urls = set(fully_analyzed_pages.values_list('url', flat=True))
+        completed_urls = set(
+            fully_analyzed_pages.values_list('url', flat=True)
+        )
 
         if completed_urls:
             logger.info(
-                "Found %d fully analyzed pages. Removing them from the queue.",
+                "Found %d fully analyzed pages. "
+                "Removing them from the queue.",
                 len(completed_urls)
             )
-            # Filter out the completed URLs from the original list.
             new_results = [
-                href for href in formatted_results if href not in completed_urls
+                href for href in formatted_results
+                if href not in completed_urls
             ]
             return new_results
         else:
-            logger.info("No fully analyzed pages found. Processing all results.")
+            logger.info(
+                "No fully analyzed pages found. Processing all results."
+            )
             return formatted_results
 
     def get_resource_info_link(self, resource):
@@ -121,7 +154,7 @@ class BlogScraper(BaseScraper):
         aggregated_results = {}
 
         for theme in themes_to_analyse:
-            # 1. Load the prompt dynamically based on the theme's key_name
+            # 1. Load the prompt dynamically based on the theme's name
             try:
                 prompt_path = os.path.join(
                     settings.BASE_DIR, 'blogs', 'prompts', f'{theme.name}.txt'
@@ -296,12 +329,44 @@ class BlogScraper(BaseScraper):
             logger.info("Created new page: %s", page.title)
 
         # 2. Determine which themes need analysis
-        all_themes = set(Theme.objects.all())
-        analyzed_themes = set(Theme.objects.filter(pageanalysis__page=page))
-        themes_to_analyse = list(all_themes - analyzed_themes)
+        if self.target_theme:
+            # Theme-specific mode
+            if self.reanalyze:
+                # Force re-analysis for this theme
+                themes_to_analyse = [self.target_theme]
+                logger.info(
+                    "Re-analyzing page '%s' for theme '%s'",
+                    page.title, self.target_theme.name
+                )
+            else:
+                # Check if theme already analyzed
+                already_analyzed = PageAnalysis.objects.filter(
+                    page=page,
+                    theme=self.target_theme
+                ).exists()
+
+                if already_analyzed:
+                    logger.info(
+                        "Page '%s' already analyzed for theme '%s'. "
+                        "Skipping.",
+                        page.title, self.target_theme.name
+                    )
+                    return page
+
+                themes_to_analyse = [self.target_theme]
+        else:
+            # Original mode: analyze all missing themes
+            all_themes = set(Theme.objects.all())
+            analyzed_themes = set(
+                Theme.objects.filter(pageanalysis__page=page)
+            )
+            themes_to_analyse = list(all_themes - analyzed_themes)
 
         if not themes_to_analyse:
-            logger.info("Page '%s' is already fully analyzed. Skipping.", page.title)
+            logger.info(
+                "Page '%s' is already fully analyzed. Skipping.",
+                page.title
+            )
             return page
 
         logger.info(

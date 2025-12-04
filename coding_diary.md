@@ -1,3 +1,5 @@
+8. Analyse blogs for specific theme:
+  - `python manage.py scrape_blogs --theme violence`
 7. Database backup:
   - `./db_backups/local_db_backup.sh`
 6. Startup command

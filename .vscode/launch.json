@@ -47,7 +47,7 @@
       }
     },
     {
-      "name": "Scrape Blogs",
+      "name": "Scrape Blogs (All Themes)",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/manage.py",
