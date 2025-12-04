@@ -1,0 +1,15 @@
+Analyze the provided TEXT and determine if the core theme, concepts, or primary subject matter relates to either Mysticism or Institutional Religion.
+
+Focus on the following criteria:
+
+Mysticism: Does the text discuss personal, direct spiritual experience, esoteric knowledge, altered states of consciousness, transcendence, or non-institutionalized spiritual practices?
+
+Religion: Does the text discuss established doctrines, codified beliefs, organized worship, specific religious organizations (e.g., churches, mosques), historical/traditional narratives of a specific faith, or collective adherence to a faith system?
+
+If the text addresses EITHER Mysticism OR Institutional Religion, the value for is_spiritual_theme should be true. If the text addresses neither (e.g., it is about cooking, politics, science, etc.), it should be false.
+
+Your output must be a single, JSON-formatted object with the following keys:
+
+spiritual:	Boolean	Set to true if the content is about mysticism or religion, false otherwise.
+confidence_score	Float (0.0 to 1.0)	Your confidence in the determination.
+reasoning_summary	String	A brief explanation of why the theme was selected (or not selected).
