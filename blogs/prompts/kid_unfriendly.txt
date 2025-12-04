@@ -2,10 +2,6 @@ Analyze the provided TEXT and determine if it is unsuitable, inappropriate, or i
 
 Consider the following criteria when making your determination:
 
-Adult or Irrelevant Subject Matter: Is the topic exclusively relevant to adults (e.g., taxes, corporate strategy, complex politics, home ownership) or likely to be boring/unrelatable to children?
-
-Inaccessible Language/Complexity: Is the vocabulary overly academic, technical, or jargon-heavy? Is the sentence structure too complex for a grade-school reader?
-
 Negative or Heavy Tone: Is the tone cynical, pessimistic, depressing, or overly serious? Does it lack the engagement or positivity typically expected for this age group?
 
 Subtle Adult Themes: Are there underlying themes (e.g., financial stress, marital strife, existential dread) that are not explicit violence/romance but are still unsuitable for a child's mindset?
