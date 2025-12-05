@@ -4,6 +4,13 @@ from django.contrib.auth import get_user_model
 
 class Theme(models.Model):
     name = models.CharField(max_length=100, unique=True)
+    analysis_order = models.IntegerField(
+        default=0,
+        help_text="Order in which this theme is analyzed (lower = first)"
+    )
+
+    class Meta:
+        ordering = ['analysis_order', 'name']
 
     def __str__(self):
         return self.name

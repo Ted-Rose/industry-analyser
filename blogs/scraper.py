@@ -356,11 +356,17 @@ class BlogScraper(BaseScraper):
                 themes_to_analyse = [self.target_theme]
         else:
             # Original mode: analyze all missing themes
-            all_themes = set(Theme.objects.all())
-            analyzed_themes = set(
-                Theme.objects.filter(pageanalysis__page=page)
+            all_themes = list(Theme.objects.all())
+            analyzed_theme_ids = set(
+                Theme.objects.filter(
+                    pageanalysis__page=page
+                ).values_list('id', flat=True)
             )
-            themes_to_analyse = list(all_themes - analyzed_themes)
+            # Filter out already analyzed themes, maintaining order
+            themes_to_analyse = [
+                theme for theme in all_themes
+                if theme.id not in analyzed_theme_ids
+            ]
 
         if not themes_to_analyse:
             logger.info(
