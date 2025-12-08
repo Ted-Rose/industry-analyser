@@ -22,6 +22,34 @@ class Page(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     themes = models.ManyToManyField(Theme, through='PageAnalysis')
 
+    has_video = models.BooleanField(
+        default=False,
+        help_text="Page contains video content or mentions video"
+    )
+    video_count = models.IntegerField(
+        default=0,
+        help_text="Number of video embeds detected"
+    )
+    image_count = models.IntegerField(
+        default=0,
+        help_text="Number of images in the page"
+    )
+    text_length = models.IntegerField(
+        default=0,
+        help_text="Length of text content in characters"
+    )
+
+    @property
+    def is_media_heavy(self):
+        """
+        Calculate if page is media-heavy based on content.
+        Media-heavy = has video OR (5+ images AND <2000 chars text)
+        """
+        return (
+            self.has_video or
+            (self.image_count >= 5 and self.text_length < 2000)
+        )
+
     def __str__(self):
         return self.title
 

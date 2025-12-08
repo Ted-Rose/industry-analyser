@@ -136,17 +136,73 @@ class BlogScraper(BaseScraper):
         return info_link
 
     def extract_resource(self, href, extra_info):
-        """Extracts and cleans the article content from the raw HTML."""
+        """
+        Extracts and cleans the article content from the raw HTML.
+        Also analyzes content characteristics (images, videos, text).
+        """
         article_content = self.format_extra_info(extra_info, href)
 
-        # Extract the page title from the content HTML for later use
+        # Parse content for analysis
         soup = BeautifulSoup(article_content, 'html.parser')
-        page_title = soup.find('h1').get_text(strip=True) if soup.find('h1') else "No Title Found"
+        page_title = (
+            soup.find('h1').get_text(strip=True)
+            if soup.find('h1') else "No Title Found"
+        )
+
+        # Count images
+        image_count = len(soup.find_all('img'))
+
+        # Count videos (direct tags and embeds)
+        video_count = 0
+        video_count += len(soup.find_all('video'))
+
+        # YouTube embeds
+        youtube_iframes = soup.find_all(
+            'iframe',
+            src=lambda x: x and 'youtube.com' in x
+        )
+        video_count += len(youtube_iframes)
+
+        # Vimeo embeds
+        vimeo_iframes = soup.find_all(
+            'iframe',
+            src=lambda x: x and 'vimeo.com' in x
+        )
+        video_count += len(vimeo_iframes)
+
+        # Dailymotion embeds
+        dailymotion_iframes = soup.find_all(
+            'iframe',
+            src=lambda x: x and 'dailymotion.com' in x
+        )
+        video_count += len(dailymotion_iframes)
+
+        # Get text length (excluding script/style tags)
+        soup_copy = BeautifulSoup(article_content, 'html.parser')
+        for script in soup_copy(['script', 'style']):
+            script.decompose()
+        text_content = soup_copy.get_text(strip=True)
+        text_length = len(text_content)
+
+        # Check if video mentioned in text (for dynamic embeds)
+        has_video_keyword = 'video' in text_content.lower()
+        has_video = video_count > 0 or has_video_keyword
+
+        # Determine if media-heavy
+        is_media_heavy = (
+            has_video or
+            (image_count >= 5 and text_length < 2000)
+        )
 
         return {
             'url': href,
             'title': page_title,
-            'content': article_content
+            'content': text_content,
+            'has_video': has_video,
+            'video_count': video_count,
+            'image_count': image_count,
+            'text_length': text_length,
+            'is_media_heavy': is_media_heavy
         }
 
     def analyse_content(self, article_content, themes_to_analyse):
@@ -327,6 +383,47 @@ class BlogScraper(BaseScraper):
         )
         if created:
             logger.info("Created new page: %s", page.title)
+
+        # 1.5 Update content characteristics
+        page.has_video = page_data.get('has_video', False)
+        page.video_count = page_data.get('video_count', 0)
+        page.image_count = page_data.get('image_count', 0)
+        page.text_length = page_data.get('text_length', 0)
+        page.save()
+
+        if page.is_media_heavy:
+            logger.warning(
+                "Page '%s' is media-heavy (video: %s, videos: %d, "
+                "images: %d, text: %d chars). Skipping AI analysis.",
+                page.title, page.has_video, page.video_count,
+                page.image_count, page.text_length
+            )
+            # Skip AI analysis and mark as kid_unfriendly directly
+            kid_unfriendly_theme = Theme.objects.get(
+                name='kid_unfriendly'
+            )
+            PageAnalysis.objects.update_or_create(
+                page=page,
+                theme=kid_unfriendly_theme,
+                defaults={
+                    'confidence_score': 1.0,
+                    'reasoning_summary': (
+                        f"Media-heavy content detected: "
+                        f"{'video present, ' if page.has_video else ''}"
+                        f"{page.video_count} video(s), "
+                        f"{page.image_count} images, "
+                        f"{page.text_length} chars of text"
+                    ),
+                    'theme_match': True,
+                    'model': 'content_analyzer'
+                }
+            )
+            logger.info(
+                "Marked page '%s' as kid_unfriendly due to "
+                "media-heavy content",
+                page.title
+            )
+            return page
 
         # 2. Determine which themes need analysis
         if self.target_theme:
