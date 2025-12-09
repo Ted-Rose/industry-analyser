@@ -6,11 +6,11 @@ import logging
 from google import genai
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
-from google.api_core import exceptions
 from django.conf import settings
 from django.db.models import Count, Q
 from core_scraper.base import BaseScraper
 from .models import Page, Theme, PageAnalysis
+from industry_analyser.utils import list_budgets_and_spend
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('blogs')
@@ -263,6 +263,8 @@ class BlogScraper(BaseScraper):
         aggregated_results = {}
 
         for theme in themes_to_analyse:
+            # list_budgets_and_spend(settings.BILLING_ACCOUNT_ID)
+
             # 1. Load the prompt dynamically based on the theme's name
             try:
                 prompt_path = os.path.join(
