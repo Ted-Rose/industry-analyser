@@ -23,15 +23,28 @@ class PageManager(models.Manager):
         Return kid-friendly pages:
         1. All analyses have theme_match=False (AI says all clean), OR
         2. Reviewer rejected kid_unfriendly analysis that AI set to True
+
+        EXCLUDE pages where:
+        - Reviewer rejected an analysis where AI said theme_match=False
+          (reviewer disagrees with AI's clean assessment)
         """
         from django.db.models import Count, Q, Exists, OuterRef
         theme_count = Theme.objects.count()
 
         # Subquery: kid_unfriendly was True but reviewer rejected it
+        # (AI said bad, reviewer says good)
         kid_unfriendly_overridden = PageAnalysisReviews.objects.filter(
             page_analysis__page=OuterRef('pk'),
             page_analysis__theme__name='kid_unfriendly',
             page_analysis__theme_match=True,
+            analysis_approved=False
+        )
+
+        # Subquery: AI said clean (False) but reviewer rejected it
+        # (AI said good, reviewer says bad)
+        clean_analysis_rejected = PageAnalysisReviews.objects.filter(
+            page_analysis__page=OuterRef('pk'),
+            page_analysis__theme_match=False,
             analysis_approved=False
         )
 
@@ -41,13 +54,16 @@ class PageManager(models.Manager):
                 'pageanalysis',
                 filter=Q(pageanalysis__theme_match=False)
             ),
-            kid_unfriendly_overridden=Exists(kid_unfriendly_overridden)
+            kid_unfriendly_overridden=Exists(kid_unfriendly_overridden),
+            has_rejected_clean=Exists(clean_analysis_rejected)
         ).filter(
             Q(
                 total_analyses=theme_count,
                 all_false_analyses=theme_count
             ) |
             Q(kid_unfriendly_overridden=True)
+        ).exclude(
+            has_rejected_clean=True
         ).distinct()
 
 
