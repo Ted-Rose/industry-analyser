@@ -83,8 +83,8 @@ class Page(models.Model):
         Media-heavy = has video OR (5+ images AND <1000 chars text)
         """
         return (
-            self.has_video or
-            (self.image_count >= 5 and self.text_length < 1000)
+            (self.has_video or self.image_count >= 5) and
+            self.text_length < 1000
         )
 
     def __str__(self):
