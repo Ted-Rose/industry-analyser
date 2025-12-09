@@ -149,8 +149,12 @@ class BlogScraper(BaseScraper):
             if soup.find('h1') else "No Title Found"
         )
 
-        # Count images
-        image_count = len(soup.find_all('img'))
+        # Count images (exclude emotions/emojis)
+        all_images = soup.find_all('img')
+        image_count = len([
+            img for img in all_images
+            if img.get('alt') != 'emotion'
+        ])
 
         # Count videos (direct tags and embeds)
         video_count = 0
@@ -188,12 +192,6 @@ class BlogScraper(BaseScraper):
         has_video_keyword = 'video' in text_content.lower()
         has_video = video_count > 0 or has_video_keyword
 
-        # Determine if media-heavy
-        is_media_heavy = (
-            has_video or
-            (image_count >= 5 and text_length < 2000)
-        )
-
         return {
             'url': href,
             'title': page_title,
@@ -202,7 +200,6 @@ class BlogScraper(BaseScraper):
             'video_count': video_count,
             'image_count': image_count,
             'text_length': text_length,
-            'is_media_heavy': is_media_heavy
         }
 
     def analyse_content(self, article_content, themes_to_analyse):

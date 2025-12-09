@@ -43,11 +43,11 @@ class Page(models.Model):
     def is_media_heavy(self):
         """
         Calculate if page is media-heavy based on content.
-        Media-heavy = has video OR (5+ images AND <2000 chars text)
+        Media-heavy = has video OR (5+ images AND <1000 chars text)
         """
         return (
             self.has_video or
-            (self.image_count >= 5 and self.text_length < 2000)
+            (self.image_count >= 5 and self.text_length < 1000)
         )
 
     def __str__(self):
