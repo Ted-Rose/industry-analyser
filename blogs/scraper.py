@@ -30,6 +30,7 @@ class BlogScraper(BaseScraper):
         self.total_themes_count = Theme.objects.count()
         self.target_theme = target_theme
         self.reanalyze = reanalyze
+        self.max_pages = self.config.get('max_pages', 1)
 
     def load_config(self):
         """Loads the scraper's configuration from a YAML file."""
@@ -40,8 +41,63 @@ class BlogScraper(BaseScraper):
             return yaml.safe_load(file)
 
     def get_search_urls(self):
-        """Yields the blog listing URL from the configuration."""
-        yield self.config['blog_listing_url']
+        """
+        Yields blog listing URLs, following pagination links.
+        Supports both single URL (blog_listing_url) and multiple URLs
+        (blog_listing_urls).
+        Stops after max_pages per URL or when no next link is found.
+        """
+        listing_urls = self.config['blog_listing_urls']
+
+        for listing_url in listing_urls:
+            logger.info(
+                f"Starting to scrape listing: {listing_url}"
+            )
+            current_url = listing_url
+            pages_scraped = 0
+
+            while current_url and pages_scraped < self.max_pages:
+                logger.info(
+                    f"Scraping page {pages_scraped + 1}/"
+                    f"{self.max_pages}: {current_url}"
+                )
+                yield current_url
+
+                # Fetch the page to find the next link
+                response = self.make_request(current_url)
+                if not response:
+                    break
+
+                next_url = self.extract_next_page_url(response)
+                if not next_url:
+                    logger.info(
+                        f"No more pages for {listing_url}"
+                    )
+                    break
+
+                current_url = next_url
+                pages_scraped += 1
+
+            if pages_scraped >= self.max_pages:
+                logger.info(
+                    f"Reached max pages limit ({self.max_pages}) "
+                    f"for {listing_url}"
+                )
+
+    def extract_next_page_url(self, response):
+        """
+        Extracts the next pagination URL from the response.
+        Looks for <link rel="next" href="..."> in the HTML.
+        """
+        soup = BeautifulSoup(response.data, 'html.parser')
+        next_link = soup.find('link', rel='next')
+
+        if next_link and next_link.get('href'):
+            next_url = next_link['href']
+            logger.info(f"Found next page: {next_url}")
+            return next_url
+
+        return None
 
     def format_results(self, search_results):
         """Parses the blog listing page to find links to individual posts."""
