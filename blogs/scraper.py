@@ -259,7 +259,78 @@ class BlogScraper(BaseScraper):
         }
 
     def analyse_content(self, article_content, themes_to_analyse):
-        """Calls the Gemini API to analyze content against a specific list of themes."""
+        """
+        Two-tier AI analysis to reduce costs:
+        1. Try cheap models first for all themes
+        2. If any theme matches (True), stop and return results
+        3. If all themes return False, use expensive models
+        """
+        cheap_rough_models = [
+            "gemini-2.0-flash-lite",
+            # "gemini-2.5-flash-lite",
+        ]
+        expensive_precise_models = [
+            "gemini-2.5-pro",
+        ]
+
+        # Step 1: Try cheap models first
+        logger.info(
+            "Starting cheap model pre-screening for %d themes",
+            len(themes_to_analyse)
+        )
+        cheap_results = self._analyze_with_models(
+            article_content,
+            themes_to_analyse,
+            cheap_rough_models,
+            model_tier='cheap'
+        )
+
+        # Step 2: Check if any theme matched
+        if self._has_theme_match(cheap_results):
+            logger.info(
+                "Theme match found with cheap model. "
+                "Stopping analysis to save costs."
+            )
+            return cheap_results
+
+        # Step 3: All themes returned False - use expensive models
+        logger.info(
+            "No theme match with cheap models. "
+            "Using expensive models for precise verification."
+        )
+        expensive_results = self._analyze_with_models(
+            article_content,
+            themes_to_analyse,
+            expensive_precise_models,
+            model_tier='expensive'
+        )
+
+        return expensive_results
+
+    def _has_theme_match(self, results):
+        """
+        Check if any theme matched (returned True).
+        """
+        if not results:
+            return False
+
+        for theme_name, analysis in results.items():
+            if analysis.get(theme_name) is True:
+                logger.info(
+                    f"Theme '{theme_name}' matched with "
+                    f"model {analysis.get('model')}"
+                )
+                return True
+
+        return False
+
+    def _analyze_with_models(
+        self, article_content, themes_to_analyse, model_list, model_tier
+    ):
+        """
+        Analyze content with specified model list.
+        Returns aggregated results with model_tier included.
+        """
         aggregated_results = {}
 
         for theme in themes_to_analyse:
@@ -279,20 +350,11 @@ class BlogScraper(BaseScraper):
             # 2. Make a separate API call for each theme
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             response = None
-            models = [
-                "gemini-2.5-pro",
-                # Rest of the models provided unsatisfying results
-                # "gemini-2.5-flash",
-                # "gemini-2.5-flash-lite",
-                # "gemini-2.0-flash",
-                # "gemini-2.0-flash-lite",
-                # "gemini-2.0-flash-exp"
-            ]
             retries_per_model = 2
             response_received = False
 
             try:
-                for model_name in models:
+                for model_name in model_list:
                     for attempt in range(retries_per_model):
                         try:
                             logger.info(
@@ -312,6 +374,7 @@ class BlogScraper(BaseScraper):
                                     'confidence_score': 1.0,
                                     'reasoning_summary': f"Content analysis blocked by API safety filters. Reason: {response.prompt_feedback.block_reason}",
                                     'model': model_name,
+                                    'model_tier': model_tier,
                                     'blocked': True,
                                 }
                                 aggregated_results[theme.name] = synthetic_analysis
@@ -343,12 +406,9 @@ class BlogScraper(BaseScraper):
                 # Clean the response from the model to remove markdown formatting
                 cleaned_json_str = response.text.strip().replace('```json', '').replace('```', '').strip()
                 theme_analysis = json.loads(cleaned_json_str)
-                theme_analysis['model'] = used_model  # Add the model info
+                theme_analysis['model'] = used_model
+                theme_analysis['model_tier'] = model_tier
                 aggregated_results[theme.name] = theme_analysis
-                # Return analysis if page matches the theme for
-                # this content is not appropriate
-                if theme_analysis[theme.name]:
-                    return aggregated_results
             except json.JSONDecodeError:
                 logger.error(
                     "Failed to decode JSON response for theme '%s': %s",
@@ -549,7 +609,8 @@ class BlogScraper(BaseScraper):
                         'confidence_score': results.get('confidence_score'),
                         'reasoning_summary': results.get('reasoning_summary'),
                         'theme_match': results.get(theme_name),
-                        'model': results.get('model')
+                        'model': results.get('model'),
+                        'model_tier': results.get('model_tier', 'expensive')
                     }
                 )
             except Theme.DoesNotExist:
