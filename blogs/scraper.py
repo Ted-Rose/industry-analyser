@@ -263,7 +263,7 @@ class BlogScraper(BaseScraper):
         aggregated_results = {}
 
         for theme in themes_to_analyse:
-            # list_budgets_and_spend(settings.BILLING_ACCOUNT_ID)
+            list_budgets_and_spend(settings.BILLING_ACCOUNT_ID)
 
             # 1. Load the prompt dynamically based on the theme's name
             try:

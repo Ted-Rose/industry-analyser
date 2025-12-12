@@ -31,6 +31,7 @@ def list_budgets_and_spend(billing_account_id: str):
     try:
         # The list_budgets method returns an iterable response object
         response = client.list_budgets(request=request)
+        print(response._response)
 
         found_budgets = False
         for budget in response:
