@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import time
 import yaml
 import logging
@@ -403,16 +404,29 @@ class BlogScraper(BaseScraper):
 
             # 3. Aggregate the successful (non-blocked) results
             try:
-                # Clean the response from the model to remove markdown formatting
-                cleaned_json_str = response.text.strip().replace('```json', '').replace('```', '').strip()
+                # Clean the response from the model
+                cleaned_json_str = (
+                    response.text.strip()
+                    .replace('```json', '')
+                    .replace('```', '')
+                    .strip()
+                )
+
+                # Fix common JSON issues from AI models
+                # Remove trailing commas before closing braces/brackets
+                cleaned_json_str = re.sub(
+                    r',\s*([}\]])', r'\1', cleaned_json_str
+                )
+
                 theme_analysis = json.loads(cleaned_json_str)
                 theme_analysis['model'] = used_model
                 theme_analysis['model_tier'] = model_tier
                 aggregated_results[theme.name] = theme_analysis
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 logger.error(
-                    "Failed to decode JSON response for theme '%s': %s",
-                    theme.name, response.text.strip()
+                    "Failed to decode JSON for theme '%s'. Error: %s. "
+                    "Response: %s",
+                    theme.name, str(e), response.text.strip()[:200]
                 )
 
         # 4. Return the combined JSON for all successfully analyzed themes
