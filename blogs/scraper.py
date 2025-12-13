@@ -422,6 +422,16 @@ class BlogScraper(BaseScraper):
                 theme_analysis['model'] = used_model
                 theme_analysis['model_tier'] = model_tier
                 aggregated_results[theme.name] = theme_analysis
+
+                # Stop immediately if any theme matched
+                # (content is bad, no need to check other themes)
+                if theme_analysis.get(theme.name) is True:
+                    logger.info(
+                        f"Theme '{theme.name}' matched with {model_tier} "
+                        f"model. Stopping analysis to save costs."
+                    )
+                    return aggregated_results
+
             except json.JSONDecodeError as e:
                 logger.error(
                     "Failed to decode JSON for theme '%s'. Error: %s. "
