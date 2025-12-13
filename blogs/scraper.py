@@ -438,9 +438,8 @@ class BlogScraper(BaseScraper):
                                 aggregated_results[theme.name] = synthetic_analysis
                                 return aggregated_results
                             else:
-                                logger.info(f"Success with model: {model_name} for theme '{theme.name}'")
                                 response_received = True
-                                used_model = model_name  # Keep track of the successful model
+                                used_model = model_name
                                 break  # Exit inner loop on success
                         except Exception as e:
                             logger.warning(
@@ -480,12 +479,21 @@ class BlogScraper(BaseScraper):
                 theme_analysis['model_tier'] = model_tier
                 aggregated_results[theme.name] = theme_analysis
 
+                # Log the analysis result
+                match_result = theme_analysis.get(theme.name)
+                confidence = theme_analysis.get('confidence_score', 'N/A')
+                logger.info(
+                    f"Theme '{theme.name}' analysis: "
+                    f"{'MATCH' if match_result else 'NO MATCH'} "
+                    f"(confidence: {confidence}, model: {model_tier})"
+                )
+
                 # Stop immediately if any theme matched
                 # (content is bad, no need to check other themes)
-                if theme_analysis.get(theme.name) is True:
+                if match_result is True:
                     logger.info(
-                        f"Theme '{theme.name}' matched with {model_tier} "
-                        f"model. Stopping analysis to save costs."
+                        f"Stopping analysis to save costs "
+                        f"(theme matched: {theme.name})"
                     )
                     return aggregated_results
 
