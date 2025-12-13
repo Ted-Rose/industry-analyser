@@ -21,18 +21,24 @@ class PageManager(models.Manager):
     def kid_friendly(self):
         """
         Return kid-friendly pages:
-        1. All analyses have theme_match=False (AI says all clean), OR
-        2. Reviewer rejected kid_unfriendly analysis that AI set to True
-
-        EXCLUDE pages where:
-        - Reviewer rejected an analysis where AI said theme_match=False
-          (reviewer disagrees with AI's clean assessment)
+        
+        1. Pages where ALL expensive model analyses returned False
+           AND no reviews have analysis_approved=False, OR
+        2. Pages where kid_unfriendly=True but reviewer rejected it
+        
+        EXCLUDES:
+        - Media-heavy pages (has_video OR 5+ images) AND <1000 chars
         """
         from django.db.models import Count, Q, Exists, OuterRef
         theme_count = Theme.objects.count()
 
+        # Subquery: Check if page has any rejected reviews
+        has_rejected_reviews = PageAnalysisReviews.objects.filter(
+            page_analysis__page=OuterRef('pk'),
+            analysis_approved=False
+        )
+
         # Subquery: kid_unfriendly was True but reviewer rejected it
-        # (AI said bad, reviewer says good)
         kid_unfriendly_overridden = PageAnalysisReviews.objects.filter(
             page_analysis__page=OuterRef('pk'),
             page_analysis__theme__name='kid_unfriendly',
@@ -40,30 +46,28 @@ class PageManager(models.Manager):
             analysis_approved=False
         )
 
-        # Subquery: AI said clean (False) but reviewer rejected it
-        # (AI said good, reviewer says bad)
-        clean_analysis_rejected = PageAnalysisReviews.objects.filter(
-            page_analysis__page=OuterRef('pk'),
-            page_analysis__theme_match=False,
-            analysis_approved=False
-        )
-
         return self.annotate(
-            total_analyses=Count('pageanalysis'),
-            all_false_analyses=Count(
+            # Count expensive model analyses with theme_match=False
+            expensive_false_count=Count(
                 'pageanalysis',
-                filter=Q(pageanalysis__theme_match=False)
+                filter=Q(
+                    pageanalysis__model_tier='expensive',
+                    pageanalysis__theme_match=False
+                )
             ),
-            kid_unfriendly_overridden=Exists(kid_unfriendly_overridden),
-            has_rejected_clean=Exists(clean_analysis_rejected)
+            has_rejected_reviews=Exists(has_rejected_reviews),
+            kid_unfriendly_overridden=Exists(kid_unfriendly_overridden)
         ).filter(
             Q(
-                total_analyses=theme_count,
-                all_false_analyses=theme_count
+                # Condition 1: All expensive analyses are False
+                # AND no rejected reviews
+                expensive_false_count=theme_count,
+                has_rejected_reviews=False
             ) |
-            Q(kid_unfriendly_overridden=True)
-        ).exclude(
-            has_rejected_clean=True
+            Q(
+                # Condition 2: kid_unfriendly override
+                kid_unfriendly_overridden=True
+            )
         ).distinct()
 
 
@@ -114,6 +118,15 @@ class PageAnalysis(models.Model):
     reasoning_summary = models.TextField()
     theme_match = models.BooleanField()
     model = models.CharField(max_length=100)
+    model_tier = models.CharField(
+        max_length=20,
+        choices=[
+            ('cheap', 'Cheap/Rough Model'),
+            ('expensive', 'Expensive/Precise Model')
+        ],
+        default='expensive',
+        help_text="Tier of model used for analysis"
+    )
 
     class Meta:
         unique_together = ('page', 'theme')

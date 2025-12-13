@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import time
 import yaml
 import logging
@@ -14,6 +15,11 @@ from .models import Page, Theme, PageAnalysis
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('blogs')
+
+
+class MaxAPIRequestsReached(Exception):
+    """Raised when the maximum number of API requests is reached."""
+    pass
 
 
 class BlogScraper(BaseScraper):
@@ -31,6 +37,37 @@ class BlogScraper(BaseScraper):
         self.target_theme = target_theme
         self.reanalyze = reanalyze
         self.max_pages = self.config.get('max_pages', 1)
+
+        # API request counter for cost control
+        self.api_request_count = 0
+        self.max_api_requests = self.config.get('max_api_requests', None)
+
+        # Page counters
+        self.pages_processed = 0  # Total pages (analyzed + skipped)
+        self.pages_analyzed = 0   # Pages that went through AI analysis
+        self.pages_skipped = 0    # Pages skipped (already in DB)
+
+    def run(self):
+        """Override run to handle API request limit."""
+        try:
+            for search_url in self.get_search_urls():
+                new_or_updated_resources = self.search_portal(search_url)
+                if new_or_updated_resources:
+                    self.create_or_update_resources(
+                        new_or_updated_resources
+                    )
+        except MaxAPIRequestsReached:
+            logger.warning(
+                "\n" + "="*60 + "\n"
+                "SCRAPING STOPPED: API Request Limit Reached\n"
+                f"Total API requests made: {self.api_request_count}\n"
+                f"Limit: {self.max_api_requests}\n"
+                f"Pages processed: {self.pages_processed}\n"
+                f"  - Analyzed: {self.pages_analyzed}\n"
+                f"  - Skipped: {self.pages_skipped}\n"
+                "="*60
+            )
+        return
 
     def load_config(self):
         """Loads the scraper's configuration from a YAML file."""
@@ -259,7 +296,78 @@ class BlogScraper(BaseScraper):
         }
 
     def analyse_content(self, article_content, themes_to_analyse):
-        """Calls the Gemini API to analyze content against a specific list of themes."""
+        """
+        Two-tier AI analysis to reduce costs:
+        1. Try cheap models first for all themes
+        2. If any theme matches (True), stop and return results
+        3. If all themes return False, use expensive models
+        """
+        cheap_rough_models = [
+            "gemini-2.0-flash-lite",
+            # "gemini-2.5-flash-lite",
+        ]
+        expensive_precise_models = [
+            "gemini-2.5-pro",
+        ]
+
+        # Step 1: Try cheap models first
+        logger.info(
+            "Starting cheap model pre-screening for %d themes",
+            len(themes_to_analyse)
+        )
+        cheap_results = self._analyze_with_models(
+            article_content,
+            themes_to_analyse,
+            cheap_rough_models,
+            model_tier='cheap'
+        )
+
+        # Step 2: Check if any theme matched
+        if self._has_theme_match(cheap_results):
+            logger.info(
+                "Theme match found with cheap model. "
+                "Stopping analysis to save costs."
+            )
+            return cheap_results
+
+        # Step 3: All themes returned False - use expensive models
+        logger.info(
+            "No theme match with cheap models. "
+            "Using expensive models for precise verification."
+        )
+        expensive_results = self._analyze_with_models(
+            article_content,
+            themes_to_analyse,
+            expensive_precise_models,
+            model_tier='expensive'
+        )
+
+        return expensive_results
+
+    def _has_theme_match(self, results):
+        """
+        Check if any theme matched (returned True).
+        """
+        if not results:
+            return False
+
+        for theme_name, analysis in results.items():
+            if analysis.get(theme_name) is True:
+                logger.info(
+                    f"Theme '{theme_name}' matched with "
+                    f"model {analysis.get('model')}"
+                )
+                return True
+
+        return False
+
+    def _analyze_with_models(
+        self, article_content, themes_to_analyse, model_list, model_tier
+    ):
+        """
+        Analyze content with specified model list.
+        Returns aggregated results with model_tier included.
+        """
         aggregated_results = {}
 
         for theme in themes_to_analyse:
@@ -279,29 +387,41 @@ class BlogScraper(BaseScraper):
             # 2. Make a separate API call for each theme
             client = genai.Client(api_key=settings.GEMINI_API_KEY)
             response = None
-            models = [
-                "gemini-2.5-pro",
-                # Rest of the models provided unsatisfying results
-                # "gemini-2.5-flash",
-                # "gemini-2.5-flash-lite",
-                # "gemini-2.0-flash",
-                # "gemini-2.0-flash-lite",
-                # "gemini-2.0-flash-exp"
-            ]
             retries_per_model = 2
             response_received = False
 
             try:
-                for model_name in models:
+                for model_name in model_list:
                     for attempt in range(retries_per_model):
                         try:
+                            # Check if we've reached the API request limit
+                            if (
+                                self.max_api_requests is not None and
+                                self.api_request_count >= self.max_api_requests
+                            ):
+                                logger.warning(
+                                    "Reached max API requests limit "
+                                    f"({self.max_api_requests}). "
+                                    "Stopping scraper."
+                                )
+                                raise MaxAPIRequestsReached(
+                                    f"Reached limit of {self.max_api_requests} "
+                                    f"API requests"
+                                )
+
                             logger.info(
-                                f"Attempting model {model_name} for theme '{theme.name}' (Attempt {attempt + 1})"
+                                f"Attempting model {model_name} for theme "
+                                f"'{theme.name}' (Attempt {attempt + 1}) "
+                                f"[API calls: {self.api_request_count}/"
+                                f"{self.max_api_requests or 'unlimited'}]"
                             )
                             response = client.models.generate_content(
                                 model=model_name,
                                 contents=full_prompt,
                             )
+
+                            # Increment counter after successful API call
+                            self.api_request_count += 1
                             if response.prompt_feedback and response.prompt_feedback.block_reason:
                                 logger.warning(
                                     "Gemini API call blocked for theme '%s' with reason: %s",
@@ -312,25 +432,35 @@ class BlogScraper(BaseScraper):
                                     'confidence_score': 1.0,
                                     'reasoning_summary': f"Content analysis blocked by API safety filters. Reason: {response.prompt_feedback.block_reason}",
                                     'model': model_name,
+                                    'model_tier': model_tier,
                                     'blocked': True,
                                 }
                                 aggregated_results[theme.name] = synthetic_analysis
                                 return aggregated_results
                             else:
-                                logger.info(f"Success with model: {model_name} for theme '{theme.name}'")
                                 response_received = True
-                                used_model = model_name  # Keep track of the successful model
+                                used_model = model_name
                                 break  # Exit inner loop on success
+                        except MaxAPIRequestsReached:
+                            # Re-raise to stop scraper immediately
+                            raise
                         except Exception as e:
                             logger.warning(
-                                "Model %s failed for theme '%s'. Retrying. Error: %s",
+                                "Model %s failed for theme '%s'. "
+                                "Retrying. Error: %s",
                                 model_name, theme.name, e
                             )
                             time.sleep(2 ** attempt)
                     if response_received:
-                        break  # Exit outer loop if we have a result (real or synthetic)
+                        break  # Exit outer loop if we have a result
+            except MaxAPIRequestsReached:
+                # Re-raise to stop scraper immediately
+                raise
             except Exception as e:
-                logger.error("An unexpected error occurred with Gemini API for theme '%s': %s", theme.name, e)
+                logger.error(
+                    "An unexpected error occurred with Gemini API for "
+                    "theme '%s': %s", theme.name, e
+                )
                 time.sleep(2 ** attempt)
                 continue  # Skip to the next theme
 
@@ -340,19 +470,48 @@ class BlogScraper(BaseScraper):
 
             # 3. Aggregate the successful (non-blocked) results
             try:
-                # Clean the response from the model to remove markdown formatting
-                cleaned_json_str = response.text.strip().replace('```json', '').replace('```', '').strip()
+                # Clean the response from the model
+                cleaned_json_str = (
+                    response.text.strip()
+                    .replace('```json', '')
+                    .replace('```', '')
+                    .strip()
+                )
+
+                # Fix common JSON issues from AI models
+                # Remove trailing commas before closing braces/brackets
+                cleaned_json_str = re.sub(
+                    r',\s*([}\]])', r'\1', cleaned_json_str
+                )
+
                 theme_analysis = json.loads(cleaned_json_str)
-                theme_analysis['model'] = used_model  # Add the model info
+                theme_analysis['model'] = used_model
+                theme_analysis['model_tier'] = model_tier
                 aggregated_results[theme.name] = theme_analysis
-                # Return analysis if page matches the theme for
-                # this content is not appropriate
-                if theme_analysis[theme.name]:
+
+                # Log the analysis result
+                match_result = theme_analysis.get(theme.name)
+                confidence = theme_analysis.get('confidence_score', 'N/A')
+                logger.info(
+                    f"Theme '{theme.name}' analysis: "
+                    f"{'MATCH' if match_result else 'NO MATCH'} "
+                    f"(confidence: {confidence}, model: {model_tier})"
+                )
+
+                # Stop immediately if any theme matched
+                # (content is bad, no need to check other themes)
+                if match_result is True:
+                    logger.info(
+                        f"Stopping analysis to save costs "
+                        f"(theme matched: {theme.name})"
+                    )
                     return aggregated_results
-            except json.JSONDecodeError:
+
+            except json.JSONDecodeError as e:
                 logger.error(
-                    "Failed to decode JSON response for theme '%s': %s",
-                    theme.name, response.text.strip()
+                    "Failed to decode JSON for theme '%s'. Error: %s. "
+                    "Response: %s",
+                    theme.name, str(e), response.text.strip()[:200]
                 )
 
         # 4. Return the combined JSON for all successfully analyzed themes
@@ -531,9 +690,17 @@ class BlogScraper(BaseScraper):
         )
 
         # 3. Call the AI for analysis on the missing themes
-        analysis_json = self.analyse_content(
-            page_data['content'], themes_to_analyse
-        )
+        try:
+            analysis_json = self.analyse_content(
+                page_data['content'], themes_to_analyse
+            )
+        except MaxAPIRequestsReached:
+            logger.warning(
+                "Stopping scraper: Max API requests reached "
+                f"({self.max_api_requests})"
+            )
+            raise  # Re-raise to stop the scraper
+        
         if not analysis_json:
             logger.error("Analysis failed for page %s.", page.title)
             return None
@@ -549,7 +716,8 @@ class BlogScraper(BaseScraper):
                         'confidence_score': results.get('confidence_score'),
                         'reasoning_summary': results.get('reasoning_summary'),
                         'theme_match': results.get(theme_name),
-                        'model': results.get('model')
+                        'model': results.get('model'),
+                        'model_tier': results.get('model_tier', 'expensive')
                     }
                 )
             except Theme.DoesNotExist:
