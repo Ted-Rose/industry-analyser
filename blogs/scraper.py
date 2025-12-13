@@ -441,16 +441,26 @@ class BlogScraper(BaseScraper):
                                 response_received = True
                                 used_model = model_name
                                 break  # Exit inner loop on success
+                        except MaxAPIRequestsReached:
+                            # Re-raise to stop scraper immediately
+                            raise
                         except Exception as e:
                             logger.warning(
-                                "Model %s failed for theme '%s'. Retrying. Error: %s",
+                                "Model %s failed for theme '%s'. "
+                                "Retrying. Error: %s",
                                 model_name, theme.name, e
                             )
                             time.sleep(2 ** attempt)
                     if response_received:
-                        break  # Exit outer loop if we have a result (real or synthetic)
+                        break  # Exit outer loop if we have a result
+            except MaxAPIRequestsReached:
+                # Re-raise to stop scraper immediately
+                raise
             except Exception as e:
-                logger.error("An unexpected error occurred with Gemini API for theme '%s': %s", theme.name, e)
+                logger.error(
+                    "An unexpected error occurred with Gemini API for "
+                    "theme '%s': %s", theme.name, e
+                )
                 time.sleep(2 ** attempt)
                 continue  # Skip to the next theme
 
