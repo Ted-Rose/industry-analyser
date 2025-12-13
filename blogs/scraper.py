@@ -17,6 +17,11 @@ from .models import Page, Theme, PageAnalysis
 logger = logging.getLogger('blogs')
 
 
+class MaxAPIRequestsReached(Exception):
+    """Raised when the maximum number of API requests is reached."""
+    pass
+
+
 class BlogScraper(BaseScraper):
     """A scraper for fetching blog posts."""
 
@@ -32,6 +37,37 @@ class BlogScraper(BaseScraper):
         self.target_theme = target_theme
         self.reanalyze = reanalyze
         self.max_pages = self.config.get('max_pages', 1)
+
+        # API request counter for cost control
+        self.api_request_count = 0
+        self.max_api_requests = self.config.get('max_api_requests', None)
+
+        # Page counters
+        self.pages_processed = 0  # Total pages (analyzed + skipped)
+        self.pages_analyzed = 0   # Pages that went through AI analysis
+        self.pages_skipped = 0    # Pages skipped (already in DB)
+
+    def run(self):
+        """Override run to handle API request limit."""
+        try:
+            for search_url in self.get_search_urls():
+                new_or_updated_resources = self.search_portal(search_url)
+                if new_or_updated_resources:
+                    self.create_or_update_resources(
+                        new_or_updated_resources
+                    )
+        except MaxAPIRequestsReached:
+            logger.warning(
+                "\n" + "="*60 + "\n"
+                "SCRAPING STOPPED: API Request Limit Reached\n"
+                f"Total API requests made: {self.api_request_count}\n"
+                f"Limit: {self.max_api_requests}\n"
+                f"Pages processed: {self.pages_processed}\n"
+                f"  - Analyzed: {self.pages_analyzed}\n"
+                f"  - Skipped: {self.pages_skipped}\n"
+                "="*60
+            )
+        return
 
     def load_config(self):
         """Loads the scraper's configuration from a YAML file."""
@@ -358,13 +394,34 @@ class BlogScraper(BaseScraper):
                 for model_name in model_list:
                     for attempt in range(retries_per_model):
                         try:
+                            # Check if we've reached the API request limit
+                            if (
+                                self.max_api_requests is not None and
+                                self.api_request_count >= self.max_api_requests
+                            ):
+                                logger.warning(
+                                    "Reached max API requests limit "
+                                    f"({self.max_api_requests}). "
+                                    "Stopping scraper."
+                                )
+                                raise MaxAPIRequestsReached(
+                                    f"Reached limit of {self.max_api_requests} "
+                                    f"API requests"
+                                )
+
                             logger.info(
-                                f"Attempting model {model_name} for theme '{theme.name}' (Attempt {attempt + 1})"
+                                f"Attempting model {model_name} for theme "
+                                f"'{theme.name}' (Attempt {attempt + 1}) "
+                                f"[API calls: {self.api_request_count}/"
+                                f"{self.max_api_requests or 'unlimited'}]"
                             )
                             response = client.models.generate_content(
                                 model=model_name,
                                 contents=full_prompt,
                             )
+
+                            # Increment counter after successful API call
+                            self.api_request_count += 1
                             if response.prompt_feedback and response.prompt_feedback.block_reason:
                                 logger.warning(
                                     "Gemini API call blocked for theme '%s' with reason: %s",
@@ -615,9 +672,17 @@ class BlogScraper(BaseScraper):
         )
 
         # 3. Call the AI for analysis on the missing themes
-        analysis_json = self.analyse_content(
-            page_data['content'], themes_to_analyse
-        )
+        try:
+            analysis_json = self.analyse_content(
+                page_data['content'], themes_to_analyse
+            )
+        except MaxAPIRequestsReached:
+            logger.warning(
+                "Stopping scraper: Max API requests reached "
+                f"({self.max_api_requests})"
+            )
+            raise  # Re-raise to stop the scraper
+        
         if not analysis_json:
             logger.error("Analysis failed for page %s.", page.title)
             return None
