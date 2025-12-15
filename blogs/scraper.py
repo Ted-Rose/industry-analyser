@@ -639,7 +639,8 @@ class BlogScraper(BaseScraper):
                         f"{page.text_length} chars of text"
                     ),
                     'theme_match': True,
-                    'model': 'content_analyzer'
+                    'model': 'content_analyzer',
+                    'model_tier': 'cheap'
                 }
             )
             logger.info(
