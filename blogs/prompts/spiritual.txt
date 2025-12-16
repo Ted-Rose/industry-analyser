@@ -6,6 +6,14 @@ Mysticism: Does the text discuss personal, direct spiritual experience, esoteric
 
 Religion: Does the text discuss established doctrines, codified beliefs, organized worship, specific religious organizations (e.g., churches, mosques), historical/traditional narratives of a specific faith, or collective adherence to a faith system?
 
+Astrology & Horoscopes: Does the text discuss zodiac signs, planetary alignments, daily horoscopes, or personality traits attributed to birth dates?
+
+Numerology & Divination: Does the text focus on the mystical significance of numbers (angel numbers), tarot cards, fortune-telling, or predicting the future through supernatural means?
+
+New Age & Esoteric Beliefs: Does the text promote concepts like crystal healing, chakras, auras, energy work, or "manifesting" reality (Law of Attraction) in a spiritual context?
+
+Occult & Supernatural: Are there references to casting spells, witchcraft, contacting spirits, or occult rituals?
+
 If the text addresses EITHER Mysticism OR Institutional Religion, the value for is_spiritual_theme should be true. If the text addresses neither (e.g., it is about cooking, politics, science, etc.), it should be false.
 
 Your output must be a single, JSON-formatted object with the following keys:
