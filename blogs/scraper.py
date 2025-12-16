@@ -80,15 +80,21 @@ class BlogScraper(BaseScraper):
     def get_search_urls(self):
         """
         Yields blog listing URLs, following pagination links.
-        Supports both single URL (blog_listing_url) and multiple URLs
-        (blog_listing_urls).
+        Supports both formats:
+        - Simple: ["url1", "url2"]
+        - Advanced: [{"url": "url1", "use_cheap_tier": true}, ...]
         Stops after max_pages per URL or when no next link is found.
         """
         listing_urls = self.config['blog_listing_urls']
 
-        for listing_url in listing_urls:
+        for listing_url_config in listing_urls:
+            listing_url = listing_url_config['url']
+            self.current_url_use_cheap_tier = listing_url_config.get(
+                'use_cheap_tier', True
+            )
             logger.info(
-                f"Starting to scrape listing: {listing_url}"
+                f"Starting to scrape listing: {listing_url} "
+                f"(cheap tier: {self.current_url_use_cheap_tier})"
             )
             current_url = listing_url
             pages_scraped = 0
@@ -310,31 +316,41 @@ class BlogScraper(BaseScraper):
             "gemini-2.5-pro",
         ]
 
-        # Step 1: Try cheap models first
-        logger.info(
-            "Starting cheap model pre-screening for %d themes",
-            len(themes_to_analyse)
-        )
-        cheap_results = self._analyze_with_models(
-            article_content,
-            themes_to_analyse,
-            cheap_rough_models,
-            model_tier='cheap'
-        )
+        # Step 1: Try cheap models first (if enabled for this URL)
+        cheap_results = None
+        use_cheap = getattr(self, 'current_url_use_cheap_tier', True)
 
-        # Step 2: Check if any theme matched
-        if self._has_theme_match(cheap_results):
+        if use_cheap:
             logger.info(
-                "Theme match found with cheap model. "
-                "Stopping analysis to save costs."
+                "Starting cheap model pre-screening for %d themes",
+                len(themes_to_analyse)
             )
-            return cheap_results
+            cheap_results = self._analyze_with_models(
+                article_content,
+                themes_to_analyse,
+                cheap_rough_models,
+                model_tier='cheap'
+            )
 
-        # Step 3: All themes returned False - use expensive models
-        logger.info(
-            "No theme match with cheap models. "
-            "Using expensive models for precise verification."
-        )
+            # Step 2: Check if any theme matched
+            if self._has_theme_match(cheap_results):
+                logger.info(
+                    "Theme match found with cheap model. "
+                    "Stopping analysis to save costs."
+                )
+                return cheap_results
+
+            logger.info(
+                "No theme match with cheap models. "
+                "Using expensive models for precise verification."
+            )
+        else:
+            logger.info(
+                "Skipping cheap tier (disabled for this URL). "
+                "Using expensive models directly."
+            )
+
+        # Step 3: Use expensive models
         expensive_results = self._analyze_with_models(
             article_content,
             themes_to_analyse,
@@ -516,6 +532,14 @@ class BlogScraper(BaseScraper):
                     logger.info(
                         f"Stopping analysis to save costs "
                         f"(theme matched: {theme.name})"
+                    )
+                    return aggregated_results
+
+                # For cheap tier: after first theme, return results (even if no match)
+                if model_tier == 'cheap':
+                    logger.info(
+                        "Cheap tier: Only first theme is analyzed. "
+                        "Returning results after first theme."
                     )
                     return aggregated_results
 
