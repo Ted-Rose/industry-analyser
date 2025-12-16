@@ -439,17 +439,6 @@ class BlogScraper(BaseScraper):
                             # Increment counter after successful API call
                             self.api_request_count += 1
 
-                            # Sleep to avoid rate limiting (for cheap models)
-                            if model_tier == 'cheap':
-                                sleep_time = self.config.get(
-                                    'cheap_model_sleep', 2
-                                )
-                                logger.debug(
-                                    f"Sleeping {sleep_time}s to avoid "
-                                    f"rate limiting"
-                                )
-                                time.sleep(sleep_time)
-
                             if response.prompt_feedback and response.prompt_feedback.block_reason:
                                 logger.warning(
                                     "Gemini API call blocked for theme '%s' with reason: %s",
