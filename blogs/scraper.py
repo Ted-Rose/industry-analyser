@@ -36,7 +36,7 @@ class BlogScraper(BaseScraper):
         self.total_themes_count = Theme.objects.count()
         self.target_theme = target_theme
         self.reanalyze = reanalyze
-        self.max_pages = self.config.get('max_pages', 1)
+        self.max_pages = self.config.get('max_pages', 20)
 
         # API request counter for cost control
         self.api_request_count = 0
@@ -532,7 +532,7 @@ class BlogScraper(BaseScraper):
                     )
                     return aggregated_results
 
-            except json.JSONDecodeError as e:
+            except Exception as e:
                 logger.error(
                     "Failed to decode JSON for theme '%s'. Error: %s. "
                     "Response: %s",
