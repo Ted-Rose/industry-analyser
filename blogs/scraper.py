@@ -309,8 +309,7 @@ class BlogScraper(BaseScraper):
         3. If all themes return False, use expensive models
         """
         cheap_rough_models = [
-            "gemini-2.0-flash-lite",
-            # "gemini-2.5-flash-lite",
+            "gemini-2.5-flash-lite",
         ]
         expensive_precise_models = [
             "gemini-2.5-pro",
