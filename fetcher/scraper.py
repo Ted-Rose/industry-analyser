@@ -138,39 +138,32 @@ class VacancyScrapper(BaseScraper):
             vacancies.append(vacancy)
         return vacancies
 
-    def create_or_update_resources(self, vacancies):
-        existing_vacancies = (
-            Vacancy.objects
-            .filter(
-                vacancy_portal_id__in=(
-                    vacancy.vacancy_portal_id
-                    for vacancy in vacancies
-                )
-            )
+    def create_or_update_resources(self, vacancies: List[Vacancy]):
+        scraped_ids = {v.vacancy_portal_id for v in vacancies}
+        existing_ids = set(
+            Vacancy.objects.filter(
+                vacancy_portal_id__in=scraped_ids
+            ).values_list('vacancy_portal_id', flat=True)
         )
 
-        for vacancy in existing_vacancies:
-            vacancy_data = next((v for v in vacancies if v['vacancy_portal_id'] == vacancy.vacancy_portal_id), None)
-            if vacancy_data:
-                for field, value in vacancy_data.items():
-                    setattr(vacancy, field, value)
+        new_vacancies = []
+        ids_to_update = []
 
-        if existing_vacancies:
-            vacancy_ids = [v.id for v in existing_vacancies]
-            if Vacancy.objects.filter(id__in=vacancy_ids).exists():
-                fields_to_update = [field for field in existing_vacancies.first().__dict__.keys() if field != 'id']
-                Vacancy.objects.bulk_update(existing_vacancies, fields_to_update)
+        for vacancy in vacancies:
+            if vacancy.vacancy_portal_id in existing_ids:
+                ids_to_update.append(vacancy.vacancy_portal_id)
+            else:
+                new_vacancies.append(vacancy)
 
-        new_vacancies = [
-            v
-            for v in vacancies
-            if not next(
-                (existing_v for existing_v in existing_vacancies if existing_v.vacancy_portal_id == v.vacancy_portal_id), None
-            )
-        ]
+        # Update existing vacancies
+        if ids_to_update:
+            updated_count = Vacancy.objects.filter(vacancy_portal_id__in=ids_to_update).update(last_seen=timezone.now())
+            logger.info(f"Updated {updated_count} existing vacancies.")
 
+        # Create new vacancies
         if new_vacancies:
-            Vacancy.objects.bulk_create(new_vacancies)  # _vacancies.save()
+            Vacancy.objects.bulk_create(new_vacancies)
+            logger.info(f"Created {len(new_vacancies)} new vacancies.")  # _vacancies.save()
         # Vacancy.objects.bulk_create([model_to_dict(v, fields=['vacancy_portal_id', 'title', 'company_name', 'salary_from', 'salary_to', 'url', 'first_seen', 'last_seen', 'application_deadline', 'state']) for v in new_vacancies])
 
         return
