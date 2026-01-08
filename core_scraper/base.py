@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
+from django.conf import settings
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('core_scraper')
@@ -26,8 +27,15 @@ class BaseScraper(abc.ABC):
         Args:
             config (dict, optional): Configuration for the scraper
         """
+        # if settings.DEBUG:
+        #     raise ValueError(
+        #         "Scrapers should not be run with DEBUG=True. "
+        #         "This is a safety measure to prevent accidental scraping of live sites during development."
+        #     )
+
         self.config = config or {}
         self.last_sleep_by_domain = {}
+        self.bulk_save = False
         self.default_domain = 'default'
         retry_strategy = Retry(
             total=3,
@@ -71,32 +79,38 @@ class BaseScraper(abc.ABC):
         if self.enrich_search_results:
             resources = []
             for result in search_results:
+                # TODO: Add a check to see if the result is already in the database
+                # Almost in all cases based on the url
                 enriched_result = self.enrich_result(result)
-                
+
                 if not enriched_result:
                     self.excluded_resources.append(result)
                     continue
-                
-                resource = self.initiate_resource(enriched_result)
-                resources.append(resource)
-                
-                if len(resources) >= 2:
-                    break
-            
+
+                if self.ai_analysis:
+                    self.analyse_and_save_resource(enriched_result, result)
+                else:
+                    resource = self.initiate_resource(enriched_result)
+                    resources.append(resource)
+
+                    if len(resources) >= 2:
+                        break
+
+            # TODO: Blog scrapper will return empty list - fix logic gap
             return resources
         else:
             return self.initiate_resources(search_results)
 
-    def enrich_result(self, result):
-        info_link = self.get_resource_info_link(result)
+    def enrich_result(self, href):
+        info_link = self.get_resource_info_link(href)
         extra_info = self.make_request(info_link)
 
         if self.validate_result:
-            return self.validate_and_return(result, extra_info)
+            return self.validate_and_return(href, extra_info)
         else:
-            return result
+            return extra_info
 
-    def validate_and_return(self, result, extra_info):
+    def validate_and_return(self, href, extra_info):
         raise NotImplementedError
 
     def get_resource_info_links(self, search_results):

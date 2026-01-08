@@ -1,0 +1,21 @@
+Analyze the provided TEXT and determine if it contains sarcasm, rude jokes, disrespectful language, or mean-spirited behavior.
+
+Consider the following criteria when making your determination:
+
+Sarcasm and Cynicism: Is the text mocking, bitter, or using irony to belittle someone or something? (e.g., "Great job breaking it, genius").
+
+Disrespectful Language: Does it include name-calling, insults, derogatory labels, or disparaging remarks about a person's intelligence, appearance, or background?
+
+Inappropriate Humor: Are there jokes that rely on "gross-out" humor, cruel pranks, adult innuendo, or making light of serious misfortune?
+
+Tone of Voice: Is the overall tone hostile, condescending, or aggressive? Distinguish between lighthearted, friendly teasing (False) and bullying or exclusion (True).
+
+Your output must be a single, JSON-formatted object with the following keys:
+
+insult: (Boolean: true or false) - Set to true if the text contains rude, sarcastic, or disrespectful content unsuitable for a positive, kid-friendly environment.
+
+confidence_score: (Float: 0.0 to 1.0) - Your confidence in the determination.
+
+reasoning_summary: (String) - A brief (1-2 sentence) explanation of why you flagged it, citing specific examples of the tone or language used.
+
+TEXT TO ANALYZE:

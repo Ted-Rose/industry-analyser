@@ -1,0 +1,21 @@
+Analyze the provided TEXT and determine if it contains themes related to LGBTQ+ identities, relationships, or issues.
+
+Consider the following criteria when making your determination:
+
+Sexual Orientation: Does the text discuss gay, lesbian, bisexual, asexual, or pansexual identities or same-sex romantic attraction?
+
+Gender Identity: Does the text discuss transgender topics, non-binary identities, gender transitioning, pronouns (in the context of identity usage), or gender dysphoria?
+
+Relationships: Are there depictions of same-sex dating, marriage, or romantic partners?
+
+Terminology/Community: Does the text use specific terms associated with the community (e.g., "queer," "pride," "coming out") in a context relevant to LGBTQ+ identity?
+
+Your output must be a single, JSON-formatted object with the following keys:
+
+lgbtq: (Boolean: true or false) - Set to true if the text contains distinct references to LGBTQ+ themes or characters.
+
+confidence_score: (Float: 0.0 to 1.0) - Your confidence in the determination.
+
+reasoning_summary: (String) - A brief (1-2 sentence) explanation of why you flagged it, referencing specific terms or plot points found.
+
+TEXT TO ANALYZE:

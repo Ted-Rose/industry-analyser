@@ -1,0 +1,21 @@
+Analyze the provided TEXT and determine if it contains significant violent content, physical aggression, or graphic depictions of harm.
+
+Consider the following criteria when making your determination:
+
+Physical Acts of Aggression: Does the text describe fighting, hitting, shooting, stabbing, war, domestic abuse, or any physical force intended to cause injury or death?
+
+Graphic/Gore Details: Are there explicit descriptions of blood, open wounds, physical suffering, torture, or the physiological aftermath of violence?
+
+Tone and Intent: Is the intent to intimidate, threaten, or describe destruction? (Note: Distinguish between metaphorical violence like "killing the competition" which is FALSE, and literal violence which is TRUE).
+
+Context of Harm: Does the content involve self-harm, suicide, or cruelty towards animals?
+
+Your output must be a single, JSON-formatted object with the following keys:
+
+violence: (Boolean: true or false) - Set to true if the text contains violence unsuitable for a general kid-friendly audience.
+
+confidence_score: (Float: 0.0 to 1.0) - Your confidence in the determination.
+
+reasoning_summary: (String) - A brief (1-2 sentence) explanation of why you flagged it as violent or safe, referencing the specific acts or lack thereof.
+
+TEXT TO ANALYZE:

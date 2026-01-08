@@ -1,0 +1,9 @@
+# Include all production packages
+-r requirements.txt
+
+# Development-specific packages
+# -----------------------------
+ipython
+# ipython usage:
+# ipython profile create
+# echo "import pprint" >> ~/.ipython/profile_default/startup/00-imports.py
