@@ -133,7 +133,7 @@ class VacancyScrapper(BaseScraper):
                 for portal_keyword in portal_keywords:
                     keyword = self.keywords.filter(name=portal_keyword).first()
                     if keyword:
-                        vacancy.VacancyContainsKeyword.add(keyword)
+                        vacancy.keywords.add(keyword)
 
             vacancies.append(vacancy)
         return vacancies
