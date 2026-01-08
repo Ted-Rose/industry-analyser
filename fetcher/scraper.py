@@ -73,7 +73,7 @@ class VacancyScrapper(BaseScraper):
     ) -> List:
         if search_results.headers['Content-Type'] == 'application/json':
             # Address this methods side effect
-            self.enrich_search_results = True
+            self.enrich_search_results = False
 
             json_content = search_results.data.decode('utf-8')
             data = json.loads(json_content)
