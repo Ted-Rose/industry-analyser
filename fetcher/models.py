@@ -8,6 +8,7 @@ class Vacancy(models.Model):
     job_portal_id = models.IntegerField(null=True)
     title = models.CharField(null=True, max_length=255)
     industries = models.ManyToManyField('Industry', through='VacancyIndustries')
+    keywords = models.ManyToManyField('Keyword', through='VacancyContainsKeyword')
     salary_from = models.FloatField(null=True, )
     salary_to = models.FloatField(null=True)
     url = models.URLField(max_length=200)
@@ -59,4 +60,5 @@ class VacancyContainsKeyword(models.Model):
     keyword = models.ForeignKey(Keyword, on_delete=models.CASCADE)
 
     class Meta:
-      db_table = 'fetcher_vacancy_contains_keyword'
+        unique_together = (('vacancy', 'keyword'),)
+        db_table = 'fetcher_vacancy_contains_keyword'
