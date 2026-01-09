@@ -184,8 +184,9 @@ LOGGING = {
             'style': '{',
         },
         'simple': {
-            'format': '{levelname} {message}',
+            'format': '{asctime} {levelname} {message}',
             'style': '{',
+            'datefmt': '%H:%M:%S',
         },
     },
     'handlers': {
@@ -204,6 +205,21 @@ LOGGING = {
             'propagate': True,
         },
         'tv_archive': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'tv_programs': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'core_scraper': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'fetcher': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,

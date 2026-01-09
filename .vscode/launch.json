@@ -14,6 +14,7 @@
         "justMyCode": true,
         "cwd": "${workspaceFolder}",
         "python": "${workspaceFolder}/venv/bin/python",
+        "console": "integratedTerminal",
         "env": {
             "PYTHONPATH": "${workspaceFolder}"
         }
@@ -28,6 +29,7 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -42,6 +44,7 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -56,6 +59,7 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -70,6 +74,7 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }

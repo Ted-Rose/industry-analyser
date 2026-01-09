@@ -145,8 +145,11 @@ class BaseScraper(abc.ABC):
         domain = urlparse(url).netloc
         self.sleep(domain=domain)
 
+        logger.info(f"Request {url}")
         try:
-            return self.http.request(method, url, headers=headers)
+            response = self.http.request(method, url, headers=headers)
+            logger.info(f"Request completed: {url} - Status: {response.status}")
+            return response
         except MaxRetryError as e:
             logger.error(f"Max retries exceeded: {e}")
             return None

@@ -18,7 +18,7 @@ from django.db import connection
 from core_scraper.base import BaseScraper
 
 # Use the app name as the logger name to match settings configuration
-logger = logging.getLogger('tv_programs')
+logger = logging.getLogger('fetcher')
 
 
 class VacancyScrapper(BaseScraper):
@@ -87,7 +87,7 @@ class VacancyScrapper(BaseScraper):
             return vacancies
 
     def remove_redundant_results(self, vacancy_search_results):
-        if isinstance(vacancy_search_results, List):
+    if isinstance(vacancy_search_results, List):
             return vacancy_search_results
         if isinstance(vacancy_search_results, html):
             for vacancy_result in vacancy_search_results:
@@ -97,27 +97,33 @@ class VacancyScrapper(BaseScraper):
 
     def initiate_resources(self, search_results) -> List[Vacancy]:
         vacancies = []
-        # IS "state" redundant?
         for result in search_results:
             vacancy_portal_id = result.get('id')
+            if vacancy_portal_id is None:
+                logger.warning(f"Skipping result with missing id: {result.get('positionTitle', 'Unknown')}")
+                continue
+
             url = self.config['vacancy_base_url'] +\
                 self.config['vacancy_base_href'] + str(vacancy_portal_id)
 
-            vacancy_data = {
-                'vacancy_portal_id': vacancy_portal_id,
-                'title': result.get('positionTitle'),
-                'company_name': result.get('employerName'),
-                'salary_from': result.get('salaryFrom'),
-                'salary_to': result.get('salaryTo'),
-                'url': url,
-                'first_seen': result.get('publishDate'),
-                'last_seen': timezone.now(),
-                'application_deadline': result.get('expirationDate'),
-                'state': "CREATED",
-            }
+            vacancy, created = Vacancy.objects.get_or_create(
+                vacancy_portal_id=vacancy_portal_id,
+                defaults={
+                    'title': result.get('positionTitle'),
+                    'company_name': result.get('employerName'),
+                    'salary_from': result.get('salaryFrom'),
+                    'salary_to': result.get('salaryTo'),
+                    'url': url,
+                    'first_seen': result.get('publishDate'),
+                    'last_seen': timezone.now(),
+                    'application_deadline': result.get('expirationDate'),
+                    'state': "CREATED",
+                }
+            )
 
-            vacancy = Vacancy.objects.using('default').create(**vacancy_data)
-            # vacancy.save()
+            if not created:
+                vacancy.last_seen = timezone.now()
+                vacancy.save(update_fields=['last_seen'])
 
             # Handle dependencies (e.g., industries)
             portal_industries = result.get('categories')
@@ -155,16 +161,13 @@ class VacancyScrapper(BaseScraper):
             else:
                 new_vacancies.append(vacancy)
 
-        # Update existing vacancies
         if ids_to_update:
             updated_count = Vacancy.objects.filter(vacancy_portal_id__in=ids_to_update).update(last_seen=timezone.now())
             logger.info(f"Updated {updated_count} existing vacancies.")
 
-        # Create new vacancies
         if new_vacancies:
             Vacancy.objects.bulk_create(new_vacancies)
-            logger.info(f"Created {len(new_vacancies)} new vacancies.")  # _vacancies.save()
-        # Vacancy.objects.bulk_create([model_to_dict(v, fields=['vacancy_portal_id', 'title', 'company_name', 'salary_from', 'salary_to', 'url', 'first_seen', 'last_seen', 'application_deadline', 'state']) for v in new_vacancies])
+            logger.info(f"Created {len(new_vacancies)} new vacancies. \n\n")
 
         return
 
