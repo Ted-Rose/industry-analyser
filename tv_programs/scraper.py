@@ -37,11 +37,24 @@ class TVProgramScraper(BaseScraper):
         self.current_channel = None
         self.current_start_time = None
         super().__init__(config)
-        self.excluded_resources = ['Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma', 'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas', 'Saki Jā!', 'Spiegu spēles', 'De Facto', 'Laika ziņas', 'Basketbols.Basketbols: NBA.', 'Leģendārais loms', 'Rīta Panorāma', 'Aizliegtais paņēmiens', 'UgunsGrēks 4', 'Vides fakti', 'Aculiecinieks', '1 :1. Aktuālā intervija', 'Sporta studija', 'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks', 'SuperBingo', 'Kobra 17', 'Tāskmāsters']
+        self.excluded_resources = [
+            'Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma',
+            'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas',
+            'Saki Jā!', 'Spiegu spēles', 'De Facto', 'Laika ziņas',
+            'Basketbols.Basketbols: NBA.', 'Leģendārais loms', 'Rīta Panorāma',
+            'Aizliegtais paņēmiens', 'UgunsGrēks 4', 'Vides fakti',
+            'Aculiecinieks', '1 :1. Aktuālā intervija', 'Sporta studija',
+            'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks',
+            'SuperBingo', 'Kobra 17', 'Tāskmāsters'
+        ]
 
     def get_search_urls(self):
         day_range, start_date = self.get_days()
-        base_url = "https://www.tet.lv/televizija/tv-programma?tv-type=interactive&view-type=list&date={date_string}&channel={channel_id}"
+        base_url = (
+            "https://www.tet.lv/televizija/tv-programma"
+            "?tv-type=interactive&view-type=list"
+            "&date={date_string}&channel={channel_id}"
+        )
 
         for day in day_range:
             date = start_date + timedelta(days=day)
@@ -108,31 +121,53 @@ class TVProgramScraper(BaseScraper):
         return self.process_item(result)
 
     def initiate_resource(self, resource_link):
-        program, created = Program.objects.get_or_create(
+        """Create an unsaved Program instance to be bulk inserted later."""
+        program = Program(
             title_lv=resource_link['title_lv'],
+            title_eng=resource_link['title_eng'],
+            description_lv=resource_link.get('description_lv'),
+            description_eng=resource_link.get('description_eng'),
+            image_url=resource_link.get('image'),
+            url=resource_link.get('url'),
+            pg_rating=resource_link.get('content_rating'),
+            imdb_rating=resource_link.get('rating_value'),
+            title_match_ratio=resource_link.get('match_ratio', 0),
+            combined_match_ratio=resource_link.get('match_ratio', 0),
             channel=self.current_channel,
-            defaults={
-                'title_eng': resource_link['title_eng'],
-                'description_lv': resource_link.get('description_lv'),
-                'description_eng': resource_link.get('description_eng'),
-                'image_url': resource_link.get('image'),
-                'url': resource_link.get('url'),
-                'pg_rating': resource_link.get('content_rating'),
-                'imdb_rating': resource_link.get('rating_value'),
-                'title_match_ratio': resource_link.get('match_ratio', 0),
-                'combined_match_ratio': resource_link.get('match_ratio', 0),
-                'start_time': self.current_start_time,
-                'duration_minutes': 120,
-            }
+            start_time=self.current_start_time,
+            duration_minutes=120,
         )
-        if created:
-            logger.info(f"Created program: {program.title_lv}")
-        else:
-            logger.info(f"Program already exists: {program.title_lv}")
         return program
 
     def create_or_update_resources(self, resources):
-      
+        titles = [r.title_lv for r in resources]
+        existing_titles = set(
+            Program.objects.filter(
+                title_lv__in=titles,
+                channel=self.current_channel
+            ).values_list('title_lv', flat=True)
+        )
+
+        new_resources = [
+            r for r in resources
+            if r.title_lv not in existing_titles
+        ]
+
+        if new_resources:
+            Program.objects.bulk_create(new_resources)
+            channel_name = (
+                self.current_channel.name
+                if self.current_channel
+                else 'unknown'
+            )
+            logger.info(
+                f"Bulk created {len(new_resources)} "
+                f"new programs for {channel_name}"
+            )
+
+        if existing_titles:
+            logger.info(f"Skipped {len(existing_titles)} existing programs")
+
         return
 
     def get_ratings(self, query, content_type=None):
