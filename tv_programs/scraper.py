@@ -23,7 +23,7 @@ class TVProgramScraper(BaseScraper):
     def __init__(self, config=None):
         """
         Initialize the TV program scraper.
-        
+
         Args:
             config (dict, optional): Configuration for the scraper
         """
@@ -34,6 +34,8 @@ class TVProgramScraper(BaseScraper):
             "ltv7_hd": "ltv7_hd",
             "ltv1_hd": "ltv1_hd",
         }
+        self.current_channel = None
+        self.current_start_time = None
         super().__init__(config)
         self.excluded_resources = ['Panorāma', 'Dienas ziņas', 'Krustpunktā', 'Rīta Panorāma', 'Laika ziņas', 'Sporta ziņas', 'Nakts ziņas', 'Kultūras ziņas', 'Saki Jā!', 'Spiegu spēles', 'De Facto', 'Laika ziņas', 'Basketbols.Basketbols: NBA.', 'Leģendārais loms', 'Rīta Panorāma', 'Aizliegtais paņēmiens', 'UgunsGrēks 4', 'Vides fakti', 'Aculiecinieks', '1 :1. Aktuālā intervija', 'Sporta studija', 'Autoziņas', 'Bez Tabu', '900 sekundes', 'Kultūršoks', 'SuperBingo', 'Kobra 17', 'Tāskmāsters']
 
@@ -43,8 +45,10 @@ class TVProgramScraper(BaseScraper):
 
         for day in day_range:
             date = start_date + timedelta(days=day)
-            for channel in self.channels:
-                url = base_url.format(date_string=date.strftime('%Y-%m-%d'), channel_id=channel)
+            for channel_name in self.channels:
+                self.current_channel, _ = Channel.objects.get_or_create(name=channel_name)
+                self.current_start_time = date
+                url = base_url.format(date_string=date.strftime('%Y-%m-%d'), channel_id=channel_name)
                 yield url
         return
 
@@ -80,6 +84,13 @@ class TVProgramScraper(BaseScraper):
         return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
 
     def validate_and_return(self, result, extra_info):
+        title_element = result.find(class_="tet-font__headline--s")
+        if title_element:
+            title_lv = title_element.text.strip()
+            if Program.objects.filter(title_lv=title_lv, channel=self.current_channel).exists():
+                logger.info(f"Skipping existing program: {title_lv}")
+                return None
+
         soup = BeautifulSoup(extra_info.data, 'html.parser')
         summary = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
         if summary is None:
@@ -97,15 +108,28 @@ class TVProgramScraper(BaseScraper):
         return self.process_item(result)
 
     def initiate_resource(self, resource_link):
-        return Program.objects.create(
-            title=resource_link['title'],
-            description=resource_link['description'],
-            image=resource_link['image'],
-            url=resource_link['url'],
-            content_rating=resource_link['content_rating'],
-            rating_value=resource_link['rating_value'],
-            published_date=resource_link['published_date'],
+        program, created = Program.objects.get_or_create(
+            title_lv=resource_link['title_lv'],
+            channel=self.current_channel,
+            defaults={
+                'title_eng': resource_link['title_eng'],
+                'description_lv': resource_link.get('description_lv'),
+                'description_eng': resource_link.get('description_eng'),
+                'image_url': resource_link.get('image'),
+                'url': resource_link.get('url'),
+                'pg_rating': resource_link.get('content_rating'),
+                'imdb_rating': resource_link.get('rating_value'),
+                'title_match_ratio': resource_link.get('match_ratio', 0),
+                'combined_match_ratio': resource_link.get('match_ratio', 0),
+                'start_time': self.current_start_time,
+                'duration_minutes': 120,
+            }
         )
+        if created:
+            logger.info(f"Created program: {program.title_lv}")
+        else:
+            logger.info(f"Program already exists: {program.title_lv}")
+        return program
 
     def create_or_update_resources(self, resources):
       

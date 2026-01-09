@@ -56,6 +56,9 @@ class Program(models.Model):
         indexes = [
             models.Index(fields=['pg_rating', 'start_time']),
         ]
+        # Consider enforcing uniqueness on title and channel to avoid
+        # duplicates on db level
+        # unique_together = (('title_lv', 'channel'),)
 
     def __str__(self):
         return f"{self.title_lv} ({self.channel.name})"

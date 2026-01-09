@@ -36,6 +36,7 @@ class BaseScraper(abc.ABC):
         self.config = config or {}
         self.last_sleep_by_domain = {}
         self.bulk_save = False
+        self.ai_analysis = False
         self.default_domain = 'default'
         retry_strategy = Retry(
             total=3,
