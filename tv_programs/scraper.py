@@ -4,6 +4,7 @@ import re
 import abc
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+from django.utils import timezone
 from difflib import SequenceMatcher
 from urllib.parse import quote_plus
 
@@ -75,7 +76,7 @@ class TVProgramScraper(BaseScraper):
           7
         )
         day_range = range(days_in_past + days_in_future)
-        start_date = datetime.now() - timedelta(days=days_in_past)
+        start_date = timezone.now() - timedelta(days=days_in_past)
         return day_range, start_date
 
     def format_results(self, search_results):
@@ -98,16 +99,19 @@ class TVProgramScraper(BaseScraper):
 
     def validate_and_return(self, result, extra_info):
         title_element = result.find(class_="tet-font__headline--s")
-        if title_element:
-            title_lv = title_element.text.strip()
-            if Program.objects.filter(title_lv=title_lv, channel=self.current_channel).exists():
-                logger.info(f"Skipping existing program: {title_lv}")
-                return None
+        if not title_element:
+            logger.info("No title element found")
+            return None
+
+        title_lv = title_element.text.strip()
+        if Program.objects.filter(title_lv=title_lv, channel=self.current_channel).exists():
+            logger.info(f"Skipping existing program: {title_lv}")
+            return None
 
         soup = BeautifulSoup(extra_info.data, 'html.parser')
         summary = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
         if summary is None:
-            logger.info(f"Summary not found for: {result}")
+            logger.info(f"Summary not found for: {title_lv}")
             return None
 
         link_element = summary.find('a')
@@ -140,11 +144,16 @@ class TVProgramScraper(BaseScraper):
         return program
 
     def create_or_update_resources(self, resources):
+        if not resources or not self.current_start_time:
+            return
+
         titles = [r.title_lv for r in resources]
+        start_date = self.current_start_time.date()
         existing_titles = set(
             Program.objects.filter(
                 title_lv__in=titles,
-                channel=self.current_channel
+                channel=self.current_channel,
+                start_time__date=start_date
             ).values_list('title_lv', flat=True)
         )
 
@@ -381,7 +390,7 @@ class TVProgramScraper(BaseScraper):
             "ltv7_hd": "ltv7_hd",
             "ltv1_hd": "ltv1_hd",
         }
-        oldest_date = (datetime.now() - timedelta(days=6))
+        oldest_date = (timezone.now() - timedelta(days=6))
         saved_programs = []
 
         for channel_name, channel_id in channels.items():
