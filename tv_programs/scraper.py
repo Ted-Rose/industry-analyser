@@ -148,12 +148,16 @@ class TVProgramScraper(BaseScraper):
             return
 
         titles = [r.title_lv for r in resources]
-        start_date = self.current_start_time.date()
+        day_start = self.current_start_time.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        day_end = day_start + timedelta(days=1)
         existing_titles = set(
             Program.objects.filter(
                 title_lv__in=titles,
                 channel=self.current_channel,
-                start_time__date=start_date
+                start_time__gte=day_start,
+                start_time__lt=day_end
             ).values_list('title_lv', flat=True)
         )
 
