@@ -87,10 +87,42 @@ class TVProgramScraper(BaseScraper):
         return programs
 
     def remove_redundant_results(self, programs):
+        """
+        Remove programs that are excluded or already in DB for the current day.
+        """
+        if not programs:
+            return []
+
+        day_start = self.current_start_time
+        day_end = day_start + timedelta(days=1)
+
+        titles_to_check = []
+        for p in programs:
+            title = p.find(class_="tet-font__headline--s").text.strip()
+            titles_to_check.append(title)
+
+        existing_titles = set(
+            Program.objects.filter(
+                title_lv__in=titles_to_check,
+                channel=self.current_channel,
+                start_time__gte=day_start,
+                start_time__lt=day_end
+            ).values_list('title_lv', flat=True)
+        )
+
+        initial_program_count = len(programs)
+        filtered_programs = []
         for program in programs:
-            if program.find(class_="tet-font__headline--s").text.strip() in self.excluded_resources:
-                programs.remove(program)
-        return programs
+            title = program.find(class_="tet-font__headline--s").text.strip()
+            if title in self.excluded_resources or title in existing_titles:
+                continue
+            filtered_programs.append(program)
+
+        removed_count = initial_program_count - len(filtered_programs)
+        if removed_count > 0:
+            logger.info(f"Removed {removed_count} redundant programs.")
+
+        return filtered_programs
 
     def get_resource_info_link(self, program):
         title_lv = program.find(class_="tet-font__headline--s").text
@@ -104,9 +136,6 @@ class TVProgramScraper(BaseScraper):
             return None
 
         title_lv = title_element.text.strip()
-        if Program.objects.filter(title_lv=title_lv, channel=self.current_channel).exists():
-            logger.info(f"Skipping existing program: {title_lv}")
-            return None
 
         soup = BeautifulSoup(extra_info.data, 'html.parser')
         summary = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
@@ -144,43 +173,10 @@ class TVProgramScraper(BaseScraper):
         return program
 
     def create_or_update_resources(self, resources):
-        if not resources or not self.current_start_time:
+        if not resources:
             return
 
-        titles = [r.title_lv for r in resources]
-        day_start = self.current_start_time.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        day_end = day_start + timedelta(days=1)
-        existing_titles = set(
-            Program.objects.filter(
-                title_lv__in=titles,
-                channel=self.current_channel,
-                start_time__gte=day_start,
-                start_time__lt=day_end
-            ).values_list('title_lv', flat=True)
-        )
-
-        new_resources = [
-            r for r in resources
-            if r.title_lv not in existing_titles
-        ]
-
-        if new_resources:
-            Program.objects.bulk_create(new_resources)
-            channel_name = (
-                self.current_channel.name
-                if self.current_channel
-                else 'unknown'
-            )
-            logger.info(
-                f"Bulk created {len(new_resources)} "
-                f"new programs for {channel_name}"
-            )
-
-        if existing_titles:
-            logger.info(f"Skipped {len(existing_titles)} existing programs")
-
+        Program.objects.bulk_create(resources)
         return
 
     def get_ratings(self, query, content_type=None):

@@ -4,6 +4,7 @@ import time
 import random
 import urllib3
 from typing import List
+from django.db.models import Model
 from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
@@ -76,7 +77,7 @@ class BaseScraper(abc.ABC):
     def format_results(self, search_results):
         raise NotImplementedError
 
-    def extract_resources(self, search_results):
+    def extract_resources(self, search_results) -> List[Model]:
         if self.enrich_search_results:
             resources = []
             for result in search_results:
@@ -126,7 +127,7 @@ class BaseScraper(abc.ABC):
     def remove_redundant_results(self, resources):
         raise NotImplementedError
 
-    def create_or_update_resources(self, resources):
+    def create_or_update_resources(self, resources: List[Model]):
         raise NotImplementedError
 
     def make_request(self, url, headers=None, method="GET"):
@@ -146,10 +147,8 @@ class BaseScraper(abc.ABC):
         domain = urlparse(url).netloc
         self.sleep(domain=domain)
 
-        logger.info(f"Request {url}")
         try:
             response = self.http.request(method, url, headers=headers)
-            logger.info(f"Request completed: {url} - Status: {response.status}")
             return response
         except MaxRetryError as e:
             logger.error(f"Max retries exceeded: {e}")
@@ -191,21 +190,9 @@ class BaseScraper(abc.ABC):
         last_sleep_time = self.last_sleep_by_domain.get(domain_key, 0)
 
         time_since_last_sleep = current_time - last_sleep_time
-        domain_info = f" for {domain}" if domain else ""
 
         if time_since_last_sleep < sleep_time:
             actual_sleep_time = sleep_time - time_since_last_sleep
-            logger.info(
-                f"Time since last sleep{domain_info}: "
-                f"{time_since_last_sleep:.2f}s, "
-                f"sleeping for {actual_sleep_time:.2f}s"
-            )
             time.sleep(actual_sleep_time)
-        else:
-            logger.info(
-                f"No sleep needed{domain_info}. "
-                f"Time since last sleep: {time_since_last_sleep:.2f}s "
-                f"(required: {sleep_time:.2f}s)"
-            )
 
         self.last_sleep_by_domain[domain_key] = time.time()
