@@ -66,7 +66,7 @@ class TVProgramScraper(BaseScraper):
                 yield url
         return
 
-    def format_results(self, search_results):
+    def parse_results(self, search_results):
         html_content = search_results.data
         soup = BeautifulSoup(html_content, 'html.parser')
 

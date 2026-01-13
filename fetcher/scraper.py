@@ -36,7 +36,7 @@ class VacancyScrapper(BaseScraper):
             yield url
         return
 
-    def format_results(
+    def parse_results(
         self,
         search_results: urllib3.response.HTTPResponse
     ) -> List:

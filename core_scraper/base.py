@@ -58,17 +58,16 @@ class BaseScraper(abc.ABC):
 
     def search_portal(self, search_url):
         search_results = self.make_request(search_url)
-        # Format and prune redundant resources
-        formatted_results = self.format_results(search_results)
+        parsed_results = self.parse_results(search_results)
 
-        if not formatted_results:
+        if not parsed_results:
             return
 
-        pruned_results = self.remove_redundant_results(formatted_results)
+        pruned_results = self.remove_redundant_results(parsed_results)
 
         return self.extract_resources(pruned_results)
 
-    def format_results(self, search_results):
+    def parse_results(self, search_results):
         raise NotImplementedError
 
     def remove_redundant_results(self, resources):
