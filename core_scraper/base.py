@@ -77,8 +77,6 @@ class BaseScraper(abc.ABC):
         if self.enrich_search_results:
             resources = []
             for result in search_results:
-                # TODO: Add a check to see if the result is already in the database
-                # Almost in all cases based on the url
                 enriched_result = self.enrich_result(result)
 
                 if not enriched_result:

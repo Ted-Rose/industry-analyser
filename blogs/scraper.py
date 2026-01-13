@@ -154,12 +154,6 @@ class BlogScraper(BaseScraper):
 
     def remove_redundant_results(self, formatted_results):
         """Removes redundant results from the list of formatted results."""
-        if self.total_themes_count == 0:
-            logger.info(
-                "No themes found in the database. "
-                "Skipping redundancy check."
-            )
-            return formatted_results
 
         # If analyzing a specific theme with reanalyze=False,
         # filter out pages that already have analysis for that theme
@@ -190,7 +184,7 @@ class BlogScraper(BaseScraper):
                 )
                 return formatted_results
 
-        # Original logic for analyzing all themes
+        # Base logic for analyzing all themes
         fully_analyzed_pages = Page.objects.filter(
             url__in=formatted_results
         ).annotate(
@@ -225,8 +219,8 @@ class BlogScraper(BaseScraper):
             )
             return formatted_results
 
-    def get_resource_info_link(self, resource):
-        info_link = self.config['base_url'] + resource
+    def get_resource_info_link(self, href):
+        info_link = self.config['base_url'] + href
         return info_link
 
     def extract_resource(self, href, extra_info):
