@@ -87,7 +87,7 @@ class VacancyScrapper(BaseScraper):
             return vacancies
 
     def remove_redundant_results(self, vacancy_search_results):
-    if isinstance(vacancy_search_results, List):
+        if isinstance(vacancy_search_results, List):
             return vacancy_search_results
         if isinstance(vacancy_search_results, html):
             for vacancy_result in vacancy_search_results:

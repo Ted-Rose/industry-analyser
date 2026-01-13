@@ -57,17 +57,6 @@ def fetcher(request):
         if not keyword_obj:
             continue
 
-        # newest_entry = VacancyContainsKeyword.objects.filter(
-        #     keyword=keyword_obj
-        # ).order_by('-vacancy__last_seen').first()
-
-        # if newest_entry.vacancy.last_seen.date() <= today:
-        #     logger.info(f"Keyword {keywords} already fetched today. Skipping.")
-        #     continue
-
-        # Don't overwhelm portals with a request burst
-        print("Sleeping")
-        time.sleep(random.uniform(5, 10))
         logger.info(f"Searching for keywords: {keywords}")
         for _, portal in portals.items():
             logger.info(f"Searching in portal: {portal['base_url']}")
@@ -170,8 +159,6 @@ def fetcher(request):
 
                     try:
                         vacancy = requests.get(url)
-                        print("Sleeping")
-                        time.sleep(random.uniform(1, 3))
                     except requests.exceptions.RequestException as e:
                         print("Error in fetching data: ", e, "\n Retrying...")
                         logger.error(f"Error in fetching data: {e}. Retrying...")
