@@ -138,7 +138,7 @@ class TVProgramScraper(BaseScraper):
             return None
 
         content_description = self.make_request(link)
-        return self.process_item(result)
+        return self.process_item(result, content_description)
 
     def initiate_resource(self, resource_link):
         """Create an unsaved Program instance to be bulk inserted later."""
@@ -263,12 +263,12 @@ class TVProgramScraper(BaseScraper):
             logger.error(f"Error parsing JSON: {e}")
             return None
 
-    def process_item(self, program_data):
+    def process_item(self, content_description):
         """
         Process a single TV program item.
 
         Args:
-            program_data: Raw program data from the scraper
+            content_description: Raw program data from the scraper
 
         Returns:
             dict: Processed program data
@@ -276,14 +276,14 @@ class TVProgramScraper(BaseScraper):
         title_lv = None
         description_lv = None
 
-        title_element = program_data.find(class_="tet-font__headline--s")
+        title_element = content_description.find(class_="tet-font__headline--s")
         if title_element:
             title_lv = title_element.text.strip()
         else:
             logger.info("No title found for program")
             return None
 
-        description_element = program_data.find(
+        description_element = content_description.find(
             class_="text tet-font__body--s")
         if description_element:
             description_lv = re.sub(
@@ -291,7 +291,7 @@ class TVProgramScraper(BaseScraper):
                 "",
                 description_element.text.strip()
             )
-        ratings = self.get_ratings(title_lv, 'tv')
+        ratings = content_description
         # TODO CONTINUE HERE as something here breaks
         if not ratings:
             logger.info(f"No ratings found for: {title_lv}")
@@ -323,7 +323,7 @@ class TVProgramScraper(BaseScraper):
         combined_match_ratio = (title_match_ratio + description_match_ratio) / 2 if description_match_ratio > 0 else title_match_ratio
         logger.info(f"Overall match ratio: {combined_match_ratio}")
 
-        image_element = program_data.find('img')
+        image_element = content_description.find('img')
         image_url = image_element['src'] if image_element else ratings.get("image")
 
         return {
