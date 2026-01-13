@@ -66,19 +66,6 @@ class TVProgramScraper(BaseScraper):
                 yield url
         return
 
-    def get_days(self):
-        days_in_past = self.config.get(
-          'days_in_past',
-          7
-        )
-        days_in_future = self.config.get(
-          'days_in_future',
-          7
-        )
-        day_range = range(days_in_past + days_in_future)
-        start_date = timezone.now() - timedelta(days=days_in_past)
-        return day_range, start_date
-
     def format_results(self, search_results):
         html_content = search_results.data
         soup = BeautifulSoup(html_content, 'html.parser')
@@ -178,6 +165,21 @@ class TVProgramScraper(BaseScraper):
 
         Program.objects.bulk_create(resources)
         return
+
+    # Helper methods
+
+    def get_days(self):
+        days_in_past = self.config.get(
+          'days_in_past',
+          7
+        )
+        days_in_future = self.config.get(
+          'days_in_future',
+          7
+        )
+        day_range = range(days_in_past + days_in_future)
+        start_date = timezone.now() - timedelta(days=days_in_past)
+        return day_range, start_date
 
     def get_ratings(self, query, content_type=None):
         """

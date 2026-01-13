@@ -62,6 +62,9 @@ class BaseScraper(abc.ABC):
                 self.create_or_update_resources(new_or_updated_resources)
         return
 
+    def get_search_urls(self):
+        raise NotImplementedError
+
     def search_portal(self, search_url):
         search_results = self.make_request(search_url)
         # Format and prune redundant resources
@@ -75,6 +78,9 @@ class BaseScraper(abc.ABC):
         return self.extract_resources(pruned_results)
 
     def format_results(self, search_results):
+        raise NotImplementedError
+
+    def remove_redundant_results(self, resources):
         raise NotImplementedError
 
     def extract_resources(self, search_results) -> List[Model]:
@@ -112,19 +118,16 @@ class BaseScraper(abc.ABC):
         else:
             return extra_info
 
-    def validate_and_return(self, href, extra_info):
+    def get_resource_info_link(self, href):
         raise NotImplementedError
 
-    def get_resource_info_links(self, search_results):
+    def validate_and_return(self, href, extra_info):
         raise NotImplementedError
 
     def initiate_resource(self, resource_link) -> 'self.resource_model':
         raise NotImplementedError
 
     def initiate_resources(self, search_results) -> List['resource_model']:
-        raise NotImplementedError
-
-    def remove_redundant_results(self, resources):
         raise NotImplementedError
 
     def create_or_update_resources(self, resources: List[Model]):

@@ -27,9 +27,6 @@ class VacancyScrapper(BaseScraper):
             config = json.load(file)
             return config['portals'].get(str(portal_id))
 
-    def remove_redundant_results(self, resources: List[Vacancy]) -> List[Vacancy]:
-        return resources
-
     def get_search_urls(self):
         keywords = self.keywords.filter(only_filter=False).values('name')
         keywords = [keyword['name'] for keyword in keywords]
@@ -58,6 +55,9 @@ class VacancyScrapper(BaseScraper):
             soup = BeautifulSoup(html_content, 'html.parser')
             vacancies = soup.find_all('div', class_="show-expander-content")
             return vacancies
+
+    def remove_redundant_results(self, resources: List[Vacancy]) -> List[Vacancy]:
+        return resources
 
     def initiate_resources(self, search_results) -> List[Vacancy]:
         vacancies = []
