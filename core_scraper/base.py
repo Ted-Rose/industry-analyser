@@ -9,9 +9,7 @@ from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
-from django.conf import settings
 
-# Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('core_scraper')
 
 
@@ -28,11 +26,6 @@ class BaseScraper(abc.ABC):
         Args:
             config (dict, optional): Configuration for the scraper
         """
-        # if settings.DEBUG:
-        #     raise ValueError(
-        #         "Scrapers should not be run with DEBUG=True. "
-        #         "This is a safety measure to prevent accidental scraping of live sites during development."
-        #     )
 
         self.config = config or {}
         self.last_sleep_by_domain = {}
@@ -57,13 +50,11 @@ class BaseScraper(abc.ABC):
 
     def run(self):
         for search_url in self.get_search_urls():
+            logger.info(f"\n\nSearching URL: {search_url}")
             new_or_updated_resources = self.search_portal(search_url)
             if new_or_updated_resources:
                 self.create_or_update_resources(new_or_updated_resources)
         return
-
-    def get_search_urls(self):
-        raise NotImplementedError
 
     def search_portal(self, search_url):
         search_results = self.make_request(search_url)
@@ -118,10 +109,10 @@ class BaseScraper(abc.ABC):
         else:
             return extra_info
 
-    def get_resource_info_link(self, href):
+    def validate_and_return(self, href, extra_info):
         raise NotImplementedError
 
-    def validate_and_return(self, href, extra_info):
+    def get_resource_info_links(self, search_results):
         raise NotImplementedError
 
     def initiate_resource(self, resource_link) -> 'self.resource_model':

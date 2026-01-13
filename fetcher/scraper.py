@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from core_scraper.base import BaseScraper
 
-# Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('fetcher')
 
 
@@ -42,7 +41,6 @@ class VacancyScrapper(BaseScraper):
         search_results: urllib3.response.HTTPResponse
     ) -> List:
         if search_results.headers['Content-Type'] == 'application/json':
-            # Address this methods side effect
             self.enrich_search_results = False
 
             json_content = search_results.data.decode('utf-8')

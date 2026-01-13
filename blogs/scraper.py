@@ -7,13 +7,11 @@ import logging
 from google import genai
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
-from google.api_core import exceptions
 from django.conf import settings
 from django.db.models import Count, Q
 from core_scraper.base import BaseScraper
 from .models import Page, Theme, PageAnalysis
 
-# Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('blogs')
 
 
@@ -106,7 +104,6 @@ class BlogScraper(BaseScraper):
                 )
                 yield current_url
 
-                # Fetch the page to find the next link
                 response = self.make_request(current_url)
                 if not response:
                     break
@@ -147,8 +144,6 @@ class BlogScraper(BaseScraper):
         html_content = search_results.data
         soup = BeautifulSoup(html_content, 'html.parser')
 
-        # This is a placeholder selector. You will need to update it to match
-        # the actual structure of the blog you are scraping.
         post_links = [
             a['href'] for a in soup.select('article .h2_wrap h2 a')
             if '#' not in a['href']
