@@ -116,29 +116,29 @@ class TVProgramScraper(BaseScraper):
         encoded_title_lv = quote_plus(title_lv, encoding='utf-8')
         return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
 
-    def validate_and_return(self, result, extra_info):
-        title_element = result.find(class_="tet-font__headline--s")
+    def validate_and_return(self, program, imdb_search_results):
+        title_element = program.find(class_="tet-font__headline--s")
         if not title_element:
             logger.info("No title element found")
             return None
 
         title_lv = title_element.text.strip()
 
-        soup = BeautifulSoup(extra_info.data, 'html.parser')
-        summary = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
-        if summary is None:
-            logger.info(f"Summary not found for: {title_lv}")
+        soup = BeautifulSoup(imdb_search_results.data, 'html.parser')
+        search_results = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
+        if search_results is None:
+            logger.info(f"Not found in IMDB: {title_lv}")
             return None
 
-        link_element = summary.find('a')
+        link_element = search_results.find('a')
         if link_element:
             link = "https://www.imdb.com/" + link_element['href']
         else:
-            logger.info("Link not found")
+            logger.info(f"Link not found in IMDB: {title_lv}")
             return None
 
-        content_description = self.make_request(link)
-        return self.process_item(result, content_description)
+        imdb_program = self.make_request(link)
+        return self.process_item(program, imdb_program)
 
     def initiate_resource(self, resource_link):
         """Create an unsaved Program instance to be bulk inserted later."""
@@ -263,7 +263,7 @@ class TVProgramScraper(BaseScraper):
             logger.error(f"Error parsing JSON: {e}")
             return None
 
-    def process_item(self, content_description):
+    def process_item(self, program, imdb_program):
         """
         Process a single TV program item.
 
@@ -276,14 +276,14 @@ class TVProgramScraper(BaseScraper):
         title_lv = None
         description_lv = None
 
-        title_element = content_description.find(class_="tet-font__headline--s")
+        title_element = program.find(class_="tet-font__headline--s")
         if title_element:
             title_lv = title_element.text.strip()
         else:
             logger.info("No title found for program")
             return None
 
-        description_element = content_description.find(
+        description_element = imdb_program.find(
             class_="text tet-font__body--s")
         if description_element:
             description_lv = re.sub(
@@ -291,7 +291,7 @@ class TVProgramScraper(BaseScraper):
                 "",
                 description_element.text.strip()
             )
-        ratings = content_description
+        ratings = imdb_program
         # TODO CONTINUE HERE as something here breaks
         if not ratings:
             logger.info(f"No ratings found for: {title_lv}")
@@ -323,7 +323,7 @@ class TVProgramScraper(BaseScraper):
         combined_match_ratio = (title_match_ratio + description_match_ratio) / 2 if description_match_ratio > 0 else title_match_ratio
         logger.info(f"Overall match ratio: {combined_match_ratio}")
 
-        image_element = content_description.find('img')
+        image_element = program.find('img')
         image_url = image_element['src'] if image_element else ratings.get("image")
 
         return {
