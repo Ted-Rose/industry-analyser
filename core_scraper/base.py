@@ -3,12 +3,13 @@ import logging
 import time
 import random
 import urllib3
+from typing import List
+from django.db.models import Model
 from urllib.parse import urlparse
 import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
 
-# Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('core_scraper')
 
 
@@ -25,8 +26,11 @@ class BaseScraper(abc.ABC):
         Args:
             config (dict, optional): Configuration for the scraper
         """
+
         self.config = config or {}
         self.last_sleep_by_domain = {}
+        self.bulk_save = False
+        self.ai_analysis = False
         self.default_domain = 'default'
         self.ai_analysis = False
 
@@ -46,6 +50,84 @@ class BaseScraper(abc.ABC):
 
         logger.debug(f"Initialized {self.__class__.__name__}")
 
+    def run(self):
+        for search_url in self.get_search_urls():
+            print("\n\n")  # Line break for better console output readability
+            logger.info(f"Searching URL: {search_url}")
+            new_or_updated_resources = self.search_portal(search_url)
+            if new_or_updated_resources:
+                self.create_or_update_resources(new_or_updated_resources)
+                logger.info(f"Created or updated \
+                  {len(new_or_updated_resources)} resources")
+            else:
+                logger.info("No new or updated resources found")
+        return
+
+    def search_portal(self, search_url):
+        search_results = self.make_request(search_url)
+        parsed_results = self.parse_results(search_results)
+
+        if not parsed_results:
+            return
+
+        pruned_results = self.remove_redundant_results(parsed_results)
+
+        return self.extract_resources(pruned_results)
+
+    def parse_results(self, search_results):
+        raise NotImplementedError
+
+    def remove_redundant_results(self, resources):
+        raise NotImplementedError
+
+    def extract_resources(self, search_results) -> List[Model]:
+        if self.enrich_search_results:
+            resources = []
+            for result in search_results:
+                enriched_result = self.enrich_result(result)
+
+                if not enriched_result:
+                    self.excluded_resources.append(result)
+                    continue
+
+                if self.ai_analysis:
+                    self.analyse_and_save_resource(enriched_result, result)
+                else:
+                    resource = self.initiate_resource(enriched_result)
+                    resources.append(resource)
+
+                    if len(resources) >= 2:
+                        break
+
+            # TODO: Blog scrapper will return empty list - fix logic gap
+            return resources
+        else:
+            return self.initiate_resources(search_results)
+
+    def enrich_result(self, href):
+        info_link = self.get_resource_info_link(href)
+        extra_info = self.make_request(info_link)
+
+        if self.validate_result:
+            return self.validate_and_return(href, extra_info)
+        else:
+            return extra_info
+
+    def validate_and_return(self, href, extra_info):
+        raise NotImplementedError
+
+    def get_resource_info_links(self, search_results):
+        raise NotImplementedError
+
+    def initiate_resource(self, resource_link) -> 'self.resource_model':
+        raise NotImplementedError
+
+    def initiate_resources(self, search_results) -> List['resource_model']:
+        raise NotImplementedError
+
+    def create_or_update_resources(self, resources: List[Model]):
+        raise NotImplementedError
+
     def make_request(self, url, headers=None, method="GET"):
         """
         Make an HTTP request using urllib3 with retry logic.
@@ -64,7 +146,8 @@ class BaseScraper(abc.ABC):
         self.sleep(domain=domain)
 
         try:
-            return self.http.request(method, url, headers=headers)
+            response = self.http.request(method, url, headers=headers)
+            return response
         except MaxRetryError as e:
             logger.error(f"Max retries exceeded: {e}")
             return None
@@ -105,21 +188,9 @@ class BaseScraper(abc.ABC):
         last_sleep_time = self.last_sleep_by_domain.get(domain_key, 0)
 
         time_since_last_sleep = current_time - last_sleep_time
-        domain_info = f" for {domain}" if domain else ""
 
         if time_since_last_sleep < sleep_time:
             actual_sleep_time = sleep_time - time_since_last_sleep
-            logger.info(
-                f"Time since last sleep{domain_info}: "
-                f"{time_since_last_sleep:.2f}s, "
-                f"sleeping for {actual_sleep_time:.2f}s"
-            )
             time.sleep(actual_sleep_time)
-        else:
-            logger.info(
-                f"No sleep needed{domain_info}. "
-                f"Time since last sleep: {time_since_last_sleep:.2f}s "
-                f"(required: {sleep_time:.2f}s)"
-            )
 
         self.last_sleep_by_domain[domain_key] = time.time()

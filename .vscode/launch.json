@@ -2,6 +2,24 @@
   "version": "0.2.0",
   "configurations": [
     {
+        "name": "Scrape 1st vacany portal",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/manage.py",
+        "args": [
+            "scrape_first_vacancy_portal",
+            "--force"
+        ],
+        "django": true,
+        "justMyCode": true,
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/venv/bin/python",
+        "console": "integratedTerminal",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        }
+    },
+    {
       "name": "Django: Scrape TV Programs (Force)",
       "type": "debugpy",
       "request": "launch",
@@ -11,12 +29,13 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
     },
     {
-      "name": "Django: Scrape TV Programs",
+      "name": "Scrape TV Programs",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/manage.py",
@@ -25,6 +44,22 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Scrape Blogs (All Themes)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["scrape_blogs"],
+      "django": true,
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
@@ -39,6 +74,7 @@
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
       "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}"
       }
