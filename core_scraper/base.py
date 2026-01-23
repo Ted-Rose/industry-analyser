@@ -32,7 +32,7 @@ class BaseScraper(abc.ABC):
         self.bulk_save = False
         self.ai_analysis = False
         self.default_domain = 'default'
-
+        self.updated = "here"
         retry_strategy = Retry(
             total=3,
             backoff_factor=30,

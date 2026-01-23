@@ -13,24 +13,67 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 import json
 import os
+import textwrap
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-PRIVATE_SETTINGS_JSON_PATH = os.path.join(BASE_DIR, 'private_settings.json')
+# --- Runtime File Generation for Vercel ---
 
-if os.path.isfile(PRIVATE_SETTINGS_JSON_PATH):
-    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
-        private_settings = json.load(file)
+IS_VERCEL = os.environ.get('VERCEL') == '1'
+
+# 1. Handle private_settings.json
+if IS_VERCEL:
+    # Use the /tmp directory for writable storage in Vercel
+    PRIVATE_SETTINGS_JSON_PATH = '/tmp/private_settings.json'
 else:
-    raise FileNotFoundError(
-        'Private settings do not exist. Please provide private settings.')
+    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
+        BASE_DIR, 'private_settings.json'
+    )
+
+# Create the file from environment variables if it doesn't exist
+if not os.path.exists(PRIVATE_SETTINGS_JSON_PATH):
+    private_settings_str = os.environ.get('private_settings')
+    if private_settings_str:
+        with open(PRIVATE_SETTINGS_JSON_PATH, 'w') as f:
+            f.write(private_settings_str)
+    else:
+        raise FileNotFoundError(
+            "'private_settings.json' not found and 'private_settings' "
+            "env var is not set."
+        )
+
+# Now, load the settings from the file
+try:
+    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as f:
+        private_settings = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError) as e:
+    raise RuntimeError(
+        f"Could not load private settings from {PRIVATE_SETTINGS_JSON_PATH}: {e}"
+    )
+
+# 2. Handle ca.pem for the database
+if IS_VERCEL:
+    CA_PEM_PATH = '/tmp/ca.pem'
+    # Create ca.pem at runtime if it doesn't exist
+    if not os.path.exists(CA_PEM_PATH):
+        capem_content = os.environ.get('capem')
+        if capem_content:
+            # Reformat the single-line env var into a valid PEM format
+            lines = capem_content.replace("-----BEGIN CERTIFICATE----- ", "-----BEGIN CERTIFICATE-----\\n")
+            lines = lines.replace(" -----END CERTIFICATE-----", "\\n-----END CERTIFICATE-----")
+            base64_content = lines.split("\\n", 1)[1].rsplit("\\n", 1)[0]
+            formatted_content = textwrap.fill(base64_content, 64)
+            pem_content = f"-----BEGIN CERTIFICATE-----\\n{formatted_content}\\n-----END CERTIFICATE-----"
+            with open(CA_PEM_PATH, 'w') as f:
+                f.write(pem_content)
+else:
+    CA_PEM_PATH = os.path.join(BASE_DIR, 'ca.pem')
+
+# --- End Runtime File Generation ---
+
 
 # Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
-
-
-# SECURITY WARNING: don't run with debug turned on in production!
 SECRET_KEY = private_settings.get('SECRET_KEY')
 DEBUG = private_settings.get('DEBUG')
 BASE_URL = private_settings.get('base_url')
@@ -46,10 +89,7 @@ ALLOWED_HOSTS = [
   '.vercel.app'
 ]
 
-
-
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -93,7 +133,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
-
+# Database
 if DEBUG:
     DATABASES = {
         'default': {
@@ -103,6 +143,11 @@ if DEBUG:
     }
 else:
     DATABASES = private_settings.get('DATABASES')
+    # IMPORTANT: Update the database config to use the runtime ca.pem path on Vercel
+    if IS_VERCEL and DATABASES:
+        db_options = DATABASES.get('default', {}).get('OPTIONS', {})
+        if db_options and 'sslrootcert' in db_options:
+            db_options['sslrootcert'] = CA_PEM_PATH
 
 
 # Password validation
@@ -123,18 +168,13 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
@@ -153,11 +193,9 @@ def create_log_handler(
 ):
     """Creates a log handler, either for a file or null if in debug mode."""
     if DEBUG and filename:
-        # Create logs directory if it doesn't exist
         logs_dir = os.path.join(BASE_DIR, 'logs')
         if not os.path.exists(logs_dir):
             os.makedirs(logs_dir)
-
         return {
             'level': level,
             'class': 'logging.handlers.RotatingFileHandler',
