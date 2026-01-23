@@ -117,6 +117,7 @@ class TVProgramScraper(BaseScraper):
         return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
 
     def validate_and_return(self, program, imdb_search_results):
+        # TODO: Refactor down the callstack and consider refactoring up the callstack as well
         title_element = program.find(class_="tet-font__headline--s")
         if not title_element:
             logger.info("No title element found")
@@ -292,7 +293,6 @@ class TVProgramScraper(BaseScraper):
                 description_element.text.strip()
             )
         ratings = imdb_program
-        # TODO CONTINUE HERE as something here breaks
         if not ratings:
             logger.info(f"No ratings found for: {title_lv}")
             # TODO: Add to skippable programs
