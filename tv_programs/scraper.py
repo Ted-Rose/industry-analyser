@@ -163,7 +163,7 @@ class TVProgramScraper(BaseScraper):
     def create_or_update_resources(self, resources):
         if not resources:
             return
-
+        # TODO: This won't update existing resources, only create new ones
         Program.objects.bulk_create(resources)
         return
 
