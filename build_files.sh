@@ -1,4 +1,4 @@
-python3 -m pip install -r requirements.txt
+uv pip install --system -r requirements.txt
 
 python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_settings_json
 
