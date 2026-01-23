@@ -1,22 +1,14 @@
-# 1. Create a virtual environment using Python 3.12
-echo "Creating virtual environment..."
-uv venv --python 3.12
+# The @vercel/python builder automatically handles dependency installation.
+# This script runs *after* dependencies are installed.
 
-# 2. Install dependencies into the virtual environment
-echo "Installing dependencies..."
-uv pip install -r requirements.txt
+set -e # Exit immediately if a command exits with a non-zero status.
 
-# 3. Run build & management commands using the virtual environment
-echo "Running build tasks..."
-uv run python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_settings_json
+# Run build tasks that need the Django environment
+python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_settings_json
 
-echo "Collecting static files..."
-uv run python3 manage.py collectstatic --noinput
+# Collect static files
+python3 manage.py collectstatic --noinput
 
-# Create Vercel-compatible output directory
-mkdir -p .vercel/output/static
-cp -r staticfiles/* .vercel/output/static/
-
-echo "Running database migrations..."
-uv run python3 manage.py makemigrations
-uv run python3 manage.py migrate
+# Run database migrations
+python3 manage.py makemigrations
+python3 manage.py migrate
