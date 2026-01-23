@@ -55,6 +55,10 @@ class BaseScraper(abc.ABC):
             new_or_updated_resources = self.search_portal(search_url)
             if new_or_updated_resources:
                 self.create_or_update_resources(new_or_updated_resources)
+                logger.info(f"Created or updated \
+                  {len(new_or_updated_resources)} resources")
+            else:
+                logger.info("No new or updated resources found")
         return
 
     def search_portal(self, search_url):
