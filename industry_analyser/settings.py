@@ -18,76 +18,85 @@ import textwrap
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- Runtime File Generation for Vercel ---
+# --- Settings Configuration ---
+# Use individual environment variables on Vercel, local file otherwise
 
 IS_VERCEL = os.environ.get('VERCEL') == '1'
 
-# 1. Handle private_settings.json
 if IS_VERCEL:
-    # Use the /tmp directory for writable storage in Vercel
-    PRIVATE_SETTINGS_JSON_PATH = '/tmp/private_settings.json'
-else:
-    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
-        BASE_DIR, 'private_settings.json'
-    )
-
-# Create the file from environment variables if it doesn't exist
-if not os.path.exists(PRIVATE_SETTINGS_JSON_PATH):
-    private_settings_str = os.environ.get('private_settings')
-    if private_settings_str:
-        with open(PRIVATE_SETTINGS_JSON_PATH, 'w') as f:
-            f.write(private_settings_str)
-    else:
-        raise FileNotFoundError(
-            "'private_settings.json' not found and 'private_settings' "
-            "env var is not set."
-        )
-
-# Now, load the settings from the file
-try:
-    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as f:
-        private_settings = json.load(f)
-except (FileNotFoundError, json.JSONDecodeError) as e:
-    raise RuntimeError(
-        f"Could not load private settings from {PRIVATE_SETTINGS_JSON_PATH}: {e}"
-    )
-
-# 2. Handle ca.pem for the database
-if IS_VERCEL:
-    CA_PEM_PATH = '/tmp/ca.pem'
-    # Create ca.pem at runtime if it doesn't exist
-    if not os.path.exists(CA_PEM_PATH):
-        capem_content = os.environ.get('capem')
-        if capem_content:
-            # Reformat the single-line env var into a valid PEM format
-            lines = capem_content.replace("-----BEGIN CERTIFICATE----- ", "-----BEGIN CERTIFICATE-----\\n")
-            lines = lines.replace(" -----END CERTIFICATE-----", "\\n-----END CERTIFICATE-----")
-            base64_content = lines.split("\\n", 1)[1].rsplit("\\n", 1)[0]
+    # On Vercel: Use individual environment variables
+    def get_env(key, default=None, required=False):
+        value = os.environ.get(key, default)
+        if required and value is None:
+            raise ValueError(f"Required environment variable '{key}' is not set")
+        return value
+    
+    # Create ca.pem at runtime if database cert is provided
+    CA_PEM_PATH = None
+    capem_content = os.environ.get('DB_SSL_CERT')
+    if capem_content:
+        CA_PEM_PATH = '/tmp/ca.pem'
+        if not os.path.exists(CA_PEM_PATH):
+            # Reformat the single-line env var into valid PEM format
+            lines = capem_content.replace(
+                "-----BEGIN CERTIFICATE----- ",
+                "-----BEGIN CERTIFICATE-----\n"
+            )
+            lines = lines.replace(
+                " -----END CERTIFICATE-----",
+                "\n-----END CERTIFICATE-----"
+            )
+            base64_content = lines.split("\n", 1)[1].rsplit("\n", 1)[0]
             formatted_content = textwrap.fill(base64_content, 64)
-            pem_content = f"-----BEGIN CERTIFICATE-----\\n{formatted_content}\\n-----END CERTIFICATE-----"
+            pem_content = (
+                f"-----BEGIN CERTIFICATE-----\n"
+                f"{formatted_content}\n"
+                f"-----END CERTIFICATE-----"
+            )
             with open(CA_PEM_PATH, 'w') as f:
                 f.write(pem_content)
 else:
+    # Local development: Use private_settings.json
+    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
+        BASE_DIR, 'private_settings.json'
+    )
+    
+    if not os.path.isfile(PRIVATE_SETTINGS_JSON_PATH):
+        raise FileNotFoundError(
+            'Private settings do not exist. '
+            'Please provide private_settings.json'
+        )
+    
+    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
+        private_settings = json.load(file)
+    
+    def get_env(key, default=None, required=False):
+        return private_settings.get(key, default)
+    
     CA_PEM_PATH = os.path.join(BASE_DIR, 'ca.pem')
 
-# --- End Runtime File Generation ---
+# --- End Settings Configuration ---
 
 
 # Quick-start development settings - unsuitable for production
-SECRET_KEY = private_settings.get('SECRET_KEY')
-DEBUG = private_settings.get('DEBUG')
-BASE_URL = private_settings.get('base_url')
-HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
-GEMINI_API_KEY = private_settings.get('gemini_api_key')
+SECRET_KEY = get_env('SECRET_KEY', required=True)
+DEBUG = get_env('DEBUG', 'False') == 'True'
+BASE_URL = get_env('BASE_URL')
+HARD_CODED_PASSWORD = get_env('HARD_CODED_PASSWORD')
+GEMINI_API_KEY = get_env('GEMINI_API_KEY')
 
 ON_VERCEL = os.environ.get('VERCEL', False)
 
 ALLOWED_HOSTS = [
-  '127.0.0.1',
-  '0.0.0.0',
-  private_settings.get('ip_address'),
-  '.vercel.app'
+    '127.0.0.1',
+    '0.0.0.0',
+    '.vercel.app'
 ]
+
+if not IS_VERCEL:
+    ip_address = get_env('ip_address')
+    if ip_address:
+        ALLOWED_HOSTS.append(ip_address)
 
 # Application definition
 INSTALLED_APPS = [
@@ -142,12 +151,28 @@ if DEBUG:
         }
     }
 else:
-    DATABASES = private_settings.get('DATABASES')
-    # IMPORTANT: Update the database config to use the runtime ca.pem path on Vercel
-    if IS_VERCEL and DATABASES:
-        db_options = DATABASES.get('default', {}).get('OPTIONS', {})
-        if db_options and 'sslrootcert' in db_options:
-            db_options['sslrootcert'] = CA_PEM_PATH
+    if IS_VERCEL:
+        # On Vercel: Build database config from individual env vars
+        db_config = {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': get_env('DB_NAME', required=True),
+            'USER': get_env('DB_USER', required=True),
+            'PASSWORD': get_env('DB_PASSWORD', required=True),
+            'HOST': get_env('DB_HOST', required=True),
+            'PORT': get_env('DB_PORT', '5432'),
+        }
+        
+        # Add SSL options if certificate is provided
+        if CA_PEM_PATH:
+            db_config['OPTIONS'] = {
+                'sslmode': 'require',
+                'sslrootcert': CA_PEM_PATH
+            }
+        
+        DATABASES = {'default': db_config}
+    else:
+        # Local: Use DATABASES from private_settings.json
+        DATABASES = get_env('DATABASES')
 
 
 # Password validation
