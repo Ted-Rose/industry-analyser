@@ -49,12 +49,10 @@ class BlogScraper(BaseScraper):
         """Override run to handle API request limit."""
         try:
             for search_url in self.get_search_urls():
-                new_or_updated_resources = self.search_portal(search_url)
-                if new_or_updated_resources:
-                    self.create_or_update_resources(
-                        new_or_updated_resources
-                    )
+                # TODO: Blog scrapper will return empty list - fix logic gap
+                self.search_portal(search_url)
         except MaxAPIRequestsReached:
+            # TODO: Investigate if can taken to base scraper
             logger.warning(
                 "\n" + "="*60 + "\n"
                 "SCRAPING STOPPED: API Request Limit Reached\n"
