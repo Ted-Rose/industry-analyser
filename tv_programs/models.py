@@ -45,7 +45,7 @@ class Program(models.Model):
     )
     categories = models.ManyToManyField(Category, through='ProgramCategory')
     start_time = models.DateTimeField()
-    duration_minutes = models.IntegerField()
+    duration_minutes = models.IntegerField(null=True, blank=True)
     url = models.URLField(max_length=200, null=True, blank=True)
     image_url = models.URLField(blank=True, null=True)
     title_match_ratio = models.FloatField(default=0)
