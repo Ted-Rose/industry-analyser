@@ -156,7 +156,7 @@ class TVProgramScraper(BaseScraper):
             combined_match_ratio=resource_link.get('match_ratio', 0),
             channel=self.current_channel,
             start_time=self.current_start_time,
-            duration_minutes=120,
+            duration_minutes=resource_link.get('duration_minutes', None),
         )
         return program
 
