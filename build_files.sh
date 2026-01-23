@@ -1,13 +1,22 @@
-uv pip install --system -r requirements.txt --python 3.12
+# 1. Create a virtual environment using Python 3.12
+echo "Creating virtual environment..."
+uv venv --python 3.12
 
-uv run --python 3.12 python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_settings_json
+# 2. Install dependencies into the virtual environment
+echo "Installing dependencies..."
+uv pip install -r requirements.txt
 
-# Collect static files
-uv run --python 3.12 python3 manage.py collectstatic --noinput
+# 3. Run build & management commands using the virtual environment
+echo "Running build tasks..."
+uv run python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_settings_json
 
-# Create Vercel-compatible output vercel directory
+echo "Collecting static files..."
+uv run python3 manage.py collectstatic --noinput
+
+# Create Vercel-compatible output directory
 mkdir -p .vercel/output/static
-cp -r /vercel/path0/staticfiles/static* .vercel/output/static/
+cp -r staticfiles/* .vercel/output/static/
 
-uv run --python 3.12 python3 manage.py makemigrations
-uv run --python 3.12 python3 manage.py migrate
+echo "Running database migrations..."
+uv run python3 manage.py makemigrations
+uv run python3 manage.py migrate
