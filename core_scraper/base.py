@@ -50,7 +50,8 @@ class BaseScraper(abc.ABC):
 
     def run(self):
         for search_url in self.get_search_urls():
-            logger.info(f"\n\nSearching URL: {search_url}")
+            print("\n\n")  # Line break for better console output readability
+            logger.info(f"Searching URL: {search_url}")
             new_or_updated_resources = self.search_portal(search_url)
             if new_or_updated_resources:
                 self.create_or_update_resources(new_or_updated_resources)
