@@ -1,0 +1,21 @@
+Analyze the provided TEXT and determine if it contains sexual content, explicit descriptions, or themes inappropriate for children.
+
+Consider the following criteria when making your determination:
+
+Explicit Descriptions: Does the text describe sexual acts, sexual intercourse, foreplay, or masturbation?
+
+Sexual Innuendo & Suggestiveness: Does the text contain double entendres, sexually charged dialogue, or implied sexual situations (even if not explicitly described)?
+
+Physical Arousal/Lust: Is the focus on physical lust, sexual gratification, or detailed descriptions of physical arousal (distinct from emotional romantic love)?
+
+Anatomical References: Are there explicit mentions of genitalia, nudity, or secondary sexual characteristics presented in a sexualized context?
+
+Your output must be a single, JSON-formatted object with the following keys:
+
+sexual: (Boolean: true or false) - Set to true if the text contains sexual or highly suggestive content.
+
+confidence_score: (Float: 0.0 to 1.0) - Your confidence in the determination.
+
+reasoning_summary: (String) - A brief (1-2 sentence) explanation of why you flagged it, referencing specific examples found in the text.
+
+TEXT TO ANALYZE:
