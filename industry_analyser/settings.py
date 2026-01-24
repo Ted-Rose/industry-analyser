@@ -32,6 +32,7 @@ else:
 
 # SECURITY WARNING: don't run with debug turned on in production!
 SECRET_KEY = private_settings.get('SECRET_KEY')
+OMDB_KEY = private_settings.get('OMDB_KEY') or private_settings.get('OMDB_key')
 DEBUG = private_settings.get('DEBUG')
 BASE_URL = private_settings.get('base_url')
 HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
