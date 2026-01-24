@@ -8,12 +8,12 @@ from django.utils import timezone
 from difflib import SequenceMatcher
 from urllib.parse import urlencode
 
+from .utils import translate_lv_to_eng
+
 from django.conf import settings
 
 from core_scraper.base import BaseScraper
 from .models import Program, Channel
-
-from .utils import translate_lv_to_eng
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('tv_programs')
@@ -153,17 +153,8 @@ class TVProgramScraper(BaseScraper):
         year_match = re.search(r'\b(19\d{2}|20\d{2})\b', title_lv)
         year = year_match.group(1) if year_match else None
 
-        # Prioritize original title if available
-        original_title_element = resource_link.find(
-            'div', class_='show-expander-content__original-title'
-        )
-        if original_title_element and original_title_element.text.strip():
-            title_eng = original_title_element.text.strip()
-            logger.debug(f"Found original title: '{title_eng}'")
-        else:
-            # Fallback to translation if no original title is found
-            title_eng = translate_lv_to_eng(title_lv)
-            logger.debug(f"No original title found for '{title_lv}', translated to '{title_eng}'")
+        # Translate title for OMDb search
+        title_eng = translate_lv_to_eng(title_lv)
 
         # Determine content type
         content_type = 'movie' if 'filma' in description_lv.lower() else 'series'
