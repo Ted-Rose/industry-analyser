@@ -47,7 +47,6 @@ ALLOWED_HOSTS = [
 ]
 
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -57,7 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'fetcher',
+    'vacancies.apps.VacanciesConfig',
     'accounts',
     'tv_programs',
     'blogs',
@@ -110,7 +109,8 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'NAME': 'django.contrib.auth.password_validation.'
+                'UserAttributeSimilarityValidator',
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
@@ -179,7 +179,8 @@ LOGGING = {
     'formatters': {
         'verbose': {
             'format': (
-                '{levelname} {asctime} {module} {process:d} {thread:d} {message}'
+                '{levelname} {asctime} {module} {process:d} {thread:d} '
+                '{message}'
             ),
             'style': '{',
         },
@@ -219,7 +220,7 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': True,
         },
-        'fetcher': {
+        'vacancies': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,

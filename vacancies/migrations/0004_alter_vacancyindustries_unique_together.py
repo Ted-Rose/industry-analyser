@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('fetcher', '0003_industry_remove_vacancy_industry_vacancyindustries_and_more'),
+        ('vacancies', '0003_industry_remove_vacancy_industry_vacancyindustries_and_more'),
     ]
 
     operations = [

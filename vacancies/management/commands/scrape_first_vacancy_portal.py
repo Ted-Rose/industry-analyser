@@ -1,6 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from fetcher.scraper import VacancyScrapper
+from vacancies.scraper import VacancyScrapper
 
 
 class Command(BaseCommand):

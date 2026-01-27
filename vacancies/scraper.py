@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from core_scraper.base import BaseScraper
 
-logger = logging.getLogger('fetcher')
+logger = logging.getLogger('vacancies')
 
 
 class VacancyScrapper(BaseScraper):
@@ -21,7 +21,7 @@ class VacancyScrapper(BaseScraper):
         self.industries = Industry.objects
 
     def load_config(self, portal_id):
-        config_path = os.path.join(settings.BASE_DIR, 'fetcher/config_v2.json')
+        config_path = os.path.join(settings.BASE_DIR, 'vacancies/config_v2.json')
         with open(config_path, 'r') as file:
             config = json.load(file)
             return config['portals'].get(str(portal_id))

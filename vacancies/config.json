@@ -1,0 +1,54 @@
+{
+"keywords_list": [
+        "English support"
+    ],
+    "portals": {
+        "cvlv": {
+            "id": "1",
+            "base_url": "https://cv.lv/api/v1/vacancies-service/search?",
+            "search_href": "/lv/search",
+            "keywords_param": "keywords[0]",
+            "limit_param": "limit",
+            "vacancy_base_url": "cv.lv",
+            "vacancy_base_href": "/lv/vacancy/",
+            "industry_mapping": {
+                "1": "1",
+                "2": "2",
+                "3": "3",
+                "4": "4",
+                "5": "5",
+                "6": "6",
+                "7": "7",
+                "8": "8",
+                "9": "9",
+                "10": "it",
+                "11": "11",
+                "12": "12",
+                "13": "13",
+                "14": "14",
+                "15": "15",
+                "16": "16",
+                "17": "17",
+                "18": "18",
+                "19": "19",
+                "20": "20"
+            }
+        },
+        "likeit": {
+            "id": "2",
+            "base_url": "https://likeit.lv",
+            "search_href": "/job/",
+            "keywords_param": "keywords[0]",
+            "limit_param": "limit",
+            "vacancy_base_href": "/lv/vacancy/"
+        },
+        "cvlv-regular": {
+            "id": "3",
+            "base_url": "https://cv.lv",
+            "search_href": "/lv/search?&categories%5B0%5D=INFORMATION_TECHNOLOGY",
+            "keywords_param": "keywords",
+            "limit_param": "limit",
+            "vacancy_base_href": "/lv/vacancy/"
+        }
+    }
+}

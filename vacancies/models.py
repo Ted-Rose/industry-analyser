@@ -38,7 +38,7 @@ class VacancyIndustries(models.Model):
 
     class Meta:
         unique_together = (('vacancy', 'industry'),)
-        db_table = 'fetcher_vacancy_industries'
+        db_table = 'vacancies_vacancy_industries'
 
 
 class Keyword(models.Model):
@@ -62,4 +62,4 @@ class VacancyContainsKeyword(models.Model):
 
     class Meta:
         unique_together = (('vacancy', 'keyword'),)
-        db_table = 'fetcher_vacancy_contains_keyword'
+        db_table = 'vacancies_vacancy_contains_keyword'

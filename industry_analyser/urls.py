@@ -16,15 +16,17 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from fetcher import views as fetcher
-from accounts import views as accounts
+from vacancies import views as vacancies_views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('fetcher/', fetcher.fetcher, name='fetcher'),
-    path('', fetcher.find_vacancies, name='find_vacancies'),
-    path('vacancies/', fetcher.find_vacancies, name='find_vacancies'),
-    path('accounts/', accounts.accounts, name='accounts'),
-    path('add_keyword/', fetcher.add_keyword, name='add_keyword'),
+    path('vacancies_home/', vacancies_views.vacancies_home, name='vacancies_home'),
+    path('', vacancies_views.find_vacancies, name='find_vacancies'),
+    path(
+        'vacancies/',
+        vacancies_views.find_vacancies,
+        name='find_vacancies'
+    ),
+    path('add_keyword/', vacancies_views.add_keyword, name='add_keyword'),
     path('tv/', include('tv_programs.urls', namespace='tv_programs')),
 ]

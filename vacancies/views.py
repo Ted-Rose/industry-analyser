@@ -1,7 +1,7 @@
 import logging
 from django.shortcuts import render, redirect
-from django.core.paginator import Paginator
-from http.client import IncompleteRead
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
 import requests
 from bs4 import BeautifulSoup
 from .models import Keyword, Vacancy, VacancyContainsKeyword, Industry
@@ -40,9 +40,9 @@ def save_or_update_keywords(vacancy_id, content, keywords):
                 )
 
 
-def fetcher(request):
+def vacancies_home(request):
     logger.info(f"Fetching initiated on {today}")
-    config_path = os.path.join(settings.BASE_DIR, 'fetcher/config.json')
+    config_path = os.path.join(settings.BASE_DIR, 'vacancies/config.json')
 
     with open(config_path, 'r') as file:
         config = json.load(file)
@@ -177,7 +177,7 @@ def fetcher(request):
                     print("Saved url: ", url)
                     logger.info(f"Saved url: {url}")
 
-    return render(request, 'fetcher/home.html')
+    return render(request, 'vacancies/home.html')
 
 
 def find_vacancies(request):
@@ -212,7 +212,7 @@ def find_vacancies(request):
     except EmptyPage:
         vacancies = paginator.get_page(paginator.num_pages)
 
-    return render(request, 'fetcher/vacancies.html', {
+    return render(request, 'vacancies/vacancies.html', {
         'vacancies': vacancies,
         'keywords': keywords,
         'industries': industries,
@@ -222,20 +222,20 @@ def find_vacancies(request):
 def add_keyword(request):
     hardcoded_password = settings.HARD_CODED_PASSWORD
     if hardcoded_password == "" or hardcoded_password is None:
-        return render(request, 'fetcher/add_keyword.html', {'error': 'HARD_CODED_PASSWORD is not set.'})
+        return render(request, 'vacancies/add_keyword.html', {'error': 'HARD_CODED_PASSWORD is not set.'})
     if request.method == 'POST':
         name = request.POST.get('name')
         only_filter = request.POST.get('only_filter') == 'on'
         password = request.POST.get('password')
 
         if password != hardcoded_password:
-            return render(request, 'fetcher/add_keyword.html', {'error': 'Invalid password.'})
+            return render(request, 'vacancies/add_keyword.html', {'error': 'Invalid password.'})
         form = KeywordForm(request.POST)
         if form.is_valid():
             form.save()
             return redirect('find_vacancies')
     else:
         form = KeywordForm()
-    return render(request, 'fetcher/add_keyword.html', {'form': form})
+    return render(request, 'vacancies/add_keyword.html', {'form': form})
 
-# fetcher('some_request')
+# vacancies_home('some_request')

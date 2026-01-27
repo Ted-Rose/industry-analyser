@@ -44,11 +44,11 @@ class Migration(migrations.Migration):
             name='VacancyContainsKeyword',
             fields=[
                 ('id', models.AutoField(primary_key=True, serialize=False)),
-                ('keyword', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='fetcher.keyword')),
-                ('vacancy', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='fetcher.vacancy')),
+                ('keyword', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='vacancies.keyword')),
+                ('vacancy', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='vacancies.vacancy')),
             ],
             options={
-                'db_table': 'fetcher_vacancy_contains_keyword',
+                'db_table': 'vacancies_vacancy_contains_keyword',
             },
         ),
     ]

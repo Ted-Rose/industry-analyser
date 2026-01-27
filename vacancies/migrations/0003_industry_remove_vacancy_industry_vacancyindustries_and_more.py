@@ -7,7 +7,7 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('fetcher', '0002_vacancy_industry'),
+        ('vacancies', '0002_vacancy_industry'),
     ]
 
     operations = [
@@ -26,13 +26,13 @@ class Migration(migrations.Migration):
             name='VacancyIndustries',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('industry', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='fetcher.industry')),
-                ('vacancy', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='fetcher.vacancy')),
+                ('industry', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='vacancies.industry')),
+                ('vacancy', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='vacancies.vacancy')),
             ],
         ),
         migrations.AddField(
             model_name='vacancy',
             name='industries',
-            field=models.ManyToManyField(through='fetcher.VacancyIndustries', to='fetcher.industry'),
+            field=models.ManyToManyField(through='vacancies.VacancyIndustries', to='vacancies.industry'),
         ),
     ]
