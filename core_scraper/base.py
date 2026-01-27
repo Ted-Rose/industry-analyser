@@ -53,7 +53,7 @@ class BaseScraper(abc.ABC):
         for search_url in self.get_search_urls():
             print("\n\n")  # Line break for better console output readability
             logger.info(f"Searching URL: {search_url}")
-            new_or_updated_resources = self.search_portal(search_url)
+            new_or_updated_resources = self.scrape_portal(search_url)
             if new_or_updated_resources:
                 self.create_or_update_resources(new_or_updated_resources)
                 logger.info(f"Created or updated \
@@ -62,7 +62,7 @@ class BaseScraper(abc.ABC):
                 logger.info("No new or updated resources found")
         return
 
-    def search_portal(self, search_url):
+    def scrape_portal(self, search_url):
         search_results = self.make_request(search_url)
         parsed_results = self.parse_results(search_results)
 

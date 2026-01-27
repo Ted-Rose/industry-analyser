@@ -50,7 +50,7 @@ class BlogScraper(BaseScraper):
         try:
             for search_url in self.get_search_urls():
                 # TODO: Blog scrapper will return empty list - fix logic gap
-                self.search_portal(search_url)
+                self.scrape_portal(search_url)
         except MaxAPIRequestsReached:
             # TODO: Investigate if can taken to base scraper
             logger.warning(
