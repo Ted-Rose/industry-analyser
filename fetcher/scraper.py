@@ -46,15 +46,16 @@ class VacancyScrapper(BaseScraper):
         if search_response.headers['Content-Type'] == 'application/json':
             self.enrich_search_results = False
 
-            data = json.loads(search_response.data.decode('utf-8'))
+            json_content = search_response.data.decode('utf-8')
+            data = json.loads(json_content)
             vacancies = data.get('vacancies', [])
             return vacancies
         else:
             self.enrich_search_results = True
-
-            soup = BeautifulSoup(search_response.data, 'html.parser')
-            vacancy_soup = soup.find_all('div', class_="show-expander-content")
-            return vacancy_soup
+            html_content = search_response.data
+            soup = BeautifulSoup(html_content, 'html.parser')
+            vacancies = soup.find_all('div', class_="show-expander-content")
+            return vacancies
 
     def remove_redundant_results(
       self,

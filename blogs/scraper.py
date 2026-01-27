@@ -139,7 +139,8 @@ class BlogScraper(BaseScraper):
 
     def parse_results(self, search_response):
         """Parses the blog listing page to find links to individual posts."""
-        soup = BeautifulSoup(search_response.data, 'html.parser')
+        html_content = search_response.data
+        soup = BeautifulSoup(html_content, 'html.parser')
 
         post_links = [
             a['href'] for a in soup.select('article .h2_wrap h2 a')
