@@ -1,34 +1,34 @@
-import logging
+import httpx
+from googletrans import Translator
 
-logger = logging.getLogger(__name__)
+# Monkey-patch httpx.Client to bypass SSL verification.
+# This is necessary for corporate environments with self-signed certificates.
+
+# 1. Save the original Client class
+OriginalClient = httpx.Client
+
+# 2. Create a lambda that returns an instance of the original client with verify=False.
+#    It accepts and passes on any other arguments.
+httpx.Client = lambda **kwargs: OriginalClient(verify=False, **kwargs)
+
+# Now, when Translator internally creates an httpx.Client, it will use our
+# pre-configured, unverified instance.
+# TODO: Create translator instance only once.
+translator = Translator()
 
 
-def translate_lv_to_eng(text):
+def translate_lv_to_eng(text_lv: str) -> str:
     """
-    Translate Latvian text to English using a translation service.
+    Translate a text from Latvian to English.
 
     Args:
-        text (str): Text to translate
+        text_lv (str): The text to be translated from Latvian.
 
     Returns:
-        str: Translated text or original text if translation fails
+        str: The translated text in English.
     """
-    try:
-        # This is a placeholder. In a real implementation, you would use a translation API
-        # such as Google Translate, DeepL, or another service.
-        # For now, we'll just return the original text with a note
-        logger.info(f"Translation requested for: {text}")
-
-        # Example of how you might implement this with a real translation API:
-        # response = requests.post(
-        #     "https://translation-api.example.com/translate",
-        #     json={"text": text, "source": "lv", "target": "en"}
-        # )
-        # if response.status_code == 200:
-        #     return response.json().get("translated_text", text)
-
-        # For now, just return the original text
-        return text
-    except Exception as e:
-        logger.error(f"Translation error: {e}")
-        return text
+    return translator.translate(
+        text_lv,
+        src='lv',
+        dest='en'
+    ).text

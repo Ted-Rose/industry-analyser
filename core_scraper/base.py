@@ -28,6 +28,7 @@ class BaseScraper(abc.ABC):
         """
 
         self.config = config or {}
+        self.resources_saved_in_extraction = False
         self.last_sleep_by_domain = {}
         self.bulk_save = False
         self.ai_analysis = False
@@ -55,9 +56,11 @@ class BaseScraper(abc.ABC):
             logger.info(f"Searching URL: {search_url}")
             new_or_updated_resources = self.search_portal(search_url)
             if new_or_updated_resources:
-                self.create_or_update_resources(new_or_updated_resources)
-                logger.info(f"Created or updated \
-                  {len(new_or_updated_resources)} resources")
+                # If the subclass has already saved the resources, this step is skipped.
+                if not self.resources_saved_in_extraction:
+                    self.create_or_update_resources(new_or_updated_resources)
+                
+                logger.info(f"Processed {len(new_or_updated_resources)} resources")
             else:
                 logger.info("No new or updated resources found")
         return

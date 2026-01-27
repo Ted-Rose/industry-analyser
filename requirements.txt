@@ -2,6 +2,7 @@ asgiref==3.10.0
 beautifulsoup4==4.12.3
 bs4==0.0.2
 cffi==2.0.0
+googletrans==4.0.0rc1
 Django
 django-crontab==0.7.1
 pycparser==2.22

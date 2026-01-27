@@ -26,14 +26,20 @@ class TVProgramScraper(BaseScraper):
     
     def __init__(self, config=None):
         """
-        Initialize the TV program scraper.
+        Initializes the TVProgramScraper.
 
         Args:
-            config (dict, optional): Configuration for the scraper.
+            config (dict, optional): Scraper configuration. Defaults to None.
         """
         super().__init__(config)
+        self.resources_saved_in_extraction = True
         self.validate_result = True
         self.enrich_search_results = True
+        # OMDb API settings
+        self.omdb_request_count = 0
+        self.omdb_request_limit = 950  # Stay below the 1,000 daily limit
+        self.last_omdb_request_time = 0
+        self.min_request_interval = 0.1  # 100ms between requests
         self.channels = {
             "filmzone_hd": "filmzone_hd",
             "ltv7_hd": "ltv7_hd",
@@ -331,18 +337,32 @@ class TVProgramScraper(BaseScraper):
         if not processed_item:
             return None
 
+
+
+
+    def save_item(self, processed_item, channel_name, start_date):
+        """Save the processed item to the database."""
+        if not processed_item:
+            return None
+
         channel, _ = Channel.objects.get_or_create(name=channel_name)
 
+        runtime_str = processed_item.get("runtime", "0 min")
+        duration_minutes = 0
+        if runtime_str and runtime_str != "N/A":
+            match = re.search(r'(\d+)', runtime_str)
+            if match:
+                duration_minutes = int(match.group(1))
+
         program, created = Program.objects.update_or_create(
-            url=processed_item["url"],
+            title_lv=processed_item.get("title_lv"),
             defaults={
-                'title_lv': processed_item.get("title_lv", ""),
                 'title_eng': processed_item.get("title_eng"),
                 'description_lv': processed_item.get("description_lv", ""),
                 'description_eng': processed_item.get("description_eng", ""),
                 'channel': channel,
                 'start_time': datetime.strptime(start_date, '%Y-%m-%d'),
-                'duration_minutes': processed_item.get("duration_minutes", 120),
+                'duration_minutes': duration_minutes,
                 'image_url': processed_item.get("image_url"),
                 'imdb_rating': processed_item.get("imdb_rating"),
                 'pg_rating': processed_item.get("pg_rating"),
