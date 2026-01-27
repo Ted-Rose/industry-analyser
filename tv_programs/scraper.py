@@ -125,8 +125,10 @@ class TVProgramScraper(BaseScraper):
 
         title_lv = title_element.text.strip()
 
-        soup = BeautifulSoup(imdb_search_results.data, 'html.parser')
-        search_results = soup.find('div', class_="ipc-metadata-list-summary-item__tc")
+        imdb_search_soup = BeautifulSoup(
+          imdb_search_results.data, 'html.parser')
+        search_results = imdb_search_soup.find(
+          'div', class_="ipc-metadata-list-summary-item__tc")
         if search_results is None:
             logger.info(f"Not found in IMDB: {title_lv}")
             return None
@@ -138,8 +140,12 @@ class TVProgramScraper(BaseScraper):
             logger.info(f"Link not found in IMDB: {title_lv}")
             return None
 
-        imdb_program = self.make_request(link)
-        return self.process_item(program, imdb_program)
+        imdb_program_response = self.make_request(link)
+        if not imdb_program_response:
+            return None
+
+        imdb_soup = BeautifulSoup(imdb_program_response.data, 'html.parser')
+        return self.process_item(program, imdb_soup)
 
     def initiate_resource(self, resource_link):
         """Create an unsaved Program instance to be bulk inserted later."""
@@ -269,10 +275,11 @@ class TVProgramScraper(BaseScraper):
         Process a single TV program item.
 
         Args:
-            content_description: Raw program data from the scraper
+            program: BeautifulSoup object for the program from the initial list.
+            imdb_program: BeautifulSoup object for the detailed IMDb page.
 
         Returns:
-            dict: Processed program data
+            dict: Processed program data or None if processing fails.
         """
         title_lv = None
         description_lv = None
@@ -284,59 +291,75 @@ class TVProgramScraper(BaseScraper):
             logger.info("No title found for program")
             return None
 
-        description_element = imdb_program.find(
-            class_="text tet-font__body--s")
+        description_element = program.find(class_="text tet-font__body--s")
         if description_element:
             description_lv = re.sub(
-                r"&\w+;",
-                "",
-                description_element.text.strip()
+                r"&\w+;", "", description_element.text.strip()
             )
-        ratings = imdb_program
-        if not ratings:
-            logger.info(f"No ratings found for: {title_lv}")
-            # TODO: Add to skippable programs
+
+        # Extract structured data from the JSON-LD script tag on the IMDb page
+        script_tag = imdb_program.find(
+          'script', {'type': 'application/ld+json'})
+        if not script_tag:
             return None
 
-        # Calculate match ratio between original and translated titles with IMDb data
+        try:
+            json_data = json.loads(script_tag.string)
+        except json.JSONDecodeError:
+            logger.warning(f"Failed to parse JSON-LD for {title_lv}")
+            return None
+
         title_match_ratio = 0
         description_match_ratio = 0
 
         if title_lv:
             title_lv_to_eng = translate_lv_to_eng(title_lv)
             title_match_ratio = SequenceMatcher(
-                None, ratings["title"], title_lv_to_eng
+                None, json_data.get("name", ""), title_lv_to_eng
             ).ratio()
-            logger.info(f"Title LV: {title_lv}")
-            logger.info(f"Title LV to ENG: {title_lv_to_eng}")
-            logger.info(f"Title ENG: {ratings['title']}")
-            logger.info(f"Title match ratio: {title_match_ratio}")
+            # logger.info(f"Title LV: {title_lv}")
+            # logger.info(f"Title LV to ENG: {title_lv_to_eng}")
+            # logger.info(f"Title ENG: {json_data.get('name', '')}")
+            # logger.info(f"Title match ratio: {title_match_ratio}")
 
         if description_lv:
             description_lv_to_eng = translate_lv_to_eng(description_lv)
-            description_match_ratio = SequenceMatcher(None, ratings["description"], description_lv_to_eng).ratio()
-            logger.info(f"Description LV: {description_lv}")
-            logger.info(f"Description LV to ENG: {description_lv_to_eng}")
-            logger.info(f"Description ENG: {ratings['description']}")
-            logger.info(f"Description match ratio: {description_match_ratio}")
+            description_match_ratio = SequenceMatcher(
+                None, json_data.get("description", ""), description_lv_to_eng
+            ).ratio()
+            # logger.info(f"Description LV to ENG: {description_lv_to_eng}")
+            # logger.info(f"Description ENG: {json_data.get('description', '')}")
+            # logger.info(f"Description match ratio: {description_match_ratio}")
 
-        combined_match_ratio = (title_match_ratio + description_match_ratio) / 2 if description_match_ratio > 0 else title_match_ratio
-        logger.info(f"Overall match ratio: {combined_match_ratio}")
+        if description_match_ratio > 0:
+            combined_match_ratio = (
+              title_match_ratio + description_match_ratio) / 2
+        else:
+            combined_match_ratio = title_match_ratio
 
         image_element = program.find('img')
-        image_url = image_element['src'] if image_element else ratings.get("image")
+        if image_element:
+            image_url = image_element['src']
+        else:
+            image_url = json_data.get("image")
+
+        aggregate_rating = json_data.get("aggregateRating", {})
+        rating_value = aggregate_rating.get("ratingValue")
+
+        logger.info(f"Found title: {json_data.get('name')}")
+        logger.info(f"For LV title: {title_lv}")
 
         return {
             "title_lv": title_lv,
-            "title_eng": ratings["title"],
+            "title_eng": json_data.get("name"),
             "description_lv": description_lv,
-            "description_eng": ratings["description"],
+            "description_eng": json_data.get("description"),
             "image": image_url,
-            "url": ratings["url"],
-            "content_rating": ratings.get("content_rating", ""),
-            "rating_value": ratings.get("rating_value"),
-            "published_date": ratings.get("published_date"),
-            "type": ratings.get("type", ""),
+            "url": json_data.get("url"),
+            "content_rating": json_data.get("contentRating", ""),
+            "rating_value": rating_value,
+            "published_date": json_data.get("datePublished"),
+            "type": json_data.get("@type", ""),
             "match_ratio": combined_match_ratio
         }
 
