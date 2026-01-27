@@ -6,12 +6,12 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('fetcher', '0004_alter_vacancyindustries_unique_together'),
+        ('vacancies', '0004_alter_vacancyindustries_unique_together'),
     ]
 
     operations = [
         migrations.AlterModelTable(
             name='vacancyindustries',
-            table='fetcher_vacancy_industries',
+            table='vacancies_vacancy_industries',
         ),
     ]

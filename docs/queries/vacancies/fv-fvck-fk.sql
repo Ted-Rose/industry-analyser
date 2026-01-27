@@ -15,9 +15,9 @@ SELECT
     fv.application_deadline,
     fv.state
 FROM
-    fetcher_vacancy fv
-    JOIN fetcher_vacancy_contains_keyword fvc ON fv.id = fvc.vacancy_id
-    JOIN fetcher_keyword fk ON fvc.keyword_id = fk.id
+    vacancies_vacancy fv
+    JOIN vacancies_vacancy_contains_keyword fvc ON fv.id = fvc.vacancy_id
+    JOIN vacancies_keyword fk ON fvc.keyword_id = fk.id
 WHERE
     fv.last_seen IS NOT NULL
 ORDER BY

@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('fetcher', '0006_alter_vacancy_vacancy_portal_id'),
+        ('vacancies', '0006_alter_vacancy_vacancy_portal_id'),
     ]
 
     operations = [

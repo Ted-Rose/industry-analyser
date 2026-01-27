@@ -13,7 +13,7 @@ SELECT
     application_deadline,
     state
 FROM
-    fetcher_vacancy AS fv
+    vacancies_vacancy AS fv
 WHERE
     fv.last_seen IS NOT NULL
 ORDER BY

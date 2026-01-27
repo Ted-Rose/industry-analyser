@@ -6,14 +6,14 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('fetcher', '0007_alter_vacancy_vacancy_portal_id'),
+        ('vacancies', '0007_alter_vacancy_vacancy_portal_id'),
     ]
 
     operations = [
         migrations.AddField(
             model_name='vacancy',
             name='keywords',
-            field=models.ManyToManyField(through='fetcher.VacancyContainsKeyword', to='fetcher.keyword'),
+            field=models.ManyToManyField(through='vacancies.VacancyContainsKeyword', to='vacancies.keyword'),
         ),
         migrations.AlterUniqueTogether(
             name='vacancycontainskeyword',
