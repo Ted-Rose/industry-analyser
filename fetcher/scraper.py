@@ -38,18 +38,18 @@ class VacancyScrapper(BaseScraper):
 
     def parse_results(
         self,
-        search_results: urllib3.response.HTTPResponse
+        search_response: urllib3.response.HTTPResponse
     ) -> List:
-        if search_results.headers['Content-Type'] == 'application/json':
+        if search_response.headers['Content-Type'] == 'application/json':
             self.enrich_search_results = False
 
-            json_content = search_results.data.decode('utf-8')
+            json_content = search_response.data.decode('utf-8')
             data = json.loads(json_content)
             vacancies = data.get('vacancies', [])
             return vacancies
         else:
             self.enrich_search_results = True
-            html_content = search_results.data
+            html_content = search_response.data
             soup = BeautifulSoup(html_content, 'html.parser')
             vacancies = soup.find_all('div', class_="show-expander-content")
             return vacancies

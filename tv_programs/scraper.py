@@ -66,8 +66,8 @@ class TVProgramScraper(BaseScraper):
                 yield url
         return
 
-    def parse_results(self, search_results):
-        html_content = search_results.data
+    def parse_results(self, search_response):
+        html_content = search_response.data
         soup = BeautifulSoup(html_content, 'html.parser')
 
         programs = soup.find_all('div', class_="show-expander-content")

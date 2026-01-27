@@ -137,9 +137,9 @@ class BlogScraper(BaseScraper):
 
         return None
 
-    def parse_results(self, search_results):
+    def parse_results(self, search_response):
         """Parses the blog listing page to find links to individual posts."""
-        html_content = search_results.data
+        html_content = search_response.data
         soup = BeautifulSoup(html_content, 'html.parser')
 
         post_links = [

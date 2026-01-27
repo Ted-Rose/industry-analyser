@@ -37,7 +37,7 @@ def run(self):
 ```python
 def scrape_portal(self, search_url):
     search_results = self.make_request(search_url)
-    parsed_results = self.parse_results(search_results)
+    parsed_results = self.parse_results(search_response)
 
     if not parsed_results:
         return

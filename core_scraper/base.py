@@ -63,8 +63,8 @@ class BaseScraper(abc.ABC):
         return
 
     def scrape_portal(self, search_url):
-        search_results = self.make_request(search_url)
-        parsed_results = self.parse_results(search_results)
+        search_response = self.make_request(search_url)
+        parsed_results = self.parse_results(search_response)
 
         if not parsed_results:
             return
@@ -73,7 +73,7 @@ class BaseScraper(abc.ABC):
 
         return self.extract_resources(pruned_results)
 
-    def parse_results(self, search_results):
+    def parse_results(self, search_response):
         raise NotImplementedError
 
     def remove_redundant_results(self, resources):
