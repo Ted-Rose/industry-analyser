@@ -17,7 +17,7 @@ def run(self):
     try:
         for search_url in self.get_search_urls():
             # TODO: Blog scrapper will return empty list - fix logic gap
-            self.search_portal(search_url)
+            self.scrape_portal(search_url)
     except MaxAPIRequestsReached:
         # Logs summary and exits gracefully
         ...
@@ -25,19 +25,19 @@ def run(self):
 
 **What it does:**
 - Iterates through all search URLs (blog listing pages)
-- Calls `search_portal()` for each URL
+- Calls `scrape_portal()` for each URL
 - Handles `MaxAPIRequestsReached` exception for cost control
 - **Note:** Does NOT call `create_or_update_resources()` because resources are saved during analysis
 
 ---
 
-### 2. `BaseScraper.search_portal(search_url)`
+### 2. `BaseScraper.scrape_portal(search_url)`
 **Location:** `core_scraper/base.py` (lines 63-72)
 
 ```python
-def search_portal(self, search_url):
+def scrape_portal(self, search_url):
     search_results = self.make_request(search_url)
-    parsed_results = self.parse_results(search_results)
+    parsed_results = self.parse_results(search_response)
 
     if not parsed_results:
         return
@@ -255,7 +255,7 @@ BlogScraper.run()
     │
     ├─> get_search_urls() [yields listing URLs]
     │
-    └─> BaseScraper.search_portal(url)
+    └─> BaseScraper.scrape_portal(url)
             │
             ├─> make_request(url) [fetch listing page]
             ├─> parse_results() [extract blog post links]

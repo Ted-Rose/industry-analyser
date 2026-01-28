@@ -38,23 +38,26 @@ class VacancyScrapper(BaseScraper):
 
     def parse_results(
         self,
-        search_results: urllib3.response.HTTPResponse
+        search_response: urllib3.response.HTTPResponse
     ) -> List:
-        if search_results.headers['Content-Type'] == 'application/json':
+        if search_response.headers['Content-Type'] == 'application/json':
             self.enrich_search_results = False
 
-            json_content = search_results.data.decode('utf-8')
-            data = json.loads(json_content)
+            data = json.loads(search_response.data.decode('utf-8'))
             vacancies = data.get('vacancies', [])
             return vacancies
         else:
             self.enrich_search_results = True
-            html_content = search_results.data
-            soup = BeautifulSoup(html_content, 'html.parser')
-            vacancies = soup.find_all('div', class_="show-expander-content")
-            return vacancies
 
-    def remove_redundant_results(self, resources: List[Vacancy]) -> List[Vacancy]:
+            soup = BeautifulSoup(search_response.data, 'html.parser')
+            vacancy_soup = soup.find_all('div', class_="show-expander-content")
+            return vacancy_soup
+
+    def remove_redundant_results(
+      self,
+      resources: List[Vacancy]
+    ) -> List[Vacancy]:
+        # Remove already processed vacancy id's in this session
         return resources
 
     def initiate_resources(self, search_results) -> List[Vacancy]:

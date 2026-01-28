@@ -20,7 +20,7 @@ class TVProgramScraper(BaseScraper):
     """
     Scraper for TV programs from various sources.
     """
-    
+
     def __init__(self, config=None):
         """
         Initialize the TV program scraper.
@@ -66,26 +66,22 @@ class TVProgramScraper(BaseScraper):
                 yield url
         return
 
-    def parse_results(self, search_results):
-        html_content = search_results.data
-        soup = BeautifulSoup(html_content, 'html.parser')
+    def parse_results(self, search_response):
+        soup = BeautifulSoup(search_response.data, 'html.parser')
 
-        programs = soup.find_all('div', class_="show-expander-content")
-        return programs
+        program_soup = soup.find_all('div', class_="show-expander-content")
+        return program_soup
 
     def remove_redundant_results(self, programs):
         """
         Remove programs that are excluded or already in DB for the current day.
         """
-        if not programs:
-            return []
-
         day_start = self.current_start_time
         day_end = day_start + timedelta(days=1)
 
         titles_to_check = []
-        for p in programs:
-            title = p.find(class_="tet-font__headline--s").text.strip()
+        for program in programs:
+            title = program.find(class_="tet-font__headline--s").text.strip()
             titles_to_check.append(title)
 
         existing_titles = set(

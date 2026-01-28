@@ -17,7 +17,7 @@ def translate_lv_to_eng(text):
         # This is a placeholder. In a real implementation, you would use a translation API
         # such as Google Translate, DeepL, or another service.
         # For now, we'll just return the original text with a note
-        logger.info(f"Translation requested for: {text}")
+        # logger.info(f"Translation requested for: {text}")
 
         # Example of how you might implement this with a real translation API:
         # response = requests.post(
