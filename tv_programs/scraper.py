@@ -67,22 +67,57 @@ class TVProgramScraper(BaseScraper):
         return
 
     def parse_results(self, search_response):
+        """
+        Parses the TV program listing page into a list of structured dictionaries.
+        """
         soup = BeautifulSoup(search_response.data, 'html.parser')
-
         program_soup = soup.find_all('div', class_="show-expander-content")
-        return program_soup
+
+        parsed_programs = []
+        for program_html in program_soup:
+            try:
+                title_lv = program_html.find('h2', class_="tet-font__headline--s").text.strip()
+
+                time_element = program_html.find('p', class_="subtitle").find('span')
+                time_str = time_element.text.strip().split(' - ')[0]
+
+                description_lv_element = program_html.find('p', class_="text tet-font__body--s")
+                description_lv = description_lv_element.text.strip() if description_lv_element else ""
+
+                image_element = program_html.find('div', class_='expander-image').find('img')
+                image_url = image_element['src'] if image_element and image_element.has_attr('src') else ""
+
+                start_time = datetime.strptime(time_str, '%H:%M').time()
+                full_start_time = self.current_start_time.replace(
+                    hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0
+                )
+
+                parsed_programs.append({
+                    'title_lv': title_lv,
+                    'description_lv': description_lv,
+                    'start_time': full_start_time,
+                    'image_url': image_url,
+                    'channel': self.current_channel,
+                })
+            except (AttributeError, IndexError, ValueError) as e:
+                logger.warning(f"Skipping a program due to a parsing error: {e}")
+                continue
+
+        logger.info(f"Parsed {len(parsed_programs)} programs from the page.")
+        return parsed_programs
 
     def remove_redundant_results(self, programs):
         """
         Remove programs that are excluded or already in DB for the current day.
+        Receives a list of program dictionaries.
         """
+        if not programs:
+            return []
+
         day_start = self.current_start_time
         day_end = day_start + timedelta(days=1)
 
-        titles_to_check = []
-        for program in programs:
-            title = program.find(class_="tet-font__headline--s").text.strip()
-            titles_to_check.append(title)
+        titles_to_check = [p['title_lv'] for p in programs]
 
         existing_titles = set(
             Program.objects.filter(
@@ -96,7 +131,7 @@ class TVProgramScraper(BaseScraper):
         initial_program_count = len(programs)
         filtered_programs = []
         for program in programs:
-            title = program.find(class_="tet-font__headline--s").text.strip()
+            title = program['title_lv']
             if title in self.excluded_resources or title in existing_titles:
                 continue
             filtered_programs.append(program)
@@ -107,79 +142,46 @@ class TVProgramScraper(BaseScraper):
 
         return filtered_programs
 
-    def get_resource_info_link(self, program):
-        title_lv = program.find(class_="tet-font__headline--s").text
-        encoded_title_lv = quote_plus(title_lv, encoding='utf-8')
-        return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
+    def extract_resources(self, search_results) -> list[Program]:
+        """Converts a list of parsed program dictionaries into Program model instances."""
+        programs_to_create = []
+        for program_data in search_results:
+            title_eng = translate_lv_to_eng(program_data['title_lv'])
+            description_eng = translate_lv_to_eng(program_data['description_lv'])
 
-    def validate_and_return(self, program, imdb_search_results):
-        # TODO: Refactor down the callstack and consider refactoring up the callstack as well
-        title_element = program.find(class_="tet-font__headline--s")
-        if not title_element:
-            logger.info("No title element found")
-            return None
+            program_instance = Program(
+                title_lv=program_data['title_lv'],
+                title_eng=title_eng,
+                description_lv=program_data['description_lv'],
+                description_eng=description_eng,
+                start_time=program_data['start_time'],
+                channel=program_data['channel'],
+                image_url=program_data['image_url'],
+                # Set defaults for fields not available in initial parse
+                duration_minutes=0,
+                imdb_rating=0.0,
+                pg_rating="",
+                url="",
+                title_match_ratio=0.0,
+                combined_match_ratio=0.0,
+            )
+            programs_to_create.append(program_instance)
+        
+        return programs_to_create
 
-        title_lv = title_element.text.strip()
-
-        imdb_search_soup = BeautifulSoup(
-          imdb_search_results.data, 'html.parser')
-        search_results = imdb_search_soup.find(
-          'div', class_="ipc-metadata-list-summary-item__tc")
-        if search_results is None:
-            logger.info(f"Not found in IMDB: {title_lv}")
-            return None
-
-        link_element = search_results.find('a')
-        if link_element:
-            link = "https://www.imdb.com/" + link_element['href']
-        else:
-            logger.info(f"Link not found in IMDB: {title_lv}")
-            return None
-
-        imdb_program_response = self.make_request(link)
-        if not imdb_program_response:
-            return None
-
-        imdb_soup = BeautifulSoup(imdb_program_response.data, 'html.parser')
-        return self.process_item(program, imdb_soup)
-
-    def initiate_resource(self, resource_link):
-        """Create an unsaved Program instance to be bulk inserted later."""
-        program = Program(
-            title_lv=resource_link['title_lv'],
-            title_eng=resource_link['title_eng'],
-            description_lv=resource_link.get('description_lv'),
-            description_eng=resource_link.get('description_eng'),
-            image_url=resource_link.get('image'),
-            url=resource_link.get('url'),
-            pg_rating=resource_link.get('content_rating'),
-            imdb_rating=resource_link.get('rating_value'),
-            title_match_ratio=resource_link.get('match_ratio', 0),
-            combined_match_ratio=resource_link.get('match_ratio', 0),
-            channel=self.current_channel,
-            start_time=self.current_start_time,
-            duration_minutes=resource_link.get('duration_minutes', None),
-        )
-        return program
-
-    def create_or_update_resources(self, resources):
+    def create_or_update_resources(self, resources: list[Program]):
+        """Bulk creates program resources and logs the action."""
         if not resources:
             return
-        # TODO: This won't update existing resources, only create new ones
+        
         Program.objects.bulk_create(resources)
-        return
+        logger.info(f"Successfully bulk created {len(resources)} program records.")
 
     # Helper methods
 
     def get_days(self):
-        days_in_past = self.config.get(
-          'days_in_past',
-          7
-        )
-        days_in_future = self.config.get(
-          'days_in_future',
-          7
-        )
+        days_in_past = self.config.get('days_in_past', 7)
+        days_in_future = self.config.get('days_in_future', 7)
         day_range = range(days_in_past + days_in_future)
         start_date = timezone.now() - timedelta(days=days_in_past)
         return day_range, start_date
