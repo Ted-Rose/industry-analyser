@@ -76,15 +76,12 @@ class TVProgramScraper(BaseScraper):
         """
         Remove programs that are excluded or already in DB for the current day.
         """
-        if not programs:
-            return []
-
         day_start = self.current_start_time
         day_end = day_start + timedelta(days=1)
 
         titles_to_check = []
-        for p in programs:
-            title = p.find(class_="tet-font__headline--s").text.strip()
+        for program in programs:
+            title = program.find(class_="tet-font__headline--s").text.strip()
             titles_to_check.append(title)
 
         existing_titles = set(

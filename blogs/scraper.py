@@ -149,14 +149,14 @@ class BlogScraper(BaseScraper):
         logger.info(f"Found {len(post_links)} blog post links.")
         return post_links
 
-    def remove_redundant_results(self, formatted_results):
+    def remove_redundant_results(self, page_urls):
         """Removes redundant results from the list of formatted results."""
 
         # If analyzing a specific theme with reanalyze=False,
         # filter out pages that already have analysis for that theme
         if self.target_theme and not self.reanalyze:
             pages_with_theme_analysis = Page.objects.filter(
-                url__in=formatted_results,
+                url__in=page_urls,
                 pageanalysis__theme=self.target_theme
             )
             analyzed_urls = set(
@@ -170,7 +170,7 @@ class BlogScraper(BaseScraper):
                     len(analyzed_urls), self.target_theme.name
                 )
                 return [
-                    href for href in formatted_results
+                    href for href in page_urls
                     if href not in analyzed_urls
                 ]
             else:
@@ -179,11 +179,11 @@ class BlogScraper(BaseScraper):
                     "theme '%s'.",
                     self.target_theme.name
                 )
-                return formatted_results
+                return page_urls
 
         # Base logic for analyzing all themes
         fully_analyzed_pages = Page.objects.filter(
-            url__in=formatted_results
+            url__in=page_urls
         ).annotate(
             analysis_count=Count('pageanalysis'),
             match_count=Count(
@@ -206,7 +206,7 @@ class BlogScraper(BaseScraper):
                 len(completed_urls)
             )
             new_results = [
-                href for href in formatted_results
+                href for href in page_urls
                 if href not in completed_urls
             ]
             return new_results
@@ -214,7 +214,7 @@ class BlogScraper(BaseScraper):
             logger.info(
                 "No fully analyzed pages found. Processing all results."
             )
-            return formatted_results
+            return page_urls
 
     def get_resource_info_link(self, href):
         info_link = self.config['base_url'] + href

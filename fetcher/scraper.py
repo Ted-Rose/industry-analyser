@@ -53,7 +53,11 @@ class VacancyScrapper(BaseScraper):
             vacancy_soup = soup.find_all('div', class_="show-expander-content")
             return vacancy_soup
 
-    def remove_redundant_results(self, resources: List[Vacancy]) -> List[Vacancy]:
+    def remove_redundant_results(
+      self,
+      resources: List[Vacancy]
+    ) -> List[Vacancy]:
+        # Remove already processed vacancy id's in this session
         return resources
 
     def initiate_resources(self, search_results) -> List[Vacancy]:
