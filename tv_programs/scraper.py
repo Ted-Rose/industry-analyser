@@ -76,31 +76,56 @@ class TVProgramScraper(BaseScraper):
         parsed_programs = []
         for program_html in program_soup:
             try:
-                title_lv = program_html.find('h2', class_="tet-font__headline--s").text.strip()
+                title_element = program_html.find('h2', class_="tet-font__headline--s")
+                if not title_element:
+                    continue  # Skip if there's no title
+                title_lv = title_element.text.strip()
 
-                time_element = program_html.find('p', class_="subtitle").find('span')
-                time_str = time_element.text.strip().split(' - ')[0]
+                subtitle_element = program_html.find('p', class_="subtitle")
+                if not subtitle_element:
+                    continue # Skip if there's no time/subtitle info
+                
+                time_element = subtitle_element.find('span')
+                if not time_element:
+                    continue
+
+                time_str_full = time_element.text.strip()
+                time_parts = time_str_full.split(' - ')
+                start_time_str, end_time_str = time_parts[0], time_parts[1]
 
                 description_lv_element = program_html.find('p', class_="text tet-font__body--s")
                 description_lv = description_lv_element.text.strip() if description_lv_element else ""
 
-                image_element = program_html.find('div', class_='expander-image').find('img')
-                image_url = image_element['src'] if image_element and image_element.has_attr('src') else ""
+                image_container = program_html.find('div', class_='expander-image')
+                image_url = ""
+                if image_container:
+                    image_element = image_container.find('img')
+                    image_url = image_element['src'] if image_element and image_element.has_attr('src') else ""
 
-                start_time = datetime.strptime(time_str, '%H:%M').time()
+                # Calculate start time
+                start_time_obj = datetime.strptime(start_time_str, '%H:%M').time()
                 full_start_time = self.current_start_time.replace(
-                    hour=start_time.hour, minute=start_time.minute, second=0, microsecond=0
+                    hour=start_time_obj.hour, minute=start_time_obj.minute, second=0, microsecond=0
                 )
+
+                # Calculate duration
+                end_time_obj = datetime.strptime(end_time_str, '%H:%M').time()
+                start_dt = datetime.combine(self.current_start_time.date(), start_time_obj)
+                end_dt = datetime.combine(self.current_start_time.date(), end_time_obj)
+                if end_dt < start_dt:
+                    end_dt += timedelta(days=1)
+                duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
 
                 parsed_programs.append({
                     'title_lv': title_lv,
                     'description_lv': description_lv,
                     'start_time': full_start_time,
+                    'duration_minutes': duration_minutes,
                     'image_url': image_url,
                     'channel': self.current_channel,
                 })
-            except (AttributeError, IndexError, ValueError) as e:
-                logger.warning(f"Skipping a program due to a parsing error: {e}")
+            except (IndexError, ValueError) as e:
+                logger.warning(f"Skipping program '{title_lv}' due to a data parsing error: {e}")
                 continue
 
         logger.info(f"Parsed {len(parsed_programs)} programs from the page.")
