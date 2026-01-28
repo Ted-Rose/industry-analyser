@@ -20,7 +20,7 @@ class TVProgramScraper(BaseScraper):
     """
     Scraper for TV programs from various sources.
     """
-    
+
     def __init__(self, config=None):
         """
         Initialize the TV program scraper.
@@ -67,11 +67,10 @@ class TVProgramScraper(BaseScraper):
         return
 
     def parse_results(self, search_response):
-        html_content = search_response.data
-        soup = BeautifulSoup(html_content, 'html.parser')
+        soup = BeautifulSoup(search_response.data, 'html.parser')
 
-        programs = soup.find_all('div', class_="show-expander-content")
-        return programs
+        program_soup = soup.find_all('div', class_="show-expander-content")
+        return program_soup
 
     def remove_redundant_results(self, programs):
         """
