@@ -67,6 +67,7 @@ class BaseScraper(abc.ABC):
         parsed_results = self.parse_results(search_response)
 
         if not parsed_results:
+            logger.info("No results found for {search_url}")
             return
 
         pruned_results = self.remove_redundant_results(parsed_results)
