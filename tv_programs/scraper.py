@@ -67,10 +67,69 @@ class TVProgramScraper(BaseScraper):
         return
 
     def parse_results(self, search_response):
+        """
+        Parses the TV program listing page into a list of structured dictionaries.
+        """
         soup = BeautifulSoup(search_response.data, 'html.parser')
-
         program_soup = soup.find_all('div', class_="show-expander-content")
-        return program_soup
+
+        parsed_programs = []
+        for program_html in program_soup:
+            try:
+                title_element = program_html.find('h2', class_="tet-font__headline--s")
+                if not title_element:
+                    continue  # Skip if there's no title
+                title_lv = title_element.text.strip()
+
+                subtitle_element = program_html.find('p', class_="subtitle")
+                if not subtitle_element:
+                    continue # Skip if there's no time/subtitle info
+                
+                time_element = subtitle_element.find('span')
+                if not time_element:
+                    continue
+
+                time_str_full = time_element.text.strip()
+                time_parts = time_str_full.split(' - ')
+                start_time_str, end_time_str = time_parts[0], time_parts[1]
+
+                description_lv_element = program_html.find('p', class_="text tet-font__body--s")
+                description_lv = description_lv_element.text.strip() if description_lv_element else ""
+
+                image_container = program_html.find('div', class_='expander-image')
+                image_url = ""
+                if image_container:
+                    image_element = image_container.find('img')
+                    image_url = image_element['src'] if image_element and image_element.has_attr('src') else ""
+
+                # Calculate start time
+                start_time_obj = datetime.strptime(start_time_str, '%H:%M').time()
+                full_start_time = self.current_start_time.replace(
+                    hour=start_time_obj.hour, minute=start_time_obj.minute, second=0, microsecond=0
+                )
+
+                # Calculate duration
+                end_time_obj = datetime.strptime(end_time_str, '%H:%M').time()
+                start_dt = datetime.combine(self.current_start_time.date(), start_time_obj)
+                end_dt = datetime.combine(self.current_start_time.date(), end_time_obj)
+                if end_dt < start_dt:
+                    end_dt += timedelta(days=1)
+                duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
+
+                parsed_programs.append({
+                    'title_lv': title_lv,
+                    'description_lv': description_lv,
+                    'start_time': full_start_time,
+                    'duration_minutes': duration_minutes,
+                    'image_url': image_url,
+                    'channel': self.current_channel,
+                })
+            except (IndexError, ValueError) as e:
+                logger.warning(f"Skipping program '{title_lv}' due to a data parsing error: {e}")
+                continue
+
+        logger.info(f"Parsed {len(parsed_programs)} programs from the page.")
+        return parsed_programs
 
     def remove_redundant_results(self, programs):
         """
@@ -79,11 +138,8 @@ class TVProgramScraper(BaseScraper):
         day_start = self.current_start_time
         day_end = day_start + timedelta(days=1)
 
-        titles_to_check = []
-        for program in programs:
-            title = program.find(class_="tet-font__headline--s").text.strip()
-            titles_to_check.append(title)
-
+        titles_to_check = [p['title_lv'] for p in programs]
+        # TODO: This has to be retrieved in single query for howl scrape
         existing_titles = set(
             Program.objects.filter(
                 title_lv__in=titles_to_check,
@@ -96,7 +152,7 @@ class TVProgramScraper(BaseScraper):
         initial_program_count = len(programs)
         filtered_programs = []
         for program in programs:
-            title = program.find(class_="tet-font__headline--s").text.strip()
+            title = program['title_lv']
             if title in self.excluded_resources or title in existing_titles:
                 continue
             filtered_programs.append(program)
@@ -108,34 +164,49 @@ class TVProgramScraper(BaseScraper):
         return filtered_programs
 
     def get_resource_info_link(self, program):
-        title_lv = program.find(class_="tet-font__headline--s").text
+        title_lv = program["title_lv"]
         encoded_title_lv = quote_plus(title_lv, encoding='utf-8')
         return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
 
     def validate_and_return(self, program, imdb_search_results):
-        # TODO: Refactor down the callstack and consider refactoring up the callstack as well
-        title_element = program.find(class_="tet-font__headline--s")
-        if not title_element:
-            logger.info("No title element found")
-            return None
+        """Validate and enrich program data with IMDB information.
+        
+        Args:
+            program: Either a BeautifulSoup object or a dictionary containing program data
+            imdb_search_results: HTTP response from IMDB search
 
-        title_lv = title_element.text.strip()
+        Returns:
+            dict: Enriched program data or None if validation fails
+        """
+        # Get title_lv based on input type
+        if isinstance(program, dict):
+            title_lv = program.get('title_lv')
+            if not title_lv:
+                logger.info("No title found in program data")
+                return None
+        else:  # BeautifulSoup object
+            title_element = program.find(class_="tet-font__headline--s")
+            if not title_element:
+                logger.info("No title element found")
+                return None
+            title_lv = title_element.text.strip()
 
+        # Process IMDB search results
         imdb_search_soup = BeautifulSoup(
-          imdb_search_results.data, 'html.parser')
+            imdb_search_results.data, 'html.parser')
         search_results = imdb_search_soup.find(
-          'div', class_="ipc-metadata-list-summary-item__tc")
+            'div', class_="ipc-metadata-list-summary-item__tc")
         if search_results is None:
             logger.info(f"Not found in IMDB: {title_lv}")
             return None
 
         link_element = search_results.find('a')
-        if link_element:
-            link = "https://www.imdb.com/" + link_element['href']
-        else:
+        if not link_element:
             logger.info(f"Link not found in IMDB: {title_lv}")
             return None
 
+        # Get detailed IMDB data
+        link = "https://www.imdb.com/" + link_element['href']
         imdb_program_response = self.make_request(link)
         if not imdb_program_response:
             return None
@@ -162,7 +233,8 @@ class TVProgramScraper(BaseScraper):
         )
         return program
 
-    def create_or_update_resources(self, resources):
+    def create_or_update_resources(self, resources: list[Program]):
+        """Bulk creates program resources."""
         if not resources:
             return
         # TODO: This won't update existing resources, only create new ones
@@ -172,14 +244,8 @@ class TVProgramScraper(BaseScraper):
     # Helper methods
 
     def get_days(self):
-        days_in_past = self.config.get(
-          'days_in_past',
-          7
-        )
-        days_in_future = self.config.get(
-          'days_in_future',
-          7
-        )
+        days_in_past = self.config.get('days_in_past', 7)
+        days_in_future = self.config.get('days_in_future', 7)
         day_range = range(days_in_past + days_in_future)
         start_date = timezone.now() - timedelta(days=days_in_past)
         return day_range, start_date
@@ -268,34 +334,38 @@ class TVProgramScraper(BaseScraper):
 
     def process_item(self, program, imdb_program):
         """
-        Process a single TV program item.
+        Process a single TV program item with IMDB data.
 
         Args:
-            program: BeautifulSoup object for the program from the initial list.
-            imdb_program: BeautifulSoup object for the detailed IMDb page.
+            program: Either a BeautifulSoup object or a dictionary containing program data
+            imdb_program: BeautifulSoup object for the detailed IMDb page
 
         Returns:
-            dict: Processed program data or None if processing fails.
+            dict: Processed program data or None if processing fails
         """
-        title_lv = None
-        description_lv = None
-
-        title_element = program.find(class_="tet-font__headline--s")
-        if title_element:
+        # Get program details based on input type
+        if isinstance(program, dict):
+            title_lv = program.get('title_lv')
+            raw_description = program.get('description_lv', '')
+            description_lv = re.sub(r"&\w+;", "", raw_description) if raw_description else ""
+            image_url = program.get('image_url', '')
+        else:  # BeautifulSoup object
+            title_element = program.find(class_="tet-font__headline--s")
+            if not title_element:
+                logger.info("No title found for program")
+                return None
             title_lv = title_element.text.strip()
-        else:
-            logger.info("No title found for program")
-            return None
 
-        description_element = program.find(class_="text tet-font__body--s")
-        if description_element:
+            description_element = program.find(class_="text tet-font__body--s")
             description_lv = re.sub(
                 r"&\w+;", "", description_element.text.strip()
-            )
+            ) if description_element else ""
+
+            image_element = program.find('img')
+            image_url = image_element['src'] if image_element else ""
 
         # Extract structured data from the JSON-LD script tag on the IMDb page
-        script_tag = imdb_program.find(
-          'script', {'type': 'application/ld+json'})
+        script_tag = imdb_program.find('script', {'type': 'application/ld+json'})
         if not script_tag:
             return None
 
@@ -305,58 +375,47 @@ class TVProgramScraper(BaseScraper):
             logger.warning(f"Failed to parse JSON-LD for {title_lv}")
             return None
 
+        # Calculate match ratios
         title_match_ratio = 0
         description_match_ratio = 0
 
-        if title_lv:
-            title_lv_to_eng = translate_lv_to_eng(title_lv)
-            title_match_ratio = SequenceMatcher(
-                None, json_data.get("name", ""), title_lv_to_eng
-            ).ratio()
-            # logger.info(f"Title LV: {title_lv}")
-            # logger.info(f"Title LV to ENG: {title_lv_to_eng}")
-            # logger.info(f"Title ENG: {json_data.get('name', '')}")
-            # logger.info(f"Title match ratio: {title_match_ratio}")
+        title_lv_to_eng = translate_lv_to_eng(title_lv)
+        title_match_ratio = SequenceMatcher(
+            None, json_data.get("name", ""), title_lv_to_eng
+        ).ratio()
 
         if description_lv:
             description_lv_to_eng = translate_lv_to_eng(description_lv)
             description_match_ratio = SequenceMatcher(
                 None, json_data.get("description", ""), description_lv_to_eng
             ).ratio()
-            # logger.info(f"Description LV to ENG: {description_lv_to_eng}")
-            # logger.info(f"Description ENG: {json_data.get('description', '')}")
-            # logger.info(f"Description match ratio: {description_match_ratio}")
 
-        if description_match_ratio > 0:
-            combined_match_ratio = (
-              title_match_ratio + description_match_ratio) / 2
-        else:
-            combined_match_ratio = title_match_ratio
+        combined_match_ratio = (
+            (title_match_ratio + description_match_ratio) / 2
+            if description_match_ratio > 0
+            else title_match_ratio
+        )
 
-        image_element = program.find('img')
-        if image_element:
-            image_url = image_element['src']
-        else:
-            image_url = json_data.get("image")
-
+        # Get IMDB ratings
         aggregate_rating = json_data.get("aggregateRating", {})
         rating_value = aggregate_rating.get("ratingValue")
 
         logger.info(f"Found title: {json_data.get('name')}")
         logger.info(f"For LV title: {title_lv}")
 
+        # Merge program data with IMDB data
         return {
-            "title_lv": title_lv,
             "title_eng": json_data.get("name"),
-            "description_lv": description_lv,
             "description_eng": json_data.get("description"),
-            "image": image_url,
+            "image": image_url or json_data.get("image"),
             "url": json_data.get("url"),
             "content_rating": json_data.get("contentRating", ""),
             "rating_value": rating_value,
             "published_date": json_data.get("datePublished"),
             "type": json_data.get("@type", ""),
-            "match_ratio": combined_match_ratio
+            "match_ratio": combined_match_ratio,
+            # Preserve any additional fields from input dictionary
+            **(program if isinstance(program, dict) else {})
         }
 
     def save_item(self, processed_item, channel_name, start_date):
