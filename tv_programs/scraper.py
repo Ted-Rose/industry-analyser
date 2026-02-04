@@ -59,11 +59,23 @@ class TVProgramScraper(BaseScraper):
         for day in day_range:
             date = start_date + timedelta(days=day)
             for channel_name in self.channels:
-                self.current_channel, _ = Channel.objects.get_or_create(name=channel_name)
+                self.current_channel, _ = Channel.objects.get_or_create(
+                  name=channel_name
+                )
                 self.current_start_time = date
-                url = base_url.format(date_string=date.strftime('%Y-%m-%d'), channel_id=channel_name)
+                url = base_url.format(
+                  date_string=date.strftime('%Y-%m-%d'),
+                  channel_id=channel_name
+                )
                 yield url
         return
+
+    def get_days(self):
+        days_in_past = self.config.get('days_in_past', 7)
+        days_in_future = self.config.get('days_in_future', 7)
+        day_range = range(days_in_past + days_in_future)
+        start_date = timezone.now() - timedelta(days=days_in_past)
+        return day_range, start_date
 
     def parse_results(self, search_response):
         """
@@ -239,15 +251,6 @@ class TVProgramScraper(BaseScraper):
         # TODO: This won't update existing resources, only create new ones
         Program.objects.bulk_create(resources)
         return
-
-    # Helper methods
-
-    def get_days(self):
-        days_in_past = self.config.get('days_in_past', 7)
-        days_in_future = self.config.get('days_in_future', 7)
-        day_range = range(days_in_past + days_in_future)
-        start_date = timezone.now() - timedelta(days=days_in_past)
-        return day_range, start_date
 
     def process_item(self, program, imdb_program):
         """
