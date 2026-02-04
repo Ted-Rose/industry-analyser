@@ -180,14 +180,16 @@ class TVProgramScraper(BaseScraper):
         return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
 
     def validate_and_return(self, program, imdb_search_results):
-        """Validate and enrich program data with IMDB information.
-        
+      # CONTINUE HERE - CAN HERE IT BE BEAUTIFULSOUP OBJECT ANYMORE?
+        """Validate and enrich program data with IMDb information.
+
         Args:
-            program: Either a BeautifulSoup object or a dictionary containing program data
-            imdb_search_results: HTTP response from IMDB search
+            program: Either a BeautifulSoup object or a dictionary containing
+                     program data.
+            imdb_search_results: HTTP response from IMDb search.
 
         Returns:
-            dict: Enriched program data or None if validation fails
+            dict: Enriched program data or None if validation fails.
         """
         # Get title_lv based on input type
         if isinstance(program, dict):
@@ -208,22 +210,23 @@ class TVProgramScraper(BaseScraper):
         search_results = imdb_search_soup.find(
             'div', class_="ipc-metadata-list-summary-item__tc")
         if search_results is None:
-            logger.info(f"Not found in IMDB: {title_lv}")
+            logger.info(f"Not found in IMDb: {title_lv}")
             return None
 
         link_element = search_results.find('a')
         if not link_element:
-            logger.info(f"Link not found in IMDB: {title_lv}")
+            logger.info(f"Link not found in IMDb: {title_lv}")
             return None
 
         # Get detailed IMDB data
         link = "https://www.imdb.com/" + link_element['href']
         imdb_program_response = self.make_request(link)
         if not imdb_program_response:
+            # If doesn't exist in IMDb, then program probably not a movie/show
             return None
 
         imdb_soup = BeautifulSoup(imdb_program_response.data, 'html.parser')
-        return self.process_item(program, imdb_soup)
+        return self.enrich_with_imdb_data(program, imdb_soup)
 
     def initiate_resource(self, resource_link):
         """Create an unsaved Program instance to be bulk inserted later."""
@@ -252,37 +255,32 @@ class TVProgramScraper(BaseScraper):
         Program.objects.bulk_create(resources)
         return
 
-    def process_item(self, program, imdb_program):
+    def enrich_with_imdb_data(self, program, imdb_program):
         """
-        Process a single TV program item with IMDB data.
+        Enrich program data with information from IMDB.
 
         Args:
-            program: Either a BeautifulSoup object or a dictionary containing program data
+            program: Dictionary containing program data
+                (title_lv, description_lv, etc.)
             imdb_program: BeautifulSoup object for the detailed IMDb page
 
         Returns:
-            dict: Processed program data or None if processing fails
+            dict: Program data enriched with IMDB information or None if processing
+                fails
         """
-        # Get program details based on input type
-        if isinstance(program, dict):
-            title_lv = program.get('title_lv')
-            raw_description = program.get('description_lv', '')
-            description_lv = re.sub(r"&\w+;", "", raw_description) if raw_description else ""
-            image_url = program.get('image_url', '')
-        else:  # BeautifulSoup object
-            title_element = program.find(class_="tet-font__headline--s")
-            if not title_element:
-                logger.info("No title found for program")
-                return None
-            title_lv = title_element.text.strip()
+        title_lv = program.get('title_lv')
+        if not title_lv:
+            logger.info("No title found in program data")
+            return None
 
-            description_element = program.find(class_="text tet-font__body--s")
-            description_lv = re.sub(
-                r"&\w+;", "", description_element.text.strip()
-            ) if description_element else ""
-
-            image_element = program.find('img')
-            image_url = image_element['src'] if image_element else ""
+        # Clean description HTML entities
+        raw_description = program.get('description_lv', '')
+        description_lv = re.sub(
+            r"&\w+;", "", raw_description
+        ) if raw_description else ""
+        
+        # Get image URL
+        image_url = program.get('image_url', '')
 
         # Extract structured data from the JSON-LD script tag on the IMDb page
         script_tag = imdb_program.find('script', {'type': 'application/ld+json'})
