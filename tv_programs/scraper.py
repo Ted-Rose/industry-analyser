@@ -180,29 +180,17 @@ class TVProgramScraper(BaseScraper):
         return f"https://www.imdb.com/find/?q={encoded_title_lv}&ref_=nv_sr_sm"
 
     def validate_and_return(self, program, imdb_search_results):
-      # CONTINUE HERE - CAN HERE IT BE BEAUTIFULSOUP OBJECT ANYMORE?
-        """Validate and enrich program data with IMDb information.
+        """Validate and enrich program data with IMDB information.
 
         Args:
-            program: Either a BeautifulSoup object or a dictionary containing
-                     program data.
-            imdb_search_results: HTTP response from IMDb search.
+            program: Dictionary containing program data (title_lv, etc.)
+            imdb_search_results: HTTP response from IMDB search
 
         Returns:
-            dict: Enriched program data or None if validation fails.
+            dict: Program data enriched with IMDB information or None
+              if validation fails
         """
-        # Get title_lv based on input type
-        if isinstance(program, dict):
-            title_lv = program.get('title_lv')
-            if not title_lv:
-                logger.info("No title found in program data")
-                return None
-        else:  # BeautifulSoup object
-            title_element = program.find(class_="tet-font__headline--s")
-            if not title_element:
-                logger.info("No title element found")
-                return None
-            title_lv = title_element.text.strip()
+        title_lv = program['title_lv']
 
         # Process IMDB search results
         imdb_search_soup = BeautifulSoup(
@@ -265,25 +253,21 @@ class TVProgramScraper(BaseScraper):
             imdb_program: BeautifulSoup object for the detailed IMDb page
 
         Returns:
-            dict: Program data enriched with IMDB information or None if processing
-                fails
+            dict: Program data enriched with IMDB information or None
+              if processing fails
         """
-        title_lv = program.get('title_lv')
-        if not title_lv:
-            logger.info("No title found in program data")
-            return None
+        title_lv = program['title_lv']
 
         # Clean description HTML entities
         raw_description = program.get('description_lv', '')
         description_lv = re.sub(
             r"&\w+;", "", raw_description
         ) if raw_description else ""
-        
-        # Get image URL
-        image_url = program.get('image_url', '')
 
         # Extract structured data from the JSON-LD script tag on the IMDb page
-        script_tag = imdb_program.find('script', {'type': 'application/ld+json'})
+        script_tag = imdb_program.find(
+          'script', {'type': 'application/ld+json'}
+        )
         if not script_tag:
             return None
 
@@ -325,7 +309,7 @@ class TVProgramScraper(BaseScraper):
         return {
             "title_eng": json_data.get("name"),
             "description_eng": json_data.get("description"),
-            "image": image_url or json_data.get("image"),
+            "image": program.get('image_url', '') or json_data.get("image"),
             "url": json_data.get("url"),
             "content_rating": json_data.get("contentRating", ""),
             "rating_value": rating_value,
