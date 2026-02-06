@@ -42,7 +42,7 @@ class VacancyScrapper(BaseScraper):
     def parse_results(
         self,
         search_response: urllib3.response.HTTPResponse
-  ) -> List:
+    ) -> List:
         if search_response.headers['Content-Type'] == 'application/json':
             self.enrich_search_results = False
 
