@@ -96,9 +96,6 @@ class BaseScraper(abc.ABC):
                     resource = self.initiate_resource(enriched_result)
                     resources.append(resource)
 
-                    if len(resources) >= 2:
-                        break
-
             # TODO: Blog scrapper will return empty list - fix logic gap
             return resources
         else:
