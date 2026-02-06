@@ -56,8 +56,8 @@ class BaseScraper(abc.ABC):
             new_or_updated_resources = self.scrape_portal(search_url)
             if new_or_updated_resources:
                 self.create_or_update_resources(new_or_updated_resources)
-                logger.info(f"Created or updated \
-                  {len(new_or_updated_resources)} resources")
+                logger.info(f"Created or \
+                  updated {len(new_or_updated_resources)} resources")
             else:
                 logger.info("No new or updated resources found")
         return
@@ -95,9 +95,6 @@ class BaseScraper(abc.ABC):
                 else:
                     resource = self.initiate_resource(enriched_result)
                     resources.append(resource)
-
-                    if len(resources) >= 2:
-                        break
 
             # TODO: Blog scrapper will return empty list - fix logic gap
             return resources
