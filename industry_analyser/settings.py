@@ -24,6 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 IS_VERCEL = os.environ.get('VERCEL') == '1'
 
 if IS_VERCEL:
+    print("I'm on Vercel!")
     # On Vercel: Use individual environment variables
     def get_env(key, default=None, required=False):
         value = os.environ.get(key, default)
