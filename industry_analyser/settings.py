@@ -13,43 +13,98 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 import json
 import os
+import textwrap
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-PRIVATE_SETTINGS_JSON_PATH = os.path.join(BASE_DIR, 'private_settings.json')
+# --- Settings Configuration ---
+# Use individual environment variables on Vercel, local file otherwise
 
-if os.path.isfile(PRIVATE_SETTINGS_JSON_PATH):
+IS_VERCEL = os.environ.get('VERCEL') == '1'
+
+if IS_VERCEL:
+    # On Vercel: Use environment variables directly, no JSON file
+    PRIVATE_SETTINGS_JSON_PATH = None
+
+    # Create ca.pem at runtime if database cert is provided
+    CA_PEM_PATH = None
+    capem_content = os.environ.get('DB_SSL_CERT')
+    if capem_content:
+        CA_PEM_PATH = '/tmp/ca.pem'
+        if not os.path.exists(CA_PEM_PATH):
+            lines = capem_content.replace(
+                "-----BEGIN CERTIFICATE----- ",
+                "-----BEGIN CERTIFICATE-----\n"
+            )
+            lines = lines.replace(
+                " -----END CERTIFICATE-----",
+                "\n-----END CERTIFICATE-----"
+            )
+            base64_content = lines.split("\n", 1)[1].rsplit(
+                "\n", 1
+            )[0]
+            formatted_content = textwrap.fill(base64_content, 64)
+            pem_content = (
+                f"-----BEGIN CERTIFICATE-----\n"
+                f"{formatted_content}\n"
+                f"-----END CERTIFICATE-----"
+            )
+            with open(CA_PEM_PATH, 'w') as f:
+                f.write(pem_content)
+else:
+    # Local development: Use private_settings.json from project root
+    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
+        BASE_DIR, 'private_settings.json'
+    )
+    CA_PEM_PATH = os.path.join(BASE_DIR, 'ca.pem')
+
+# Load private settings from the determined path (only for local dev)
+if PRIVATE_SETTINGS_JSON_PATH and os.path.isfile(
+    PRIVATE_SETTINGS_JSON_PATH
+):
     with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
         private_settings = json.load(file)
-else:
+elif not IS_VERCEL:
     raise FileNotFoundError(
-        'Private settings do not exist. Please provide private settings.')
+        f'Private settings do not exist. Please provide '
+        f'{os.path.basename(PRIVATE_SETTINGS_JSON_PATH)}'
+    )
+else:
+    # On Vercel, no private_settings.json needed
+    private_settings = {}
+
+
+def get_env(key, default=None, required=False):
+    value = private_settings.get(key, os.environ.get(key, default))
+    if required and value is None:
+        raise ValueError(f"Required setting '{key}' is not set.")
+    return value
+
+# --- End Settings Configuration ---
+
 
 # Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
-
-
-# SECURITY WARNING: don't run with debug turned on in production!
-SECRET_KEY = private_settings.get('SECRET_KEY')
-DEBUG = private_settings.get('DEBUG')
-BASE_URL = private_settings.get('base_url')
-HARD_CODED_PASSWORD = private_settings.get('HARD_CODED_PASSWORD')
-GEMINI_API_KEY = private_settings.get('gemini_api_key')
+SECRET_KEY = get_env('SECRET_KEY', required=True)
+DEBUG = get_env('DEBUG', 'False') == 'True'
+BASE_URL = get_env('BASE_URL')
+HARD_CODED_PASSWORD = get_env('HARD_CODED_PASSWORD')
+GEMINI_API_KEY = get_env('GEMINI_API_KEY')
 
 ON_VERCEL = os.environ.get('VERCEL', False)
 
 ALLOWED_HOSTS = [
-  '127.0.0.1',
-  '0.0.0.0',
-  private_settings.get('ip_address'),
-  '.vercel.app'
+    '127.0.0.1',
+    '0.0.0.0',
+    '.vercel.app'
 ]
 
-
+if not IS_VERCEL:
+    ip_address = get_env('ip_address')
+    if ip_address:
+        ALLOWED_HOSTS.append(ip_address)
 
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -93,7 +148,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
-
+# Database
 if DEBUG:
     DATABASES = {
         'default': {
@@ -102,7 +157,28 @@ if DEBUG:
         }
     }
 else:
-    DATABASES = private_settings.get('DATABASES')
+    if IS_VERCEL:
+        # On Vercel: Build database config from individual env vars
+        db_config = {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': get_env('DB_NAME', required=True),
+            'USER': get_env('DB_USER', required=True),
+            'PASSWORD': get_env('DB_PASSWORD', required=True),
+            'HOST': get_env('DB_HOST', required=True),
+            'PORT': get_env('DB_PORT', '5432'),
+        }
+
+        # Add SSL options if certificate is provided
+        if CA_PEM_PATH:
+            db_config['OPTIONS'] = {
+                'sslmode': 'require',
+                'sslrootcert': CA_PEM_PATH
+            }
+
+        DATABASES = {'default': db_config}
+    else:
+        # Local: Use DATABASES from private_settings.json
+        DATABASES = get_env('DATABASES')
 
 
 # Password validation
@@ -110,31 +186,38 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'UserAttributeSimilarityValidator'
+        ),
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'MinimumLengthValidator'
+        ),
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'CommonPasswordValidator'
+        ),
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'NumericPasswordValidator'
+        ),
     },
 ]
-
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.0/topics/i18n/
 
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
@@ -153,11 +236,9 @@ def create_log_handler(
 ):
     """Creates a log handler, either for a file or null if in debug mode."""
     if DEBUG and filename:
-        # Create logs directory if it doesn't exist
         logs_dir = os.path.join(BASE_DIR, 'logs')
         if not os.path.exists(logs_dir):
             os.makedirs(logs_dir)
-
         return {
             'level': level,
             'class': 'logging.handlers.RotatingFileHandler',
@@ -179,7 +260,8 @@ LOGGING = {
     'formatters': {
         'verbose': {
             'format': (
-                '{levelname} {asctime} {module} {process:d} {thread:d} {message}'
+                '{levelname} {asctime} {module} {process:d} '
+                '{thread:d} {message}'
             ),
             'style': '{',
         },
