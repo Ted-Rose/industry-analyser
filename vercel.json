@@ -1,4 +1,10 @@
 {
+  "builds": [
+    {
+      "src": "industry_analyser/wsgi.py",
+      "use": "@vercel/python"
+    }
+  ],
   "routes": [
     {
       "src": "/(.*)",
