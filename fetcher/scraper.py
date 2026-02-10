@@ -32,7 +32,7 @@ class VacancyScrapper(BaseScraper):
 
         base_url = self.config['base_url'] + self.config['search_href']
         for keyword in keywords:
-            url = base_url + f"?limit=1000&keywords%5B0%5D={keyword}"
+            url = base_url + f"?limit=1000&keywords[]={keyword}"
             yield url
         return
 
