@@ -11,9 +11,8 @@ python3 industry_analyser/console_tasks/build.py create_ca_pem create_private_se
 mv private_settings.json industry_analyser/
 
 # Collect static files
-python3 manage.py collectstatic --noinput
+python3.12 manage.py collectstatic --noinput
 
 # Run database migrations
-python3 manage.py makemigrations
-python3 manage.py migrate
-timeout 3m python3 manage.py scrape_first_vacancy_portal
+python3.12 manage.py migrate
+timeout 3m python3.12 manage.py scrape_first_vacancy_portal
