@@ -19,33 +19,37 @@ import textwrap
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Settings Configuration ---
-# Use individual environment variables on Vercel, local file otherwise
 
 IS_VERCEL = os.environ.get('VERCEL') == '1'
+private_settings = {}
+
+def get_env(key, default=None, required=False):
+    """Gets a setting from the most appropriate source."""
+    value = private_settings.get(key, os.environ.get(key, default))
+    if required and value is None:
+        raise ValueError(f"Required setting '{key}' is not set.")
+    return value
 
 if IS_VERCEL:
-    print("I'm on Vercel!")
-    # On Vercel: Use individual environment variables
-    def get_env(key, default=None, required=False):
-        value = os.environ.get(key, default)
-        if required and value is None:
-            raise ValueError(f"Required environment variable '{key}' is not set")
-        return value
-    
+    # On Vercel, try to load from a single JSON env var first.
+    private_settings_json = os.environ.get('PRIVATE_SETTINGS_JSON')
+    if private_settings_json:
+        try:
+            private_settings = json.loads(private_settings_json)
+        except json.JSONDecodeError:
+            raise ValueError("Invalid JSON in PRIVATE_SETTINGS_JSON env var")
+
     # Create ca.pem at runtime if database cert is provided
     CA_PEM_PATH = None
-    capem_content = os.environ.get('DB_SSL_CERT')
+    capem_content = get_env('DB_SSL_CERT')
     if capem_content:
         CA_PEM_PATH = '/tmp/ca.pem'
         if not os.path.exists(CA_PEM_PATH):
-            # Reformat the single-line env var into valid PEM format
             lines = capem_content.replace(
-                "-----BEGIN CERTIFICATE----- ",
-                "-----BEGIN CERTIFICATE-----\n"
+                "-----BEGIN CERTIFICATE----- ", "-----BEGIN CERTIFICATE-----\n"
             )
             lines = lines.replace(
-                " -----END CERTIFICATE-----",
-                "\n-----END CERTIFICATE-----"
+                " -----END CERTIFICATE-----", "\n-----END CERTIFICATE-----"
             )
             base64_content = lines.split("\n", 1)[1].rsplit("\n", 1)[0]
             formatted_content = textwrap.fill(base64_content, 64)
@@ -58,22 +62,15 @@ if IS_VERCEL:
                 f.write(pem_content)
 else:
     # Local development: Use private_settings.json
-    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
-        BASE_DIR, 'private_settings.json'
-    )
-    
-    if not os.path.isfile(PRIVATE_SETTINGS_JSON_PATH):
+    PRIVATE_SETTINGS_JSON_PATH = BASE_DIR / 'private_settings.json'
+    if not PRIVATE_SETTINGS_JSON_PATH.is_file():
         raise FileNotFoundError(
             'Private settings do not exist. '
             'Please provide private_settings.json'
         )
-    
     with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
         private_settings = json.load(file)
-    
-    def get_env(key, default=None, required=False):
-        return private_settings.get(key, default)
-    
+
     CA_PEM_PATH = os.path.join(BASE_DIR, 'ca.pem')
 
 # --- End Settings Configuration ---
