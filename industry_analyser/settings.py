@@ -24,9 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 IS_VERCEL = os.environ.get('VERCEL') == '1'
 
 if IS_VERCEL:
-    # On Vercel, the build script generates this file.
-    # The path is relative to the project root, where settings.py is.
-    PRIVATE_SETTINGS_JSON_PATH = os.path.join(BASE_DIR, 'industry_analyser', 'private_settings.json')
+    # On Vercel: Use environment variables directly, no JSON file
+    PRIVATE_SETTINGS_JSON_PATH = None
 
     # Create ca.pem at runtime if database cert is provided
     CA_PEM_PATH = None
@@ -35,12 +34,16 @@ if IS_VERCEL:
         CA_PEM_PATH = '/tmp/ca.pem'
         if not os.path.exists(CA_PEM_PATH):
             lines = capem_content.replace(
-                "-----BEGIN CERTIFICATE----- ", "-----BEGIN CERTIFICATE-----\n"
+                "-----BEGIN CERTIFICATE----- ",
+                "-----BEGIN CERTIFICATE-----\n"
             )
             lines = lines.replace(
-                " -----END CERTIFICATE-----", "\n-----END CERTIFICATE-----"
+                " -----END CERTIFICATE-----",
+                "\n-----END CERTIFICATE-----"
             )
-            base64_content = lines.split("\n", 1)[1].rsplit("\n", 1)[0]
+            base64_content = lines.split("\n", 1)[1].rsplit(
+                "\n", 1
+            )[0]
             formatted_content = textwrap.fill(base64_content, 64)
             pem_content = (
                 f"-----BEGIN CERTIFICATE-----\n"
@@ -50,18 +53,27 @@ if IS_VERCEL:
             with open(CA_PEM_PATH, 'w') as f:
                 f.write(pem_content)
 else:
-    # Local development: Use private_settings.json from the project root
-    PRIVATE_SETTINGS_JSON_PATH = os.path.join(BASE_DIR, 'private_settings.json')
+    # Local development: Use private_settings.json from project root
+    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
+        BASE_DIR, 'private_settings.json'
+    )
     CA_PEM_PATH = os.path.join(BASE_DIR, 'ca.pem')
 
-# Load private settings from the determined path
-if not os.path.isfile(PRIVATE_SETTINGS_JSON_PATH):
+# Load private settings from the determined path (only for local dev)
+if PRIVATE_SETTINGS_JSON_PATH and os.path.isfile(
+    PRIVATE_SETTINGS_JSON_PATH
+):
+    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
+        private_settings = json.load(file)
+elif not IS_VERCEL:
     raise FileNotFoundError(
-        f'Private settings do not exist. Please provide {os.path.basename(PRIVATE_SETTINGS_JSON_PATH)}'
+        f'Private settings do not exist. Please provide '
+        f'{os.path.basename(PRIVATE_SETTINGS_JSON_PATH)}'
     )
+else:
+    # On Vercel, no private_settings.json needed
+    private_settings = {}
 
-with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
-    private_settings = json.load(file)
 
 def get_env(key, default=None, required=False):
     value = private_settings.get(key, os.environ.get(key, default))
@@ -155,14 +167,14 @@ else:
             'HOST': get_env('DB_HOST', required=True),
             'PORT': get_env('DB_PORT', '5432'),
         }
-        
+
         # Add SSL options if certificate is provided
         if CA_PEM_PATH:
             db_config['OPTIONS'] = {
                 'sslmode': 'require',
                 'sslrootcert': CA_PEM_PATH
             }
-        
+
         DATABASES = {'default': db_config}
     else:
         # Local: Use DATABASES from private_settings.json
@@ -174,16 +186,28 @@ else:
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'UserAttributeSimilarityValidator'
+        ),
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'MinimumLengthValidator'
+        ),
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'CommonPasswordValidator'
+        ),
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': (
+            'django.contrib.auth.password_validation.'
+            'NumericPasswordValidator'
+        ),
     },
 ]
 
@@ -236,7 +260,8 @@ LOGGING = {
     'formatters': {
         'verbose': {
             'format': (
-                '{levelname} {asctime} {module} {process:d} {thread:d} {message}'
+                '{levelname} {asctime} {module} {process:d} '
+                '{thread:d} {message}'
             ),
             'style': '{',
         },
