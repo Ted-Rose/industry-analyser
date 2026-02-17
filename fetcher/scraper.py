@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import re
 from django.conf import settings
 from bs4 import BeautifulSoup
 import urllib3
@@ -19,6 +20,8 @@ class VacancyScrapper(BaseScraper):
         self.config = self.load_config(portal_id)
         self.keywords = Keyword.objects
         self.industries = Industry.objects
+        # Cache keywords list for content matching optimization
+        self.keywords_list = list(self.keywords.all())
 
     def load_config(self, portal_id):
         config_path = os.path.join(settings.BASE_DIR, 'fetcher/config_v2.json')
@@ -60,6 +63,49 @@ class VacancyScrapper(BaseScraper):
         # Remove already processed vacancy id's in this session
         return resources
 
+    def _extract_searchable_content(self, result: dict) -> str:
+        """
+        Extract and combine all searchable text from vacancy result.
+        Returns lowercase string for case-insensitive matching.
+        """
+        content_parts = []
+
+        # Add position title
+        if result.get('positionTitle'):
+            content_parts.append(result.get('positionTitle'))
+
+        # Add position content (main description)
+        if result.get('positionContent'):
+            content_parts.append(result.get('positionContent'))
+
+        # Add employer name
+        if result.get('employerName'):
+            content_parts.append(result.get('employerName'))
+
+        # Combine and normalize
+        combined_content = ' '.join(content_parts).lower()
+        return combined_content
+
+    def _find_keywords_in_content(
+        self, content: str
+    ) -> List[Keyword]:
+        """
+        Search for all keywords within content using regex.
+        Uses word boundaries for accurate matching.
+        """
+        matched_keywords = []
+
+        for keyword in self.keywords_list:
+            # Use word boundary \b for accurate matching
+            # re.escape handles special chars like C++, C#
+            pattern = (
+                r'\b' + re.escape(keyword.name.lower()) + r'\b'
+            )
+            if re.search(pattern, content):
+                matched_keywords.append(keyword)
+
+        return matched_keywords
+
     def initiate_resources(self, search_results) -> List[Vacancy]:
         vacancies = []
         for result in search_results:
@@ -99,12 +145,34 @@ class VacancyScrapper(BaseScraper):
                         vacancy.industries.add(industry)
 
             # Handle dependencies (e.g., keywords)
+            # 1. Add keywords from portal's explicit keyword list
             portal_keywords = result.get('keywords')
             if portal_keywords:
                 for portal_keyword in portal_keywords:
-                    keyword = self.keywords.filter(name=portal_keyword).first()
+                    keyword = (
+                        self.keywords.filter(
+                            name=portal_keyword
+                        ).first()
+                    )
                     if keyword:
                         vacancy.keywords.add(keyword)
+
+            # 2. Add keywords by searching within content
+            searchable_content = (
+                self._extract_searchable_content(result)
+            )
+            content_keywords = (
+                self._find_keywords_in_content(searchable_content)
+            )
+            for keyword in content_keywords:
+                # add() handles duplicates automatically
+                vacancy.keywords.add(keyword)
+
+            logger.debug(
+                f"Vacancy {vacancy_portal_id}: "
+                f"Portal keywords: {len(portal_keywords or [])}, "
+                f"Content keywords: {len(content_keywords)}"
+            )
 
             vacancies.append(vacancy)
         return vacancies
