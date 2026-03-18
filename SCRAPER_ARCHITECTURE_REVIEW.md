@@ -61,9 +61,7 @@ The scraper architecture shows **good foundational design** but has several area
 - ✅ Clear method naming (after refactoring)
 
 **Weaknesses:**
-- ❌ Still has unused enrichment methods (`get_resource_info_link`, `validate_and_return`)
-- ❌ `enrich_with_imdb_data` exists but isn't integrated into main pipeline
-- ❌ State management via instance variables (`current_channel`, `current_start_time`)
+- ❌ State management via instance variables (`current_channel`, `current_start_time`) makes code harder to test and reason about
 
 ## Key OOP Violations
 
@@ -78,13 +76,18 @@ def extract_resources(self, search_results) -> List[Model]:
 
 # But implementations vary:
 # - VacancyScraper: Returns List[Vacancy] (created/updated)
+  # That's a bug.
 # - BlogScraper: Returns [] (empty list, does everything in analyse_and_save_resource)
+  # Avoid bulk update to reduce chances of overriding (valuable and expensive data)
 # - TVProgramScraper: Returns List[Program] (unsaved instances)
+  # Usual behavior
 ```
 
 **Impact:** Can't write generic code that works with any scraper.
 
 ### 2. **Single Responsibility Principle (SRP)**
+
+Not urgent.
 
 **Problem:** Methods do multiple things.
 
@@ -106,6 +109,19 @@ def extract_resources(self, search_results) -> List[Model]:
 **Impact:** Hard to test, modify, or reuse individual pieces.
 
 ### 3. **Interface Segregation Principle (ISP)**
+
+# TODO:
+Mixins needed? Possible scrapping flow requirements:
+
+Available scrapping flow steps:
+a. get_search_urls()
+b. parse_results()
+c. remove_redundant_results()
+  - Not always needed:
+    - Potentially can be hard to always prune redundant results during scrapping
+d. extract_resources()
+  - Not always needed
+e. create_or_update_resources()
 
 **Problem:** Base class forces implementations to deal with enrichment even when not needed.
 
@@ -170,6 +186,7 @@ class BaseScraper(ABC):
         return resources
 ```
 
+# CONTINUE HERE! # TODO:
 ### 3. **Extract Business Logic to Services**
 
 Move domain logic out of scrapers:
@@ -197,6 +214,7 @@ class PageRepository:
 ```
 
 ### 4. **Use Composition Over Inheritance**
+Redundant as this scrapper probably will be deprecated.
 
 For complex behaviors like AI analysis:
 

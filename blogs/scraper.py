@@ -4,9 +4,11 @@ import re
 import time
 import yaml
 import logging
+from typing import List
 from google import genai
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
+import urllib3
 from django.conf import settings
 from django.db.models import Count, Q
 from core_scraper.base import BaseScraper
@@ -137,7 +139,10 @@ class BlogScraper(BaseScraper):
 
         return None
 
-    def parse_results(self, search_response):
+    def parse_results(
+        self,
+        search_response: urllib3.response.HTTPResponse
+    ) -> List:
         """Parses the blog listing page to find links to individual posts."""
         soup = BeautifulSoup(search_response.data, 'html.parser')
 

@@ -2,10 +2,12 @@ import logging
 import json
 import re
 from bs4 import BeautifulSoup
+import urllib3
 from datetime import datetime, timedelta
 from django.utils import timezone
 from difflib import SequenceMatcher
 from urllib.parse import quote_plus
+from typing import List
 
 from core_scraper.base import BaseScraper
 from .models import Program, Channel
@@ -77,7 +79,10 @@ class TVProgramScraper(BaseScraper):
         start_date = timezone.now() - timedelta(days=days_in_past)
         return day_range, start_date
 
-    def parse_results(self, search_response):
+    def parse_results(
+        self,
+        search_response: urllib3.response.HTTPResponse
+    ) -> List:
         """
         Parses the TV program listing page into a list of structured dictionaries.
         """

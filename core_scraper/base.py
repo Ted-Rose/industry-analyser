@@ -1,9 +1,10 @@
 import abc
+from abc import abstractmethod
 import logging
 import time
 import random
 import urllib3
-from typing import List
+from typing import List, Dict
 from django.db.models import Model
 from urllib.parse import urlparse
 import json
@@ -53,6 +54,8 @@ class BaseScraper(abc.ABC):
         for search_url in self.get_search_urls():
             print("\n\n")  # Line break for better console output readability
             logger.info(f"Searching URL: {search_url}")
+            
+            # Should only# return list of results? Maybe pruned?
             new_or_updated_resources = self.scrape_portal(search_url)
             if new_or_updated_resources:
                 self.create_or_update_resources(new_or_updated_resources)
@@ -74,8 +77,10 @@ class BaseScraper(abc.ABC):
 
         return self.extract_resources(pruned_results)
 
-    def parse_results(self, search_response):
-        raise NotImplementedError
+    @abstractmethod
+    def parse_results(self, search_response) -> List[Dict]:
+        """Parse response into list of dictionaries."""
+        pass
 
     def remove_redundant_results(self, resources):
         raise NotImplementedError
@@ -91,6 +96,7 @@ class BaseScraper(abc.ABC):
                     continue
 
                 if self.ai_analysis:
+                    # Save each resource (we don't want bulk update here)
                     self.analyse_and_save_resource(enriched_result, result)
                 else:
                     resource = self.initiate_resource(enriched_result)
