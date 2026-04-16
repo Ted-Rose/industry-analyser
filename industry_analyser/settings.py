@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 from pathlib import Path
 import os
 import textwrap
+from urllib.parse import quote_plus
 
 import environ
 
@@ -142,8 +143,27 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
+
+def _database_url_default() -> str:
+    """Prefer DATABASE_URL; otherwise build from legacy DB_* vars (still set on Vercel)."""
+    explicit = os.environ.get('DATABASE_URL', '').strip()
+    if explicit:
+        return explicit
+    host = os.environ.get('DB_HOST', '').strip()
+    if not host:
+        return 'sqlite:///db.sqlite3'
+    user = os.environ.get('DB_USER', '')
+    password = os.environ.get('DB_PASSWORD', '')
+    name = os.environ.get('DB_NAME', '')
+    port = os.environ.get('DB_PORT', '5432')
+    return (
+        f'postgres://{quote_plus(user)}:{quote_plus(password)}'
+        f'@{host}:{port}/{name}?sslmode=require'
+    )
+
+
 DATABASES = {
-    'default': env.db('DATABASE_URL', default='sqlite:///db.sqlite3')
+    'default': env.db('DATABASE_URL', default=_database_url_default())
 }
 
 db_ssl_cert = _db_ssl_pem_from_env()

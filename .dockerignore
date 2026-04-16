@@ -1,0 +1,15 @@
+venv/
+.vscode/
+.git/
+*.pyc
+__pycache__/
+logs/
+db.sqlite3
+.env
+staticfiles/
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/*.auto.tfvars
