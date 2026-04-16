@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-      - main
-      - 'feature/**'
     paths:
       - '**/*.py'
       - '*.py'
