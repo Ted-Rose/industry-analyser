@@ -1,4 +1,6 @@
 __pycache__
+.env
+.env.vercel.old
 static/
 wsgi_for_pythonanywhere.py
 django.log

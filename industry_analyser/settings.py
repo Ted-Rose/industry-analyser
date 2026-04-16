@@ -11,87 +11,82 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
-import json
 import os
 import textwrap
+
+import environ
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# --- Settings Configuration ---
-# Use individual environment variables on Vercel, local file otherwise
+env = environ.Env(
+    DEBUG=(bool, False),
+    BASE_URL=(str, 'http://127.0.0.1:8000'),
+)
 
-IS_VERCEL = os.environ.get('VERCEL') == '1'
+environ.Env.read_env(os.path.join(BASE_DIR, '.env'), overwrite=False)
 
-if IS_VERCEL:
-    # On Vercel: Use environment variables directly, no JSON file
-    PRIVATE_SETTINGS_JSON_PATH = None
+# CA PEM from env (DB_SSL_CERT or legacy capem), written to /tmp — same pattern as Vercel/GCP.
+_DB_SSL_CA_FILE = '/tmp/industry-analyser-postgres-ca.pem'
 
-    # Create ca.pem at runtime if database cert is provided
-    CA_PEM_PATH = None
-    capem_content = os.environ.get('DB_SSL_CERT')
-    if capem_content:
-        CA_PEM_PATH = '/tmp/ca.pem'
-        if not os.path.exists(CA_PEM_PATH):
-            lines = capem_content.replace(
-                "-----BEGIN CERTIFICATE----- ",
-                "-----BEGIN CERTIFICATE-----\n"
-            )
-            lines = lines.replace(
-                " -----END CERTIFICATE-----",
-                "\n-----END CERTIFICATE-----"
-            )
-            base64_content = lines.split("\n", 1)[1].rsplit(
-                "\n", 1
-            )[0]
-            formatted_content = textwrap.fill(base64_content, 64)
-            pem_content = (
-                f"-----BEGIN CERTIFICATE-----\n"
-                f"{formatted_content}\n"
-                f"-----END CERTIFICATE-----"
-            )
-            with open(CA_PEM_PATH, 'w') as f:
-                f.write(pem_content)
-else:
-    # Local development: Use private_settings.json from project root
-    PRIVATE_SETTINGS_JSON_PATH = os.path.join(
-        BASE_DIR, 'private_settings.json'
+
+def _normalize_db_ssl_pem_raw(raw: str) -> str:
+    if not raw:
+        return ''
+    s = raw.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1]
+    if '\\n' in s and s.count('\n') < 4:
+        s = s.replace('\\n', '\n')
+    return s.strip()
+
+
+def _db_ssl_pem_from_env() -> str:
+    return _normalize_db_ssl_pem_raw(
+        os.environ.get('DB_SSL_CERT') or os.environ.get('capem') or ''
     )
-    CA_PEM_PATH = os.path.join(BASE_DIR, 'ca.pem')
 
-# Load private settings from the determined path (only for local dev)
-if PRIVATE_SETTINGS_JSON_PATH and os.path.isfile(
-    PRIVATE_SETTINGS_JSON_PATH
-):
-    with open(PRIVATE_SETTINGS_JSON_PATH, 'r') as file:
-        private_settings = json.load(file)
-elif not IS_VERCEL:
-    raise FileNotFoundError(
-        f'Private settings do not exist. Please provide '
-        f'{os.path.basename(PRIVATE_SETTINGS_JSON_PATH)}'
+
+def _format_db_ssl_pem(capem_content):
+    stripped = capem_content.strip()
+    if '\n' in stripped:
+        return stripped if stripped.endswith('\n') else stripped + '\n'
+    lines = capem_content.replace(
+        '-----BEGIN CERTIFICATE----- ',
+        '-----BEGIN CERTIFICATE-----\n',
     )
-else:
-    # On Vercel, no private_settings.json needed
-    private_settings = {}
+    lines = lines.replace(
+        ' -----END CERTIFICATE-----',
+        '\n-----END CERTIFICATE-----',
+    )
+    parts = lines.split('\n')
+    if len(parts) >= 3:
+        base64_content = ''.join(parts[1:-1]).replace(' ', '')
+        formatted_content = textwrap.fill(base64_content, 64)
+        return (
+            f'-----BEGIN CERTIFICATE-----\n'
+            f'{formatted_content}\n'
+            f'-----END CERTIFICATE-----'
+        )
+    return capem_content
 
 
-def get_env(key, default=None, required=False):
-    value = private_settings.get(key, os.environ.get(key, default))
-    if required and value is None:
-        raise ValueError(f"Required setting '{key}' is not set.")
-    return value
+def _apply_db_ssl_cert(db_config, db_ssl_cert_content, ca_pem_path):
+    if not db_ssl_cert_content:
+        return
+    pem_content = _format_db_ssl_pem(db_ssl_cert_content)
+    with open(ca_pem_path, 'w') as f:
+        f.write(pem_content)
+    db_config.setdefault('OPTIONS', {})
+    db_config['OPTIONS']['sslmode'] = 'require'
+    db_config['OPTIONS']['sslrootcert'] = ca_pem_path
 
-# --- End Settings Configuration ---
 
-
-# Quick-start development settings - unsuitable for production
-SECRET_KEY = get_env('SECRET_KEY', required=True)
-DEBUG = get_env('DEBUG', 'False') == 'True'
-BASE_URL = get_env('BASE_URL')
-HARD_CODED_PASSWORD = get_env('HARD_CODED_PASSWORD')
-GEMINI_API_KEY = get_env('GEMINI_API_KEY')
-
-ON_VERCEL = os.environ.get('VERCEL', False)
+SECRET_KEY = env('SECRET_KEY')
+DEBUG = env('DEBUG')
+BASE_URL = env('BASE_URL')
+HARD_CODED_PASSWORD = env('HARD_CODED_PASSWORD', default='')
+GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 
 ALLOWED_HOSTS = [
     '127.0.0.1',
@@ -99,10 +94,9 @@ ALLOWED_HOSTS = [
     '.vercel.app'
 ]
 
-if not IS_VERCEL:
-    ip_address = get_env('ip_address')
-    if ip_address:
-        ALLOWED_HOSTS.append(ip_address)
+_extra_host = env('ALLOWED_HOST_IP', default='')
+if _extra_host:
+    ALLOWED_HOSTS.append(_extra_host)
 
 # Application definition
 INSTALLED_APPS = [
@@ -148,37 +142,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
-# Database
-if DEBUG:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
-else:
-    if IS_VERCEL:
-        # On Vercel: Build database config from individual env vars
-        db_config = {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': get_env('DB_NAME', required=True),
-            'USER': get_env('DB_USER', required=True),
-            'PASSWORD': get_env('DB_PASSWORD', required=True),
-            'HOST': get_env('DB_HOST', required=True),
-            'PORT': get_env('DB_PORT', '5432'),
-        }
+DATABASES = {
+    'default': env.db('DATABASE_URL', default='sqlite:///db.sqlite3')
+}
 
-        # Add SSL options if certificate is provided
-        if CA_PEM_PATH:
-            db_config['OPTIONS'] = {
-                'sslmode': 'require',
-                'sslrootcert': CA_PEM_PATH
-            }
-
-        DATABASES = {'default': db_config}
-    else:
-        # Local: Use DATABASES from private_settings.json
-        DATABASES = get_env('DATABASES')
+db_ssl_cert = _db_ssl_pem_from_env()
+if db_ssl_cert:
+    _apply_db_ssl_cert(DATABASES['default'], db_ssl_cert, _DB_SSL_CA_FILE)
 
 
 # Password validation

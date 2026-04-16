@@ -8,19 +8,39 @@ then
     exit 1
 fi
 
-# Read the private settings from the JSON file using jq
-CONFIG_FILE="private_settings.json"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
+CONFIG_FILE="$ROOT_DIR/private_settings.json"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: Configuration file '$CONFIG_FILE' not found."
+if [ -f "$ENV_FILE" ] && grep -qE '^[[:space:]]*DATABASE_URL=' "$ENV_FILE"; then
+    DATABASE_URL=$(grep -E '^[[:space:]]*DATABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+    export DATABASE_URL
+    eval "$(python3 -c '
+from urllib.parse import urlparse, unquote
+import os, shlex
+u = urlparse(os.environ.get("DATABASE_URL", ""))
+if not u.hostname:
+    raise SystemExit("missing host in DATABASE_URL")
+user = unquote(u.username or "")
+password = unquote(u.password or "")
+port = u.port or 5432
+db = (u.path or "/").lstrip("/")
+print("DB_USER=" + shlex.quote(user))
+print("DB_PASSWORD=" + shlex.quote(password))
+print("DB_HOST=" + shlex.quote(u.hostname))
+print("DB_PORT=" + shlex.quote(str(port)))
+print("DB_NAME=" + shlex.quote(db))
+')"
+elif [ -f "$CONFIG_FILE" ]; then
+    DB_NAME=$(jq -r '.DATABASES.default.NAME' "$CONFIG_FILE")
+    DB_USER=$(jq -r '.DATABASES.default.USER' "$CONFIG_FILE")
+    DB_PASSWORD=$(jq -r '.DATABASES.default.PASSWORD' "$CONFIG_FILE")
+    DB_HOST=$(jq -r '.DATABASES.default.HOST' "$CONFIG_FILE")
+    DB_PORT=$(jq -r '.DATABASES.default.PORT' "$CONFIG_FILE")
+else
+    echo "Error: Neither DATABASE_URL in .env nor private_settings.json found under $ROOT_DIR."
     exit 1
 fi
-
-DB_NAME=$(jq -r '.DATABASES.default.NAME' "$CONFIG_FILE")
-DB_USER=$(jq -r '.DATABASES.default.USER' "$CONFIG_FILE")
-DB_PASSWORD=$(jq -r '.DATABASES.default.PASSWORD' "$CONFIG_FILE")
-DB_HOST=$(jq -r '.DATABASES.default.HOST' "$CONFIG_FILE")
-DB_PORT=$(jq -r '.DATABASES.default.PORT' "$CONFIG_FILE")
 
 DB_ENGINE='django.db.backends.postgresql'
 DB_SSLMODE='verify-full'
