@@ -23,7 +23,7 @@ resource "google_project_service" "apis" {
 resource "google_artifact_registry_repository" "dockerhub_cache" {
   location      = var.region
   repository_id = local.ar_repo_id
-  description   = "Docker Hub pull-through cache for industry-analyser images"
+  description   = "Docker Hub pull-through cache (optional mirror; CI pushes to industry-analyser-app)"
   format        = "DOCKER"
   mode          = "REMOTE_REPOSITORY"
 
@@ -32,6 +32,15 @@ resource "google_artifact_registry_repository" "dockerhub_cache" {
       public_repository = "DOCKER_HUB"
     }
   }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_artifact_registry_repository" "app_images" {
+  location      = var.region
+  repository_id = "industry-analyser-app"
+  description   = "Container images built and pushed from GitHub Actions"
+  format        = "DOCKER"
 
   depends_on = [google_project_service.apis]
 }

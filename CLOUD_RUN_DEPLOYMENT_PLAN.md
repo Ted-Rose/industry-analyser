@@ -243,17 +243,15 @@ New file: `.github/workflows/deploy-scraper-jobs.yml`
 
 #### Job 1: `build-and-push`
 1. Checkout code
-2. Log in to Docker Hub via `docker/login-action@v3` using `DOCKERHUB_USERNAME` + `DOCKERHUB_TOKEN`
-3. Build image: `docker build -t tedisrozenfelds/industry-analyser:${{ github.sha }} .`
-4. Tag as latest: `docker tag ... tedisrozenfelds/industry-analyser:latest`
-5. Push both tags
+2. Authenticate to GCP with `GCP_SA_KEY`, run `gcloud auth configure-docker` for `europe-north1-docker.pkg.dev`
+3. Build and push to Artifact Registry: `europe-north1-docker.pkg.dev/PROJECT/industry-analyser-app/industry-analyser:${{ github.sha }}` and `:latest`
 
 #### Job 2: `deploy` (depends on `build-and-push`)
 1. Authenticate to GCP via `google-github-actions/auth@v2` using `GCP_SA_KEY`
 2. Set up gcloud via `google-github-actions/setup-gcloud@v2`
-3. Update both Cloud Run Jobs to the new image (via Artifact Registry proxy URL):
+3. Update both Cloud Run Jobs to the same image (commit SHA tag):
    ```bash
-   IMAGE="europe-north1-docker.pkg.dev/gen-lang-client-0833674612/dockerhub-cache/tedisrozenfelds/industry-analyser:$SHA"
+   IMAGE="europe-north1-docker.pkg.dev/gen-lang-client-0833674612/industry-analyser-app/industry-analyser:$SHA"
 
    gcloud run jobs update scrape-vacancy \
      --image=$IMAGE --region=europe-north1
@@ -261,7 +259,6 @@ New file: `.github/workflows/deploy-scraper-jobs.yml`
    gcloud run jobs update scrape-tv-programs \
      --image=$IMAGE --region=europe-north1
    ```
-   Cloud Run pulls through the AR cache; AR transparently fetches from Docker Hub on first access and caches for subsequent pulls.
 
 ---
 
@@ -335,7 +332,7 @@ The agent executes everything in this order. No manual steps required.
 
 ### 5b. GitHub Actions secrets required
 
-Set `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` in the repo (Settings → Secrets). `GCP_SA_KEY` and `GCP_PROJECT_ID` can be provisioned as in the bootstrap section.
+The workflow authenticates with GCP and pushes images to Artifact Registry repository `industry-analyser-app` (no Docker Hub login). Set **`GCP_SA_KEY`** (JSON key for `industry-analyser-deployer` or another account with `roles/run.admin` and Artifact Registry push rights) and **`GCP_PROJECT_ID`**.
 
 ---
 

@@ -1,4 +1,4 @@
-name: Deploy scraper jobs (Docker Hub + Cloud Run)
+name: Deploy scraper jobs (Artifact Registry + Cloud Run)
 
 on:
   push:
@@ -18,6 +18,9 @@ concurrency:
   group: deploy-scraper-jobs-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  REGION: europe-north1
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -25,25 +28,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Build and push
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
         env:
-          IMAGE: tedisrozenfelds/industry-analyser
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          docker build -t "${IMAGE}:${GITHUB_SHA}" .
-          docker tag "${IMAGE}:${GITHUB_SHA}" "${IMAGE}:latest"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser"
+          docker build -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" .
           docker push "${IMAGE}:${GITHUB_SHA}"
           docker push "${IMAGE}:latest"
 
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
+    env:
+      REGION: europe-north1
     steps:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -55,14 +67,12 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Update Cloud Run jobs (image via Artifact Registry cache)
+      - name: Update Cloud Run jobs
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          REGION: europe-north1
         run: |
           set -euo pipefail
-          SHA="${GITHUB_SHA}"
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/dockerhub-cache/tedisrozenfelds/industry-analyser:${SHA}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:${GITHUB_SHA}"
           gcloud run jobs update scrape-vacancy \
             --image="${IMAGE}" \
             --region="${REGION}" \

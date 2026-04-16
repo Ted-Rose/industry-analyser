@@ -34,5 +34,10 @@ output "job_image_uri" {
 
 output "artifact_registry_image_uri" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${local.ar_repo_id}/${var.dockerhub_image}:${var.image_tag}"
-  description = "Artifact Registry pull-through URL (used by CI after each build)"
+  description = "Docker Hub pull-through URL (optional; CI uses industry-analyser-app repo)"
+}
+
+output "ci_container_image_prefix" {
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.app_images.repository_id}/industry-analyser"
+  description = "Image path for CI docker push and gcloud run jobs update (tag with commit SHA)"
 }
