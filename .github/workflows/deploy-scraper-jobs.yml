@@ -1,0 +1,73 @@
+name: Deploy scraper jobs (Docker Hub + Cloud Run)
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+    paths:
+      - '**/*.py'
+      - '*.py'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements.txt'
+      - '.github/workflows/deploy-scraper-jobs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-scraper-jobs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push
+        env:
+          IMAGE: tedisrozenfelds/industry-analyser
+        run: |
+          set -euo pipefail
+          docker build -t "${IMAGE}:${GITHUB_SHA}" .
+          docker tag "${IMAGE}:${GITHUB_SHA}" "${IMAGE}:latest"
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Update Cloud Run jobs (image via Artifact Registry cache)
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          REGION: europe-north1
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/dockerhub-cache/tedisrozenfelds/industry-analyser:${SHA}"
+          gcloud run jobs update scrape-vacancy \
+            --image="${IMAGE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}"
+          gcloud run jobs update scrape-tv-programs \
+            --image="${IMAGE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}"

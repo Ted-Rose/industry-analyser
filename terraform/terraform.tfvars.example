@@ -1,0 +1,15 @@
+# Copy to terraform.tfvars (gitignored) and fill in real values.
+# Do not commit terraform.tfvars.
+
+secret_key   = "your-django-secret-key"
+database_url = "postgres://user:pass@host:port/dbname?sslmode=require"
+base_url     = "https://your-app.example.com"
+
+db_ssl_cert = <<-EOT
+-----BEGIN CERTIFICATE-----
+PASTE_AIVEN_OR_OTHER_CA_PEM_HERE
+-----END CERTIFICATE-----
+EOT
+
+hard_coded_password = ""
+gemini_api_key      = ""

@@ -14,3 +14,11 @@ db_backups/*
 !db_backups/local_db_backup.sh
 db.sqlite3
 blogs/config.yaml
+.vercel
+
+# Terraform secrets
+terraform/terraform.tfvars
+terraform/*.auto.tfvars
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
