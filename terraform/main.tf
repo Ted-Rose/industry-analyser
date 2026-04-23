@@ -13,6 +13,7 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "secretmanager.googleapis.com",
   ])
 
   project            = var.project_id
@@ -63,6 +64,21 @@ resource "google_project_iam_member" "job_runtime_ar_reader" {
   member  = "serviceAccount:${google_service_account.job_runtime.email}"
 }
 
+# Fetcher portal config (Secret Manager; secrets created outside Terraform with gcloud)
+resource "google_secret_manager_secret_iam_member" "fetcher_keywords_accessor" {
+  project   = var.project_id
+  secret_id = "industry-analyser-fetcher-keywords-list"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.job_runtime.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "fetcher_portals_accessor" {
+  project   = var.project_id
+  secret_id = "industry-analyser-fetcher-portals"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.job_runtime.email}"
+}
+
 resource "google_cloud_run_v2_job" "scrape_vacancy" {
   name     = "scrape-vacancy"
   location = var.region
@@ -76,7 +92,10 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
 
       containers {
         image   = local.job_image
-        command = ["python", "manage.py", "scrape_first_vacancy_portal"]
+        command = [
+          "python3",
+          "scripts/materialize_fetcher_config_and_scrape.py",
+        ]
 
         env {
           name  = "DEBUG"
@@ -107,6 +126,26 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
           value = var.gemini_api_key
         }
 
+        env {
+          name = "FETCHER_KEYWORDS_LIST_JSON"
+          value_source {
+            secret_key_ref {
+              secret  = "industry-analyser-fetcher-keywords-list"
+              version = "latest"
+            }
+          }
+        }
+
+        env {
+          name = "FETCHER_PORTALS_JSON"
+          value_source {
+            secret_key_ref {
+              secret  = "industry-analyser-fetcher-portals"
+              version = "latest"
+            }
+          }
+        }
+
         resources {
           limits = {
             cpu    = "1"
@@ -120,7 +159,15 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
   depends_on = [
     google_artifact_registry_repository.dockerhub_cache,
     google_project_service.apis,
+    google_secret_manager_secret_iam_member.fetcher_keywords_accessor,
+    google_secret_manager_secret_iam_member.fetcher_portals_accessor,
   ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+    ]
+  }
 }
 
 resource "google_cloud_run_v2_job" "scrape_tv_programs" {
@@ -181,6 +228,12 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
     google_artifact_registry_repository.dockerhub_cache,
     google_project_service.apis,
   ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+    ]
+  }
 }
 
 resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_vacancy" {

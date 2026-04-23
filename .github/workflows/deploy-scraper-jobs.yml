@@ -7,6 +7,7 @@ on:
     paths:
       - '**/*.py'
       - '*.py'
+      - 'scripts/**'
       - 'Dockerfile'
       - '.dockerignore'
       - 'requirements.txt'
@@ -66,17 +67,27 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Update Cloud Run jobs
+      - name: Update Cloud Run job images
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:${GITHUB_SHA}"
+
+          # Vacancy scraper: write config from Secret Manager env, then run management command
           gcloud run jobs update scrape-vacancy \
             --image="${IMAGE}" \
+            --command=python3 \
+            --args=scripts/materialize_fetcher_config_and_scrape.py \
             --region="${REGION}" \
-            --project="${PROJECT_ID}"
+            --project="${PROJECT_ID}" \
+            --quiet
+
+          # TV scraper: standard Django entrypoint
           gcloud run jobs update scrape-tv-programs \
             --image="${IMAGE}" \
+            --command=python \
+            --args=manage.py,scrape_tv_programs \
             --region="${REGION}" \
-            --project="${PROJECT_ID}"
+            --project="${PROJECT_ID}" \
+            --quiet

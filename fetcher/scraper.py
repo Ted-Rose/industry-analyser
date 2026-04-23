@@ -24,6 +24,10 @@ class VacancyScrapper(BaseScraper):
         self.keywords_list = list(self.keywords.all())
 
     def load_config(self, portal_id):
+        portals_json = os.environ.get('FETCHER_PORTALS_JSON')
+        if portals_json:
+            portals = json.loads(portals_json)
+            return portals.get(str(portal_id))
         config_path = os.path.join(settings.BASE_DIR, 'fetcher/config_v2.json')
         with open(config_path, 'r') as file:
             config = json.load(file)
