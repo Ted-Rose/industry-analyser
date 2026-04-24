@@ -30,9 +30,15 @@ class Category(models.Model):
 
 class Program(models.Model):
     """Model representing a TV program"""
+
+    class ContentType(models.TextChoices):
+        MOVIE = "movie", "Movie"
+        NOT_MOVIE = "not_movie", "Not a movie"
+        UNKNOWN = "unknown", "Unknown"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title_lv = models.CharField(max_length=500)
-    title_eng = models.CharField(max_length=500)
+    title_eng = models.CharField(max_length=500, blank=True, null=True)
     description_lv = models.TextField(blank=True, null=True)
     description_eng = models.TextField(blank=True, null=True)
     # TODO: Consider adding index also for imdb_rating
@@ -51,6 +57,22 @@ class Program(models.Model):
     title_match_ratio = models.FloatField(default=0)
     description_match_ratio = models.FloatField(default=0)
     combined_match_ratio = models.FloatField(default=0)
+    content_type = models.CharField(
+        max_length=20,
+        choices=ContentType.choices,
+        default=ContentType.UNKNOWN,
+        db_index=True,
+    )
+    classification_confidence = models.FloatField(default=0.0)
+    classification_reasoning = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Which rule fired, e.g. title contains a seriāls keyword.",
+    )
+    tmdb_id = models.CharField(max_length=20, blank=True, null=True)
+    imdb_id = models.CharField(max_length=20, blank=True, null=True)
+    enrichment_source = models.CharField(max_length=20, blank=True, null=True)
 
     class Meta:
         indexes = [
