@@ -219,7 +219,7 @@
       <div class="feed-card">
         <img
           src="{{ program.image_url|default:'https://via.assets.so/img.jpg?w=400&h=300&bg=e5e7eb&f=png' }}"
-          alt="{{ program.title_eng }}"
+          alt="{{ program.title_eng|default:program.title_lv }}"
         />
         <div class="feed-content">
           <div class="feed-title">{{ program.title_lv }}</div>
