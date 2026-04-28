@@ -15,6 +15,7 @@ db_backups/*
 db.sqlite3
 blogs/config.yaml
 .vercel
+uv.lock
 
 # Terraform secrets
 terraform/terraform.tfvars
