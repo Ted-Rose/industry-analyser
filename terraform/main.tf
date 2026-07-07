@@ -80,7 +80,7 @@ resource "google_project_iam_member" "job_runtime_ar_reader" {
   member  = "serviceAccount:${google_service_account.job_runtime.email}"
 }
 
-# Fetcher portal config (Secret Manager; secrets created outside Terraform with gcloud)
+# Fetcher portal config (Secret Manager, secrets created outside Terraform with gcloud)
 resource "google_secret_manager_secret_iam_member" "fetcher_keywords_accessor" {
   project   = var.project_id
   secret_id = "industry-analyser-fetcher-keywords-list"
