@@ -101,17 +101,7 @@ class SsComScraper(BaseScraper):
             floor = floor_raw[0]
             max_floor = floor_raw[-1]
 
-            street_raw = cells[3]
-            parts = street_raw.split(' ')
-            if len(parts[0]) > 3:
-                street_name = parts[0]
-                street_no = parts[-1]
-            elif len(parts) > 2:
-                street_name = parts[0] + parts[1]
-                street_no = parts[-1]
-            else:
-                street_name = street_raw
-                street_no = ''
+            street_name, street_no = self._split_street(cells[3])
 
             ad_id = str(
                 str(row_id)
@@ -143,6 +133,13 @@ class SsComScraper(BaseScraper):
                 'alt_price': alt_price,
             })
         return results
+
+    def _split_street(self, street_raw):
+        street_raw = str(street_raw).strip()
+        parts = street_raw.split(' ')
+        if len(parts) > 1 and parts[-1][:1].isdigit():
+            return ' '.join(parts[:-1]), parts[-1]
+        return street_raw, ''
 
     def _clean_price(self, price_str) -> float:
         price_str = str(price_str).strip()
@@ -308,5 +305,22 @@ class SsComScraper(BaseScraper):
             result['contact_id'] = (
                 href.split('/')[-1].replace('.html', '')
             )
+
+        for label_td in soup.find_all('td', class_='ads_opt_name'):
+            if 'Street' not in label_td.text:
+                continue
+            value_td = label_td.find_next_sibling(
+                'td', class_='ads_opt'
+            )
+            if value_td:
+                bold = value_td.find('b')
+                street_text = (
+                    bold.get_text(strip=True) if bold
+                    else value_td.get_text(strip=True)
+                )
+                result['street_name'], result['street_no'] = (
+                    self._split_street(street_text)
+                )
+            break
 
         return result
