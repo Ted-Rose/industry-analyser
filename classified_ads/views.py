@@ -57,8 +57,24 @@ def region_config(request):
     if request.method == 'POST':
         checked_urls = set(request.POST.getlist('regions'))
         Region.objects.all().update(scrape_enabled=False)
+
         if checked_urls:
-            Region.objects.filter(url__in=checked_urls).update(scrape_enabled=True)
+            urls_to_enable = set(checked_urls)
+            parent_regions = Region.objects.filter(
+                url__in=checked_urls,
+                parent__isnull=True
+            ).prefetch_related('sub_regions')
+
+            for parent in parent_regions:
+                sub_region_urls = parent.sub_regions.values_list(
+                    'url',
+                    flat=True
+                )
+                urls_to_enable.update(sub_region_urls)
+
+            Region.objects.filter(url__in=urls_to_enable).update(
+                scrape_enabled=True
+            )
         return redirect('classified_ads:region_config')
 
     regions = (
