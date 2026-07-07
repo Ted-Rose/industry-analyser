@@ -1,6 +1,25 @@
 from django.db import models
 
 
+class Region(models.Model):
+    name = models.CharField(max_length=255)
+    url = models.URLField(max_length=500, unique=True)
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='sub_regions',
+    )
+    scrape_enabled = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class ClassifiedAd(models.Model):
     DEAL_RENT = 'RENT'
     DEAL_SELL = 'SELL'
@@ -15,6 +34,14 @@ class ClassifiedAd(models.Model):
     )
     comment = models.TextField(blank=True)
     link = models.URLField(max_length=500)
+    region = models.ForeignKey(
+        'Region',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='ads',
+    )
+    region_name = models.CharField(max_length=255, blank=True)
     district = models.CharField(max_length=255)
     street_name = models.CharField(max_length=255)
     street_no = models.CharField(max_length=50, blank=True)

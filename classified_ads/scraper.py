@@ -1,14 +1,14 @@
 import logging
 import re
 from datetime import datetime
-from typing import List, Dict
+from typing import List
 
 from django.utils import timezone
 
 from bs4 import BeautifulSoup
 
 from core_scraper.base import BaseScraper
-from .models import ClassifiedAd, ClassifiedAdSighting
+from .models import ClassifiedAd, ClassifiedAdSighting, Region
 
 logger = logging.getLogger('classified_ads')
 
@@ -20,45 +20,37 @@ DEAL_SUFFIXES = {
 
 class SsComScraper(BaseScraper):
 
-    DEFAULT_URL = 'https://www.ss.com/en/real-estate/flats/riga/'
-
-    def __init__(self, initial_url=None, max_pages=10):
+    def __init__(self, max_pages=10):
         super().__init__()
-        self.initial_url = initial_url or self.DEFAULT_URL
         self.max_pages = max_pages
         self.enrich_search_results = True
         self.validate_result = False
         self.excluded_resources = []
-        self._current_district = None
+        self._current_region = None
         self._current_deal_type = None
         self._seen_ad_ids = set()
 
     def get_search_urls(self):
-        districts = self._discover_districts(self.initial_url)
-        for district_name, district_url in districts.items():
+        regions = Region.objects.filter(scrape_enabled=True)
+        if not regions.exists():
+            logger.warning(
+                'No regions enabled for scraping. '
+                'Please configure regions via the admin interface.'
+            )
+            return
+
+        for region in regions:
+            self._current_region = region
             for suffix, deal_type in DEAL_SUFFIXES.items():
-                self._current_district = district_name
                 self._current_deal_type = deal_type
                 for page in range(1, self.max_pages + 1):
                     if page == 1:
-                        yield district_url + suffix
+                        yield region.url + suffix
                     else:
                         yield (
-                            district_url + suffix
+                            region.url + suffix
                             + 'page' + str(page) + '.html'
                         )
-
-    def _discover_districts(self, url) -> Dict[str, str]:
-        response = self.make_request(url)
-        soup = BeautifulSoup(response.data, 'html.parser')
-        districts = {}
-        for tag in soup.find_all('a', 'a_category'):
-            districts[tag.text] = (
-                'https://www.ss.com' + tag.get('href')
-            )
-        if not districts:
-            districts['default'] = url
-        return districts
 
     def parse_results(self, response) -> List[dict]:
         if response is None:
@@ -134,7 +126,8 @@ class SsComScraper(BaseScraper):
             results.append({
                 'ad_id': ad_id,
                 'deal_type': deal_type,
-                'district': self._current_district,
+                'district': self._current_region.name,
+                'region_name': self._current_region.name,
                 'link': link,
                 'comment': str(cells[2]),
                 'street_name': street_name,
@@ -213,6 +206,8 @@ class SsComScraper(BaseScraper):
             deal_type=enriched_result['deal_type'],
             comment=enriched_result.get('comment', ''),
             link=enriched_result['link'],
+            region=self._current_region,
+            region_name=enriched_result['region_name'],
             district=enriched_result['district'],
             street_name=enriched_result['street_name'],
             street_no=enriched_result.get('street_no', ''),

@@ -8,21 +8,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--url',
-            default=None,
-            help='Category URL to scrape (default: Riga flats)',
-        )
-        parser.add_argument(
             '--max-pages',
             type=int,
             default=10,
-            help='Max pages to scrape per district per deal type',
+            help='Max pages to scrape per region per deal type',
         )
 
     def handle(self, *args, **options):
         try:
             scraper = SsComScraper(
-                initial_url=options['url'],
                 max_pages=options['max_pages'],
             )
             scraper.run()
