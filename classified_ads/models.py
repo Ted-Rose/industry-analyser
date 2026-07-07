@@ -58,6 +58,8 @@ class ClassifiedAd(models.Model):
     floor = models.IntegerField()
     max_floor = models.IntegerField()
     project = models.CharField(max_length=255)
+    house_type = models.CharField(max_length=255, blank=True)
+    facilities = models.CharField(max_length=500, blank=True)
     post_date = models.DateTimeField(null=True)
     seller = models.ForeignKey(
         'Seller',

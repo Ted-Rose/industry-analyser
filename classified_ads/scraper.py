@@ -218,6 +218,8 @@ class SsComScraper(BaseScraper):
             floor=enriched_result['floor'],
             max_floor=enriched_result['max_floor'],
             project=enriched_result['project'],
+            house_type=enriched_result.get('house_type', ''),
+            facilities=enriched_result.get('facilities', ''),
             post_date=enriched_result.get('post_date'),
             seller=seller,
             price_per_sqm=enriched_result['price_per_sqm'],
@@ -237,7 +239,7 @@ class SsComScraper(BaseScraper):
                 'comment', 'link', 'price_per_sqm',
                 'alt_price_per_sqm', 'total_price',
                 'alt_price', 'post_date', 'last_seen',
-                'seller',
+                'seller', 'house_type', 'facilities',
             ],
         )
         logger.info(f"Saved {len(ads)} classified ads.")
@@ -330,4 +332,23 @@ class SsComScraper(BaseScraper):
                 )
             break
 
+        result['house_type'] = self._ads_opt_value(soup, 'House type:')
+        result['facilities'] = self._ads_opt_value(soup, 'Facilities:')
+
         return result
+
+    def _ads_opt_value(self, soup, label):
+        for label_td in soup.find_all('td', class_='ads_opt_name'):
+            if label_td.get_text(strip=True) != label:
+                continue
+            value_td = label_td.find_next_sibling(
+                'td', class_='ads_opt'
+            )
+            if not value_td:
+                return ''
+            bold = value_td.find('b')
+            target = bold if bold else value_td
+            return ''.join(
+                target.find_all(string=True, recursive=False)
+            ).strip()
+        return ''
