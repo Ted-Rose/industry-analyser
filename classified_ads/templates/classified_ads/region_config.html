@@ -132,6 +132,7 @@
                                 type="checkbox"
                                 name="regions"
                                 value="{{ region.url }}"
+                                class="parent-checkbox"
                                 {% if region.scrape_enabled %}checked{% endif %}
                             >
                             {{ region.name }}
@@ -147,6 +148,7 @@
                                                 type="checkbox"
                                                 name="regions"
                                                 value="{{ sub.url }}"
+                                                class="sub-checkbox"
                                                 {% if sub.scrape_enabled %}checked{% endif %}
                                             >
                                             {{ sub.name }}
@@ -168,5 +170,16 @@
             </div>
         </form>
     </div>
+
+    <script>
+        document.querySelectorAll('.parent-checkbox').forEach((parentCheckbox) => {
+            parentCheckbox.addEventListener('change', () => {
+                const subRegions = parentCheckbox.closest('.region-item').querySelectorAll('.sub-checkbox');
+                subRegions.forEach((subCheckbox) => {
+                    subCheckbox.checked = parentCheckbox.checked;
+                });
+            });
+        });
+    </script>
 </body>
 </html>
