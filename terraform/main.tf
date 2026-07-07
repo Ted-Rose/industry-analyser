@@ -35,6 +35,10 @@ resource "google_artifact_registry_repository" "dockerhub_cache" {
   }
 
   depends_on = [google_project_service.apis]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_artifact_registry_repository" "app_images" {
@@ -44,18 +48,30 @@ resource "google_artifact_registry_repository" "app_images" {
   format        = "DOCKER"
 
   depends_on = [google_project_service.apis]
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_service_account" "job_runtime" {
   account_id   = "industry-analyser-jobs"
   display_name = "Industry Analyser Cloud Run Jobs"
   project      = var.project_id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_service_account" "scheduler_invoker" {
   account_id   = "industry-analyser-scheduler"
   display_name = "Industry Analyser Cloud Scheduler (Run Job invoker)"
   project      = var.project_id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "google_project_iam_member" "job_runtime_ar_reader" {
@@ -167,6 +183,7 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
     ignore_changes = [
       template[0].template[0].containers[0].image,
     ]
+    prevent_destroy = true
   }
 }
 
@@ -233,6 +250,7 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
     ignore_changes = [
       template[0].template[0].containers[0].image,
     ]
+    prevent_destroy = true
   }
 }
 
@@ -299,6 +317,7 @@ resource "google_cloud_run_v2_job" "scrape_classified_ads" {
     ignore_changes = [
       template[0].template[0].containers[0].image,
     ]
+    prevent_destroy = true
   }
 }
 
