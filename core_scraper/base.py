@@ -32,6 +32,7 @@ class BaseScraper(abc.ABC):
         self.bulk_save = False
         self.ai_analysis = False
         self.default_domain = 'default'
+        self.last_search_had_results = True
 
         retry_strategy = Retry(
             total=3,
@@ -66,8 +67,10 @@ class BaseScraper(abc.ABC):
         search_response = self.make_request(search_url)
         parsed_results = self.parse_results(search_response)
 
+        self.last_search_had_results = bool(parsed_results)
+
         if not parsed_results:
-            logger.info("No results found for {search_url}")
+            logger.info(f"No results found for {search_url}")
             return
 
         pruned_results = self.remove_redundant_results(parsed_results)

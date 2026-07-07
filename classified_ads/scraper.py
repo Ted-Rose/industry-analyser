@@ -50,6 +50,8 @@ class SsComScraper(BaseScraper):
                             region.url + suffix
                             + 'page' + str(page) + '.html'
                         )
+                    if not self.last_search_had_results:
+                        break
 
     def parse_results(self, response) -> List[dict]:
         if response is None:
@@ -57,7 +59,8 @@ class SsComScraper(BaseScraper):
         soup = BeautifulSoup(response.data, 'html.parser')
         results = []
         for row in soup.find_all('tr'):
-            cells = [td.text for td in row.find_all('td')]
+            tds = row.find_all('td')
+            cells = [td.text for td in tds]
             if len(cells) != 10:
                 continue
             row_id = row.get('id')
@@ -100,7 +103,17 @@ class SsComScraper(BaseScraper):
             floor = floor_raw[0]
             max_floor = floor_raw[-1]
 
-            street_name, street_no = self._split_street(cells[3])
+            # The address cell stacks the village/town on its own line
+            # above the street, e.g. "Kadaga\nKadagas 9" - td.text merges
+            # those with no separator, so re-extract with a line break
+            # and only split the last line (the actual street).
+            address_lines = [
+                line.strip()
+                for line in tds[3].get_text('\n').split('\n')
+                if line.strip()
+            ]
+            street_source = address_lines[-1] if address_lines else ''
+            street_name, street_no = self._split_street(street_source)
 
             ad_id = str(
                 str(row_id)
@@ -312,8 +325,11 @@ class SsComScraper(BaseScraper):
                 href.split('/')[-1].replace('.html', '')
             )
 
+        # ss.com serves this page in whatever language the request's
+        # locale path uses (e.g. /lv/ -> "Iela:" instead of "Street:").
+        street_labels = ('Street:', 'Iela:')
         for label_td in soup.find_all('td', class_='ads_opt_name'):
-            if label_td.get_text(strip=True) != 'Street:':
+            if label_td.get_text(strip=True) not in street_labels:
                 continue
             value_td = label_td.find_next_sibling(
                 'td', class_='ads_opt'
