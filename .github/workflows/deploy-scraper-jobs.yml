@@ -25,7 +25,7 @@ env:
   REGION: europe-north1
 
 jobs:
-  terraform-apply:
+  provision-infrastructure:
     runs-on: ubuntu-latest
     if: contains(github.event.head_commit.modified, 'terraform/') || contains(github.event.head_commit.added, 'terraform/') || github.event_name == 'workflow_dispatch'
     steps:
@@ -81,8 +81,8 @@ jobs:
         run: terraform output
 
   build-and-push:
-    needs: [terraform-apply]
-    if: always() && (needs.terraform-apply.result == 'success' || needs.terraform-apply.result == 'skipped')
+    needs: [provision-infrastructure]
+    if: always() && (needs.provision-infrastructure.result == 'success' || needs.provision-infrastructure.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -111,8 +111,8 @@ jobs:
           docker push "${IMAGE}:${GITHUB_SHA}"
           docker push "${IMAGE}:latest"
 
-  deploy:
-    needs: [terraform-apply, build-and-push]
+  update-job-images:
+    needs: [provision-infrastructure, build-and-push]
     if: always() && needs.build-and-push.result == 'success'
     runs-on: ubuntu-latest
     env:
@@ -135,29 +135,32 @@ jobs:
           set -euo pipefail
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:${GITHUB_SHA}"
 
+          # Helper function to update job only if it exists
+          update_job_if_exists() {
+            local job_name=$1
+            shift
+            if gcloud run jobs describe "${job_name}" --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+              echo "Updating job: ${job_name}"
+              gcloud run jobs update "${job_name}" "$@" --region="${REGION}" --project="${PROJECT_ID}" --quiet
+            else
+              echo "Skipping ${job_name} (not created yet - will be created by Terraform)"
+            fi
+          }
+
           # Vacancy scraper: write config from Secret Manager env, then run management command
-          gcloud run jobs update scrape-vacancy \
+          update_job_if_exists scrape-vacancy \
             --image="${IMAGE}" \
             --command=python3 \
-            --args=scripts/materialize_fetcher_config_and_scrape.py \
-            --region="${REGION}" \
-            --project="${PROJECT_ID}" \
-            --quiet
+            --args=scripts/materialize_fetcher_config_and_scrape.py
 
           # TV scraper: standard Django entrypoint
-          gcloud run jobs update scrape-tv-programs \
+          update_job_if_exists scrape-tv-programs \
             --image="${IMAGE}" \
             --command=python \
-            --args=manage.py,scrape_tv_programs \
-            --region="${REGION}" \
-            --project="${PROJECT_ID}" \
-            --quiet
+            --args=manage.py,scrape_tv_programs
 
           # Classified ads scraper: standard Django entrypoint
-          gcloud run jobs update scrape-classified-ads \
+          update_job_if_exists scrape-classified-ads \
             --image="${IMAGE}" \
             --command=python \
-            --args=manage.py,scrape_classified_ads \
-            --region="${REGION}" \
-            --project="${PROJECT_ID}" \
-            --quiet
+            --args=manage.py,scrape_classified_ads
