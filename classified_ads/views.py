@@ -1,7 +1,12 @@
+from datetime import date, timedelta
+
 from django.core.paginator import Paginator
-from django.shortcuts import render, redirect
+from django.db.models import Avg, Count
+from django.shortcuts import get_object_or_404, render, redirect
 
 from .models import ClassifiedAd, Region
+
+STATS_DEFAULT_DAYS = 30
 
 
 def ads_table(request):
@@ -75,4 +80,79 @@ def region_config(request):
         'regions_tree': regions,
         'enabled_count': enabled_count,
         'total_count': total_count,
+    })
+
+
+def _parse_date_range(request):
+    default_from = date.today() - timedelta(days=STATS_DEFAULT_DAYS)
+    default_to = date.today()
+
+    date_from = request.GET.get('date_from', '').strip() or default_from.isoformat()
+    date_to = request.GET.get('date_to', '').strip() or default_to.isoformat()
+    return date_from, date_to
+
+
+def _region_and_descendant_ids(region):
+    ids = [region.id]
+    for child in region.sub_regions.all():
+        ids.extend(_region_and_descendant_ids(child))
+    return ids
+
+
+def _compute_region_stats(region, date_from, date_to):
+    region_ids = _region_and_descendant_ids(region)
+    ads_qs = ClassifiedAd.objects.filter(
+        region_id__in=region_ids,
+        first_seen__date__gte=date_from,
+        first_seen__date__lte=date_to,
+    ).annotate(sighting_count=Count('sightings', distinct=True))
+
+    stats = ads_qs.aggregate(
+        total_ads=Count('id', distinct=True),
+        avg_price_per_sqm=Avg('price_per_sqm'),
+        avg_size=Avg('size'),
+        avg_days_tracked=Avg('sighting_count'),
+    )
+    stats['region'] = region
+    return stats
+
+
+def region_stats(request):
+    date_from, date_to = _parse_date_range(request)
+
+    parent_regions = Region.objects.filter(parent__isnull=True).order_by('name')
+    selected_ids = set(request.GET.getlist('regions'))
+
+    results = None
+    if selected_ids:
+        selected_regions = parent_regions.filter(id__in=selected_ids)
+        results = [
+            _compute_region_stats(region, date_from, date_to)
+            for region in selected_regions
+        ]
+
+    return render(request, 'classified_ads/region_stats.html', {
+        'parent_regions': parent_regions,
+        'selected_ids': selected_ids,
+        'date_from': date_from,
+        'date_to': date_to,
+        'results': results,
+    })
+
+
+def region_stats_children(request, region_id):
+    parent_region = get_object_or_404(Region, pk=region_id, parent__isnull=True)
+    date_from, date_to = _parse_date_range(request)
+
+    children = parent_region.sub_regions.order_by('name')
+    results = [
+        _compute_region_stats(child, date_from, date_to)
+        for child in children
+    ]
+
+    return render(request, 'classified_ads/region_stats_children.html', {
+        'parent_region': parent_region,
+        'results': results,
+        'date_from': date_from,
+        'date_to': date_to,
     })
