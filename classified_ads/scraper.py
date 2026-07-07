@@ -267,7 +267,11 @@ class SsComScraper(BaseScraper):
         }
         if response is None:
             return result
-        soup = BeautifulSoup(response.data, 'html.parser')
+        # lxml recovers from the unclosed <td>/<tr> tags on this page's
+        # attribute table far more reliably than html.parser, which was
+        # letting later rows' text bleed into earlier ones (e.g. the
+        # Street value ending up prefixed with the Township value).
+        soup = BeautifulSoup(response.data, 'lxml')
 
         msg_div = soup.find('div', id='msg_div_msg')
         if msg_div:
@@ -307,17 +311,20 @@ class SsComScraper(BaseScraper):
             )
 
         for label_td in soup.find_all('td', class_='ads_opt_name'):
-            if 'Street' not in label_td.text:
+            if label_td.get_text(strip=True) != 'Street:':
                 continue
             value_td = label_td.find_next_sibling(
                 'td', class_='ads_opt'
             )
             if value_td:
                 bold = value_td.find('b')
-                street_text = (
-                    bold.get_text(strip=True) if bold
-                    else value_td.get_text(strip=True)
-                )
+                target = bold if bold else value_td
+                # Only the tag's own text, not text pulled in from
+                # nested/mis-nested tags (e.g. the "[Map]" link, or
+                # content from adjacent rows on malformed pages).
+                street_text = ''.join(
+                    target.find_all(string=True, recursive=False)
+                ).strip()
                 result['street_name'], result['street_no'] = (
                     self._split_street(street_text)
                 )
