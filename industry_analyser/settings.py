@@ -111,6 +111,7 @@ INSTALLED_APPS = [
     'accounts',
     'tv_programs',
     'blogs',
+    'classified_ads',
 ]
 
 MIDDLEWARE = [
@@ -300,6 +301,11 @@ LOGGING = {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,
-        }
+        },
+        'classified_ads': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
     },
 }
