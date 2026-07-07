@@ -58,7 +58,7 @@ class Command(BaseCommand):
         for link in top_level_links:
             name = link.text.strip()
             relative_href = link.get('href', '')
-            if '/all/' in relative_href:
+            if not name or not relative_href or '/all/' in relative_href:
                 continue
 
             full_url = urljoin('https://www.ss.com', relative_href)
@@ -80,7 +80,7 @@ class Command(BaseCommand):
                 for sub_link in sub_links:
                     sub_name = sub_link.text.strip()
                     sub_relative_href = sub_link.get('href', '')
-                    if '/all/' in sub_relative_href:
+                    if not sub_name or not sub_relative_href or '/all/' in sub_relative_href:
                         continue
 
                     sub_full_url = urljoin('https://www.ss.com', sub_relative_href)

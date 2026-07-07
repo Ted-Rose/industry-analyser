@@ -8,7 +8,7 @@ from django.utils import timezone
 from bs4 import BeautifulSoup
 
 from core_scraper.base import BaseScraper
-from .models import ClassifiedAd, ClassifiedAdSighting, Region
+from .models import ClassifiedAd, ClassifiedAdSighting, Region, Seller
 
 logger = logging.getLogger('classified_ads')
 
@@ -201,6 +201,13 @@ class SsComScraper(BaseScraper):
         return partial_result['link']
 
     def initiate_resource(self, enriched_result):
+        phone = enriched_result.get('phone', '')
+        contact_id = enriched_result.get('contact_id', '')
+        seller = None
+        if phone or contact_id:
+            seller, _ = Seller.objects.get_or_create(
+                phone=phone, contact_id=contact_id
+            )
         return ClassifiedAd(
             ad_id=enriched_result['ad_id'],
             deal_type=enriched_result['deal_type'],
@@ -217,8 +224,7 @@ class SsComScraper(BaseScraper):
             max_floor=enriched_result['max_floor'],
             project=enriched_result['project'],
             post_date=enriched_result.get('post_date'),
-            phone=enriched_result.get('phone', ''),
-            contact_id=enriched_result.get('contact_id', ''),
+            seller=seller,
             price_per_sqm=enriched_result['price_per_sqm'],
             alt_price_per_sqm=enriched_result['alt_price_per_sqm'],
             total_price=enriched_result['total_price'],
@@ -259,7 +265,7 @@ class SsComScraper(BaseScraper):
                 'comment', 'link', 'price_per_sqm',
                 'alt_price_per_sqm', 'total_price',
                 'alt_price', 'post_date', 'last_seen',
-                'phone', 'contact_id',
+                'seller',
             ],
         )
         logger.info(f"Saved {len(ads)} classified ads.")

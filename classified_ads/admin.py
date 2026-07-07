@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ClassifiedAd, ClassifiedAdSighting, Region
+from .models import ClassifiedAd, ClassifiedAdSighting, Region, Seller
 
 
 class ClassifiedAdSightingInline(admin.TabularInline):
@@ -16,10 +16,12 @@ class ClassifiedAdAdmin(admin.ModelAdmin):
     list_display = [
         'region_name', 'district', 'deal_type', 'rooms', 'size',
         'floor', 'project', 'total_price', 'post_date',
-        'phone', 'days_active',
+        'seller', 'days_active',
     ]
     list_filter = ['deal_type', 'region', 'district', 'project']
-    search_fields = ['district', 'street_name', 'project', 'phone']
+    search_fields = [
+        'district', 'street_name', 'project', 'seller__phone',
+    ]
     ordering = ['-post_date']
     readonly_fields = ['first_seen', 'last_seen', 'days_active']
     inlines = [ClassifiedAdSightingInline]
@@ -42,3 +44,9 @@ class ClassifiedAdSightingAdmin(admin.ModelAdmin):
     list_display = ['ad', 'seen_on']
     list_filter = ['seen_on']
     ordering = ['-seen_on']
+
+
+@admin.register(Seller)
+class SellerAdmin(admin.ModelAdmin):
+    list_display = ['phone', 'contact_id']
+    search_fields = ['phone', 'contact_id']

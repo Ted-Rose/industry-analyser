@@ -20,6 +20,14 @@ class Region(models.Model):
         return self.name
 
 
+class Seller(models.Model):
+    phone = models.CharField(max_length=50, blank=True)
+    contact_id = models.CharField(max_length=500, blank=True)
+
+    def __str__(self):
+        return self.phone or self.contact_id
+
+
 class ClassifiedAd(models.Model):
     DEAL_RENT = 'RENT'
     DEAL_SELL = 'SELL'
@@ -51,8 +59,13 @@ class ClassifiedAd(models.Model):
     max_floor = models.IntegerField()
     project = models.CharField(max_length=255)
     post_date = models.DateTimeField(null=True)
-    phone = models.CharField(max_length=50, blank=True)
-    contact_id = models.CharField(max_length=500, blank=True)
+    seller = models.ForeignKey(
+        'Seller',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='ads',
+    )
     price_per_sqm = models.FloatField()
     alt_price_per_sqm = models.FloatField()
     total_price = models.FloatField()
