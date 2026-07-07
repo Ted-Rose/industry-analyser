@@ -1,5 +1,5 @@
 import time
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 
 import requests
 import urllib3
@@ -10,6 +10,8 @@ from classified_ads.models import Region
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+BASE_LV = '/lv/real-estate/flats/'
+
 
 class Command(BaseCommand):
     help = 'Fetch regions from ss.com and sync to DB'
@@ -18,29 +20,44 @@ class Command(BaseCommand):
         all_regions = self._fetch_all_regions()
         self.stdout.write(f'Fetched {len(all_regions)} regions from ss.com')
 
+        top_level = [r for r in all_regions if not r['parent_url']]
+        sub_regions = [r for r in all_regions if r['parent_url']]
+
         created = updated = 0
-        for region_data in all_regions:
-            parent_obj = None
-            if region_data['parent_url']:
-                parent_obj, _ = Region.objects.get_or_create(
-                    url=region_data['parent_url'],
-                    defaults={
-                        'name': region_data['parent_name'],
-                        'scrape_enabled': True,
-                    },
+        parent_map = {}  # en_url -> Region instance
+
+        for rd in top_level:
+            region, is_created = Region.objects.get_or_create(
+                url=rd['url'],
+                defaults={'name': rd['name'], 'scrape_enabled': True},
+            )
+            if not is_created:
+                region.name = rd['name']
+                region.save(update_fields=['name'])
+                updated += 1
+            else:
+                created += 1
+            parent_map[rd['url']] = region
+
+        for rd in sub_regions:
+            parent = parent_map.get(rd['parent_url'])
+            if parent is None:
+                self.stderr.write(
+                    f"No parent found for {rd['url']} — skipping"
                 )
+                continue
 
             region, is_created = Region.objects.get_or_create(
-                url=region_data['url'],
+                url=rd['url'],
                 defaults={
-                    'name': region_data['name'],
-                    'parent': parent_obj,
+                    'name': rd['name'],
+                    'parent': parent,
                     'scrape_enabled': True,
                 },
             )
             if not is_created:
-                region.name = region_data['name']
-                region.parent = parent_obj
+                region.name = rd['name']
+                region.parent = parent
                 region.save(update_fields=['name', 'parent_id'])
                 updated += 1
             else:
@@ -51,86 +68,82 @@ class Command(BaseCommand):
         ))
 
     def _fetch_all_regions(self):
-        base_url = 'https://www.ss.com/lv/real-estate/flats/'
-        response = requests.get(base_url, timeout=10, verify=False)
+        base_url = f'https://www.ss.com{BASE_LV}'
+        response = requests.get(base_url, timeout=30, verify=False)
         soup = BeautifulSoup(response.content, 'html.parser')
 
         all_regions = []
-        top_level_links = soup.find_all('a', class_='a_category')
 
-        for link in top_level_links:
-            name = link.text.strip()
-            relative_href = link.get('href', '')
-            if not name or not relative_href or '/all/' in relative_href:
+        for link in self._find_direct_children(soup, BASE_LV):
+            href = link.get('href', '')
+            name = self._link_name(link, href)
+            if not name:
                 continue
 
-            full_url = urljoin('https://www.ss.com', relative_href)
+            full_url = urljoin('https://www.ss.com', href)
             en_url = full_url.replace('/lv/', '/en/')
 
+            # Always add the top-level region itself
+            all_regions.append({
+                'name': name,
+                'url': en_url,
+                'parent_url': None,
+                'parent_name': None,
+            })
+
             time.sleep(0.3)
-            sub_response = requests.get(full_url, timeout=10, verify=False)
-            sub_soup = BeautifulSoup(sub_response.content, 'html.parser')
-            sub_links = sub_soup.find_all('a', class_='a_category')
+            sub_resp = requests.get(full_url, timeout=30, verify=False)
+            sub_soup = BeautifulSoup(sub_resp.content, 'html.parser')
 
-            if not sub_links:
+            for sub_link in self._find_direct_children(sub_soup, href):
+                sub_href = sub_link.get('href', '')
+                sub_name = self._link_name(sub_link, sub_href)
+                if not sub_name:
+                    continue
+
+                sub_full = urljoin('https://www.ss.com', sub_href)
+                sub_en_url = sub_full.replace('/lv/', '/en/')
+
                 all_regions.append({
-                    'name': name,
-                    'url': en_url,
-                    'parent_url': None,
-                    'parent_name': None,
+                    'name': sub_name,
+                    'url': sub_en_url,
+                    'parent_url': en_url,
+                    'parent_name': name,
                 })
-            else:
-                for sub_link in sub_links:
-                    sub_relative_href = sub_link.get('href', '')
-                    if not sub_relative_href or '/all/' in sub_relative_href:
-                        continue
-
-                    sub_name = self._extract_name(sub_link, sub_relative_href)
-                    if not sub_name:
-                        continue
-
-                    sub_full_url = urljoin(
-                        'https://www.ss.com', sub_relative_href
-                    )
-                    sub_en_url = sub_full_url.replace('/lv/', '/en/')
-
-                    all_regions.append({
-                        'name': sub_name,
-                        'url': sub_en_url,
-                        'parent_url': en_url,
-                        'parent_name': name,
-                    })
 
         return all_regions
 
     @staticmethod
-    def _extract_name(link, href=''):
-        """
-        On ss.com sub-pages the <a class="a_category"> element is a visual
-        arrow with no text; the region name sits in a sibling <b> or <td>.
-        Falls back to deriving a name from the URL slug.
-        """
+    def _find_direct_children(soup, parent_path):
+        """Return <a> tags linking exactly one path level below parent_path."""
+        if not parent_path.endswith('/'):
+            parent_path += '/'
+        seen = set()
+        results = []
+        for a in soup.find_all('a', href=True):
+            href = a.get('href', '').split('?')[0].split('#')[0]
+            if not href.startswith(parent_path):
+                continue
+            suffix = href[len(parent_path):].strip('/')
+            if not suffix or '/' in suffix or suffix == 'all':
+                continue
+            if href in seen:
+                continue
+            seen.add(href)
+            results.append(a)
+        return results
+
+    @staticmethod
+    def _link_name(link, href=''):
+        """Extract display name: title attr → link text → URL slug fallback."""
+        title = link.get('title', '')
+        if title:
+            return title.split(',')[0].strip()
         name = link.get_text(strip=True)
         if name:
             return name
-
-        row = link.find_parent('tr')
-        if row:
-            b_tag = row.find('b')
-            if b_tag:
-                name = b_tag.get_text(strip=True)
-                if name:
-                    return name
-
-            for td in row.find_all('td'):
-                name = td.get_text(strip=True)
-                if name:
-                    return name
-
         if href:
-            segments = [s for s in urlparse(href).path.split('/') if s]
-            if segments:
-                slug = segments[-1]
+            slug = href.rstrip('/').split('/')[-1]
+            if slug:
                 return slug.replace('-', ' ').title()
-
         return ''
