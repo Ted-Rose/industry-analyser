@@ -68,7 +68,7 @@ class SsComScraper(BaseScraper):
             for a_tag in row.find_all('a'):
                 href = a_tag.get('href', '')
                 if href:
-                    link = 'https://www.ss.com/' + href
+                    link = 'https://www.ss.com' + href
                     break
 
             sqm_price = self._clean_price(cells[8])
