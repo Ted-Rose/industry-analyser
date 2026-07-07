@@ -12,7 +12,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class Command(BaseCommand):
-    help = 'Fetch regions from ss.com and sync to DB; new regions are enabled by default'
+    help = 'Fetch regions from ss.com and sync to DB; new regions enabled by default'
 
     def handle(self, *args, **options):
         all_regions = self._fetch_all_regions()
@@ -78,12 +78,17 @@ class Command(BaseCommand):
                 })
             else:
                 for sub_link in sub_links:
-                    sub_name = sub_link.text.strip()
                     sub_relative_href = sub_link.get('href', '')
-                    if not sub_name or not sub_relative_href or '/all/' in sub_relative_href:
+                    if not sub_relative_href or '/all/' in sub_relative_href:
                         continue
 
-                    sub_full_url = urljoin('https://www.ss.com', sub_relative_href)
+                    sub_name = self._extract_name(sub_link)
+                    if not sub_name:
+                        continue
+
+                    sub_full_url = urljoin(
+                        'https://www.ss.com', sub_relative_href
+                    )
                     sub_en_url = sub_full_url.replace('/lv/', '/en/')
 
                     all_regions.append({
@@ -94,3 +99,30 @@ class Command(BaseCommand):
                     })
 
         return all_regions
+
+    @staticmethod
+    def _extract_name(link):
+        """
+        On ss.com sub-pages the <a class="a_category"> element is a visual
+        arrow with no text; the region name sits in a sibling <b> or <td>.
+        Try progressively wider scopes until we find something.
+        """
+        name = link.get_text(strip=True)
+        if name:
+            return name
+
+        row = link.find_parent('tr')
+        if row:
+            b_tag = row.find('b')
+            if b_tag:
+                name = b_tag.get_text(strip=True)
+                if name:
+                    return name
+
+            tds = row.find_all('td')
+            for td in tds:
+                name = td.get_text(strip=True)
+                if name:
+                    return name
+
+        return ''
