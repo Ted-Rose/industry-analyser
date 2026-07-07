@@ -236,6 +236,72 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
   }
 }
 
+resource "google_cloud_run_v2_job" "scrape_classified_ads" {
+  name     = "scrape-classified-ads"
+  location = var.region
+
+  template {
+    task_count = 1
+    template {
+      timeout         = "10800s"
+      max_retries     = 0
+      service_account = google_service_account.job_runtime.email
+
+      containers {
+        image   = local.job_image
+        command = ["python", "manage.py", "scrape_classified_ads"]
+
+        env {
+          name  = "DEBUG"
+          value = "False"
+        }
+        env {
+          name  = "SECRET_KEY"
+          value = var.secret_key
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = var.database_url
+        }
+        env {
+          name  = "BASE_URL"
+          value = var.base_url
+        }
+        env {
+          name  = "DB_SSL_CERT"
+          value = var.db_ssl_cert
+        }
+        env {
+          name  = "HARD_CODED_PASSWORD"
+          value = var.hard_coded_password
+        }
+        env {
+          name  = "GEMINI_API_KEY"
+          value = var.gemini_api_key
+        }
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_artifact_registry_repository.dockerhub_cache,
+    google_project_service.apis,
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+    ]
+  }
+}
+
 resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_vacancy" {
   project  = var.project_id
   location = var.region
@@ -248,6 +314,14 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_tv" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.scrape_tv_programs.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_classified_ads" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.scrape_classified_ads.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
@@ -296,6 +370,30 @@ resource "google_cloud_scheduler_job" "trigger_scrape_tv_programs" {
 
   depends_on = [
     google_cloud_run_v2_job.scrape_tv_programs,
+    google_project_service.apis,
+  ]
+}
+
+resource "google_cloud_scheduler_job" "trigger_scrape_classified_ads" {
+  name             = "trigger-scrape-classified-ads"
+  description      = "Run scrape-classified-ads job daily (04:00 UTC)"
+  schedule         = "0 4 * * *"
+  time_zone        = "Etc/UTC"
+  region           = var.scheduler_region
+  attempt_deadline = "600s"
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scrape_classified_ads.name}:run"
+    body        = base64encode("{}")
+
+    oauth_token {
+      service_account_email = google_service_account.scheduler_invoker.email
+    }
+  }
+
+  depends_on = [
+    google_cloud_run_v2_job.scrape_classified_ads,
     google_project_service.apis,
   ]
 }
