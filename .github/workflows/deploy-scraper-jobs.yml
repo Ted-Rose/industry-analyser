@@ -163,3 +163,9 @@ jobs:
             --image="${IMAGE}" \
             --command=python \
             --args=manage.py,scrape_classified_ads
+
+          # Region sync: fetches ss.com region list and upserts into DB
+          update_job_if_exists sync-regions \
+            --image="${IMAGE}" \
+            --command=python \
+            --args=manage.py,sync_regions

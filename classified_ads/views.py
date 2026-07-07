@@ -1,15 +1,7 @@
-import time
-from urllib.parse import urljoin
-
-import requests
-import urllib3
-from bs4 import BeautifulSoup
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect
 
 from .models import ClassifiedAd, Region
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def ads_table(request):
@@ -64,104 +56,22 @@ def ads_table(request):
 def region_config(request):
     if request.method == 'POST':
         checked_urls = set(request.POST.getlist('regions'))
-        all_regions = _fetch_all_regions()
-
-        for region_data in all_regions:
-            parent_obj = None
-            if region_data['parent_url']:
-                parent_obj, _ = Region.objects.get_or_create(
-                    url=region_data['parent_url'],
-                    defaults={'name': region_data['parent_name']},
-                )
-
-            Region.objects.update_or_create(
-                url=region_data['url'],
-                defaults={
-                    'name': region_data['name'],
-                    'parent': parent_obj,
-                    'scrape_enabled': region_data['url'] in checked_urls,
-                },
-            )
-
+        Region.objects.all().update(scrape_enabled=False)
+        if checked_urls:
+            Region.objects.filter(url__in=checked_urls).update(scrape_enabled=True)
         return redirect('classified_ads:region_config')
 
-    all_regions = _fetch_all_regions()
-    existing_regions = {
-        r.url: r for r in Region.objects.all()
-    }
-
-    for region_data in all_regions:
-        if region_data['url'] in existing_regions:
-            region_data['enabled'] = (
-                existing_regions[region_data['url']].scrape_enabled
-            )
-        else:
-            region_data['enabled'] = False
-
-    top_level = [r for r in all_regions if not r['parent_url']]
-    sub_regions_map = {}
-    for r in all_regions:
-        if r['parent_url']:
-            if r['parent_url'] not in sub_regions_map:
-                sub_regions_map[r['parent_url']] = []
-            sub_regions_map[r['parent_url']].append(r)
-
-    for region in top_level:
-        region['sub_regions'] = sub_regions_map.get(region['url'], [])
-
-    enabled_count = sum(1 for r in all_regions if r['enabled'])
+    regions = (
+        Region.objects
+        .filter(parent__isnull=True)
+        .prefetch_related('sub_regions')
+        .order_by('name')
+    )
+    total_count = Region.objects.count()
+    enabled_count = Region.objects.filter(scrape_enabled=True).count()
 
     return render(request, 'classified_ads/region_config.html', {
-        'regions_tree': top_level,
+        'regions_tree': regions,
         'enabled_count': enabled_count,
-        'total_count': len(all_regions),
+        'total_count': total_count,
     })
-
-
-def _fetch_all_regions():
-    base_url = 'https://www.ss.com/lv/real-estate/flats/'
-    response = requests.get(base_url, timeout=10, verify=False)
-    soup = BeautifulSoup(response.content, 'html.parser')
-
-    all_regions = []
-    top_level_links = soup.find_all('a', class_='a_category')
-
-    for link in top_level_links:
-        name = link.text.strip()
-        relative_href = link.get('href', '')
-        if '/all/' in relative_href:
-            continue
-
-        full_url = urljoin('https://www.ss.com', relative_href)
-        en_url = full_url.replace('/lv/', '/en/')
-
-        time.sleep(0.3)
-        sub_response = requests.get(full_url, timeout=10, verify=False)
-        sub_soup = BeautifulSoup(sub_response.content, 'html.parser')
-        sub_links = sub_soup.find_all('a', class_='a_category')
-
-        if not sub_links:
-            all_regions.append({
-                'name': name,
-                'url': en_url,
-                'parent_url': None,
-                'parent_name': None,
-            })
-        else:
-            for sub_link in sub_links:
-                sub_name = sub_link.text.strip()
-                sub_relative_href = sub_link.get('href', '')
-                if '/all/' in sub_relative_href:
-                    continue
-
-                sub_full_url = urljoin('https://www.ss.com', sub_relative_href)
-                sub_en_url = sub_full_url.replace('/lv/', '/en/')
-
-                all_regions.append({
-                    'name': sub_name,
-                    'url': sub_en_url,
-                    'parent_url': en_url,
-                    'parent_name': name,
-                })
-
-    return all_regions

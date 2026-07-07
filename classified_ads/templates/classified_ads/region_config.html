@@ -115,7 +115,7 @@
         <a href="{% url 'classified_ads:ads_table' %}" class="back-link">← Back to Ads</a>
         
         <h1>Region Configuration</h1>
-        <p class="subtitle">Select which regions to scrape from SS.com</p>
+        <p class="subtitle">Select which regions to scrape from SS.com. Run the <strong>sync-regions</strong> Cloud Run job to refresh this list from SS.com.</p>
         
         <div class="stats">
             <strong>{{ enabled_count }}</strong> of <strong>{{ total_count }}</strong> regions enabled for scraping
@@ -128,25 +128,26 @@
                 {% for region in regions_tree %}
                     <div class="region-item">
                         <label class="parent-region">
-                            <input 
-                                type="checkbox" 
-                                name="regions" 
+                            <input
+                                type="checkbox"
+                                name="regions"
                                 value="{{ region.url }}"
-                                {% if region.enabled %}checked{% endif %}
+                                {% if region.scrape_enabled %}checked{% endif %}
                             >
                             {{ region.name }}
                         </label>
-                        
-                        {% if region.sub_regions %}
+
+                        {% with subs=region.sub_regions.all %}
+                        {% if subs %}
                             <div class="sub-regions">
-                                {% for sub in region.sub_regions %}
+                                {% for sub in subs %}
                                     <div class="region-item">
                                         <label class="sub-region">
-                                            <input 
-                                                type="checkbox" 
-                                                name="regions" 
+                                            <input
+                                                type="checkbox"
+                                                name="regions"
                                                 value="{{ sub.url }}"
-                                                {% if sub.enabled %}checked{% endif %}
+                                                {% if sub.scrape_enabled %}checked{% endif %}
                                             >
                                             {{ sub.name }}
                                         </label>
@@ -154,7 +155,10 @@
                                 {% endfor %}
                             </div>
                         {% endif %}
+                        {% endwith %}
                     </div>
+                {% empty %}
+                    <p style="color: #666;">No regions in database yet. Run the <strong>sync-regions</strong> Cloud Run job to populate.</p>
                 {% endfor %}
             </div>
 
