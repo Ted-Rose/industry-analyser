@@ -9,6 +9,10 @@ from .models import ClassifiedAd, Region
 STATS_DEFAULT_DAYS = 30
 
 
+def index(request):
+    return render(request, 'classified_ads/index.html')
+
+
 def ads_table(request):
     qs = ClassifiedAd.objects.all().order_by('-post_date')
 

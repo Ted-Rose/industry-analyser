@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classified Ads - SS.com Scraper</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 700px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .nav-list {
+            list-style: none;
+            padding: 0;
+            margin: 0 0 30px;
+        }
+        .nav-list li {
+            margin-bottom: 10px;
+        }
+        .nav-list a {
+            display: block;
+            padding: 14px 16px;
+            border-radius: 4px;
+            background: #f8f9fa;
+            color: #0066cc;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .nav-list a:hover {
+            background: #e9f3ff;
+        }
+        .actions {
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            background: #e0e0e0;
+            color: #333;
+        }
+        button:hover {
+            background: #d0d0d0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Classified Ads</h1>
+        <p class="subtitle">SS.com scraper - browse ads and manage regions.</p>
+
+        <ul class="nav-list">
+            <li><a href="{% url 'classified_ads:ads_table' %}">Ads Table</a></li>
+            <li><a href="{% url 'classified_ads:region_config' %}">Region Configuration</a></li>
+            <li><a href="{% url 'classified_ads:region_stats' %}">Region Stats</a></li>
+        </ul>
+
+        <div class="actions">
+            <button type="button" onclick="window.location.href='/'">← Back to Home</button>
+        </div>
+    </div>
+</body>
+</html>

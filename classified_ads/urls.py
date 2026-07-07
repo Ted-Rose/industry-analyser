@@ -5,7 +5,8 @@ from . import views
 app_name = 'classified_ads'
 
 urlpatterns = [
-    path('', views.ads_table, name='ads_table'),
+    path('', views.index, name='index'),
+    path('ads/', views.ads_table, name='ads_table'),
     path('regions/', views.region_config, name='region_config'),
     path('regions/stats/', views.region_stats, name='region_stats'),
     path(
