@@ -1,5 +1,5 @@
 import time
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 import requests
 import urllib3
@@ -12,7 +12,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class Command(BaseCommand):
-    help = 'Fetch regions from ss.com and sync to DB; new regions enabled by default'
+    help = 'Fetch regions from ss.com and sync to DB'
 
     def handle(self, *args, **options):
         all_regions = self._fetch_all_regions()
@@ -30,18 +30,21 @@ class Command(BaseCommand):
                     },
                 )
 
-            _, is_created = Region.objects.update_or_create(
+            region, is_created = Region.objects.get_or_create(
                 url=region_data['url'],
                 defaults={
                     'name': region_data['name'],
                     'parent': parent_obj,
+                    'scrape_enabled': True,
                 },
-                create_defaults={'scrape_enabled': True},
             )
-            if is_created:
-                created += 1
-            else:
+            if not is_created:
+                region.name = region_data['name']
+                region.parent = parent_obj
+                region.save(update_fields=['name', 'parent_id'])
                 updated += 1
+            else:
+                created += 1
 
         self.stdout.write(self.style.SUCCESS(
             f'Done: {created} created, {updated} updated'
@@ -82,7 +85,7 @@ class Command(BaseCommand):
                     if not sub_relative_href or '/all/' in sub_relative_href:
                         continue
 
-                    sub_name = self._extract_name(sub_link)
+                    sub_name = self._extract_name(sub_link, sub_relative_href)
                     if not sub_name:
                         continue
 
@@ -101,11 +104,11 @@ class Command(BaseCommand):
         return all_regions
 
     @staticmethod
-    def _extract_name(link):
+    def _extract_name(link, href=''):
         """
         On ss.com sub-pages the <a class="a_category"> element is a visual
         arrow with no text; the region name sits in a sibling <b> or <td>.
-        Try progressively wider scopes until we find something.
+        Falls back to deriving a name from the URL slug.
         """
         name = link.get_text(strip=True)
         if name:
@@ -119,10 +122,15 @@ class Command(BaseCommand):
                 if name:
                     return name
 
-            tds = row.find_all('td')
-            for td in tds:
+            for td in row.find_all('td'):
                 name = td.get_text(strip=True)
                 if name:
                     return name
+
+        if href:
+            segments = [s for s in urlparse(href).path.split('/') if s]
+            if segments:
+                slug = segments[-1]
+                return slug.replace('-', ' ').title()
 
         return ''
