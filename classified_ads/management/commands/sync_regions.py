@@ -29,7 +29,7 @@ class Command(BaseCommand):
         for rd in top_level:
             region, is_created = Region.objects.get_or_create(
                 url=rd['url'],
-                defaults={'name': rd['name'], 'scrape_enabled': True},
+                defaults={'name': rd['name'], 'scrape_enabled': False},
             )
             if not is_created:
                 region.name = rd['name']
@@ -115,12 +115,17 @@ class Command(BaseCommand):
 
     @staticmethod
     def _find_direct_children(soup, parent_path):
-        """Return <a> tags linking exactly one path level below parent_path."""
+        """Return <a class="a_category"> tags linking exactly one path level below parent_path.
+
+        ss.com region listings use class="a_category" for region links; other
+        one-level-deep links on the same page (e.g. /search/, /new/) don't carry
+        this class and must be excluded.
+        """
         if not parent_path.endswith('/'):
             parent_path += '/'
         seen = set()
         results = []
-        for a in soup.find_all('a', href=True):
+        for a in soup.find_all('a', class_='a_category', href=True):
             href = a.get('href', '').split('?')[0].split('#')[0]
             if not href.startswith(parent_path):
                 continue
