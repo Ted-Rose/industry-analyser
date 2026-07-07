@@ -27,4 +27,8 @@ urlpatterns = [
     path('accounts/', accounts.accounts, name='accounts'),
     path('add_keyword/', fetcher.add_keyword, name='add_keyword'),
     path('tv/', include('tv_programs.urls', namespace='tv_programs')),
+    path(
+        'classified-ads/',
+        include('classified_ads.urls', namespace='classified_ads'),
+    ),
 ]

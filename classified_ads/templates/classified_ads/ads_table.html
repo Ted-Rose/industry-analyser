@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classified Ads</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <style>
+        body { background-color: #f8f9fa; }
+        .filter-card {
+            border: none;
+            box-shadow: 0 1px 4px rgba(0,0,0,.1);
+        }
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+            border-color: #454d55;
+            white-space: nowrap;
+        }
+        .table-hover tbody tr:hover { background-color: #e9f3ff; }
+        .badge-rent { background-color: #17a2b8; }
+        .badge-sell { background-color: #28a745; }
+        .ad-link { font-size: .85rem; }
+        .filter-label { font-weight: 600; font-size: .85rem; }
+        .result-count { font-size: .9rem; color: #6c757d; }
+    </style>
+</head>
+<body>
+<div class="container-fluid py-4">
+    <div class="d-flex align-items-center mb-3">
+        <h2 class="mb-0 mr-3">Classified Ads</h2>
+        <span class="result-count">{{ total_count }} result{{ total_count|pluralize }}</span>
+    </div>
+
+    <!-- Filters -->
+    <div class="card filter-card mb-4">
+        <div class="card-body">
+            <form method="GET" action="">
+                <div class="form-row align-items-end">
+
+                    <div class="form-group col-md-2 mb-2">
+                        <label class="filter-label" for="id_deal_type">Deal type</label>
+                        <select name="deal_type" id="id_deal_type" class="form-control form-control-sm">
+                            <option value="">All</option>
+                            {% for value, label in deal_type_choices %}
+                                <option value="{{ value }}"
+                                    {% if selected_deal_type == value %}selected{% endif %}>
+                                    {{ label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group col-md-3 mb-2">
+                        <label class="filter-label" for="id_district">District</label>
+                        <select name="district" id="id_district" class="form-control form-control-sm">
+                            <option value="">All districts</option>
+                            {% for d in districts %}
+                                <option value="{{ d }}"
+                                    {% if selected_district == d %}selected{% endif %}>
+                                    {{ d }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group col-md-2 mb-2">
+                        <label class="filter-label" for="id_rooms">Rooms</label>
+                        <select name="rooms" id="id_rooms" class="form-control form-control-sm">
+                            <option value="">Any</option>
+                            {% for r in room_choices %}
+                                <option value="{{ r }}"
+                                    {% if selected_rooms == r|stringformat:"s" %}selected{% endif %}>
+                                    {{ r }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group col-md-2 mb-2">
+                        <label class="filter-label" for="id_price_min">€/m² min</label>
+                        <input type="number" name="price_min" id="id_price_min"
+                               class="form-control form-control-sm"
+                               placeholder="e.g. 500"
+                               value="{{ selected_price_min }}">
+                    </div>
+
+                    <div class="form-group col-md-2 mb-2">
+                        <label class="filter-label" for="id_price_max">€/m² max</label>
+                        <input type="number" name="price_max" id="id_price_max"
+                               class="form-control form-control-sm"
+                               placeholder="e.g. 2000"
+                               value="{{ selected_price_max }}">
+                    </div>
+
+                    <div class="form-group col-md-1 mb-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary btn-sm btn-block">Filter</button>
+                    </div>
+
+                </div>
+
+                {% if selected_district or selected_rooms or selected_price_min or selected_price_max or selected_deal_type %}
+                <div class="mt-1">
+                    <a href="?" class="btn btn-link btn-sm p-0 text-secondary">✕ Clear filters</a>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card filter-card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>District</th>
+                            <th>Street</th>
+                            <th>Rooms</th>
+                            <th>Size m²</th>
+                            <th>Floor</th>
+                            <th>Project</th>
+                            <th>€/m²</th>
+                            <th>Total €</th>
+                            <th>Posted</th>
+                            <th>Days active</th>
+                            <th>Link</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ad in ads %}
+                        <tr>
+                            <td>
+                                {% if ad.deal_type == 'RENT' %}
+                                    <span class="badge badge-info">Rent</span>
+                                {% else %}
+                                    <span class="badge badge-success">Sell</span>
+                                {% endif %}
+                            </td>
+                            <td>{{ ad.district }}</td>
+                            <td>{{ ad.street_name }}{% if ad.street_no %} {{ ad.street_no }}{% endif %}</td>
+                            <td class="text-center">{{ ad.rooms }}</td>
+                            <td class="text-right">{{ ad.size|floatformat:1 }}</td>
+                            <td class="text-center">{{ ad.floor }}/{{ ad.max_floor }}</td>
+                            <td>{{ ad.project }}</td>
+                            <td class="text-right font-weight-bold">{{ ad.price_per_sqm|floatformat:0 }}</td>
+                            <td class="text-right font-weight-bold">{{ ad.total_price|floatformat:0 }}</td>
+                            <td>
+                                {% if ad.post_date %}
+                                    {{ ad.post_date|date:"d.m.Y" }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td class="text-center">{{ ad.days_active }}</td>
+                            <td>
+                                <a href="{{ ad.link }}" target="_blank" rel="noopener noreferrer"
+                                   class="ad-link">View</a>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="12" class="text-center text-muted py-4">No ads match your filters.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pagination -->
+    {% if ads.has_other_pages %}
+    <nav aria-label="Page navigation" class="mt-3">
+        <ul class="pagination pagination-sm justify-content-center flex-wrap">
+
+            {% if ads.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?{% if selected_deal_type %}deal_type={{ selected_deal_type }}&{% endif %}{% if selected_district %}district={{ selected_district }}&{% endif %}{% if selected_rooms %}rooms={{ selected_rooms }}&{% endif %}{% if selected_price_min %}price_min={{ selected_price_min }}&{% endif %}{% if selected_price_max %}price_max={{ selected_price_max }}&{% endif %}page=1">«</a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?{% if selected_deal_type %}deal_type={{ selected_deal_type }}&{% endif %}{% if selected_district %}district={{ selected_district }}&{% endif %}{% if selected_rooms %}rooms={{ selected_rooms }}&{% endif %}{% if selected_price_min %}price_min={{ selected_price_min }}&{% endif %}{% if selected_price_max %}price_max={{ selected_price_max }}&{% endif %}page={{ ads.previous_page_number }}">‹</a>
+            </li>
+            {% endif %}
+
+            {% for page_num in ads.paginator.page_range %}
+                {% if page_num == ads.number %}
+                <li class="page-item active">
+                    <span class="page-link">{{ page_num }}</span>
+                </li>
+                {% elif page_num > ads.number|add:"-4" and page_num < ads.number|add:"4" %}
+                <li class="page-item">
+                    <a class="page-link" href="?{% if selected_deal_type %}deal_type={{ selected_deal_type }}&{% endif %}{% if selected_district %}district={{ selected_district }}&{% endif %}{% if selected_rooms %}rooms={{ selected_rooms }}&{% endif %}{% if selected_price_min %}price_min={{ selected_price_min }}&{% endif %}{% if selected_price_max %}price_max={{ selected_price_max }}&{% endif %}page={{ page_num }}">{{ page_num }}</a>
+                </li>
+                {% endif %}
+            {% endfor %}
+
+            {% if ads.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?{% if selected_deal_type %}deal_type={{ selected_deal_type }}&{% endif %}{% if selected_district %}district={{ selected_district }}&{% endif %}{% if selected_rooms %}rooms={{ selected_rooms }}&{% endif %}{% if selected_price_min %}price_min={{ selected_price_min }}&{% endif %}{% if selected_price_max %}price_max={{ selected_price_max }}&{% endif %}page={{ ads.next_page_number }}">›</a>
+            </li>
+            <li class="page-item">
+                <a class="page-link" href="?{% if selected_deal_type %}deal_type={{ selected_deal_type }}&{% endif %}{% if selected_district %}district={{ selected_district }}&{% endif %}{% if selected_rooms %}rooms={{ selected_rooms }}&{% endif %}{% if selected_price_min %}price_min={{ selected_price_min }}&{% endif %}{% if selected_price_max %}price_max={{ selected_price_max }}&{% endif %}page={{ ads.paginator.num_pages }}">»</a>
+            </li>
+            {% endif %}
+
+        </ul>
+    </nav>
+    {% endif %}
+
+</div>
+</body>
+</html>
