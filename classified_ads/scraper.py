@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import List
 
 from django.utils import timezone
@@ -28,7 +28,6 @@ class SsComScraper(BaseScraper):
         self.excluded_resources = []
         self._current_region = None
         self._current_deal_type = None
-        self._seen_ad_ids = set()
 
     def get_search_urls(self):
         regions = Region.objects.filter(scrape_enabled=True)
@@ -112,7 +111,6 @@ class SsComScraper(BaseScraper):
                 + cells[7]
             )
 
-            self._seen_ad_ids.add(ad_id)
             results.append({
                 'ad_id': ad_id,
                 'deal_type': deal_type,
@@ -228,29 +226,6 @@ class SsComScraper(BaseScraper):
             alt_price=enriched_result['alt_price'],
         )
 
-    def run(self):
-        self._seen_ad_ids = set()
-        super().run()
-        self._write_sightings()
-
-    def _write_sightings(self):
-        from datetime import date
-        today = date.today()
-        ads = ClassifiedAd.objects.filter(
-            ad_id__in=self._seen_ad_ids
-        )
-        sightings = [
-            ClassifiedAdSighting(ad=ad, seen_on=today)
-            for ad in ads
-        ]
-        ClassifiedAdSighting.objects.bulk_create(
-            sightings,
-            ignore_conflicts=True,
-        )
-        logger.info(
-            f"Recorded {len(sightings)} sightings for {today}."
-        )
-
     def create_or_update_resources(self, ads):
         if not ads:
             return
@@ -266,16 +241,41 @@ class SsComScraper(BaseScraper):
             ],
         )
         logger.info(f"Saved {len(ads)} classified ads.")
+        self._write_sightings([ad.ad_id for ad in ads])
+
+    def _write_sightings(self, ad_ids):
+        today = date.today()
+        ads = ClassifiedAd.objects.filter(ad_id__in=ad_ids)
+        sightings = [
+            ClassifiedAdSighting(ad=ad, seen_on=today)
+            for ad in ads
+        ]
+        ClassifiedAdSighting.objects.bulk_create(
+            sightings,
+            ignore_conflicts=True,
+        )
+        logger.info(
+            f"Recorded {len(sightings)} sightings for {today}."
+        )
 
     def _parse_detail_page(self, response) -> dict:
         result = {
             'post_date': None,
             'phone': '',
             'contact_id': '',
+            'comment': '',
         }
         if response is None:
             return result
         soup = BeautifulSoup(response.data, 'html.parser')
+
+        msg_div = soup.find('div', id='msg_div_msg')
+        if msg_div:
+            for tag in msg_div.find_all(['table', 'div']):
+                tag.decompose()
+            result['comment'] = msg_div.get_text(
+                separator='\n', strip=True
+            )
 
         for td in soup.find_all('td', 'msg_footer'):
             if 'Date' in td.text:
