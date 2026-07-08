@@ -100,8 +100,14 @@ class SsComScraper(BaseScraper):
                 continue
 
             floor_raw = str(cells[6]).split('/')
-            floor = floor_raw[0]
-            max_floor = floor_raw[-1]
+            try:
+                floor = int(float(floor_raw[0]))
+            except (ValueError, TypeError):
+                floor = 0
+            try:
+                max_floor = int(float(floor_raw[-1]))
+            except (ValueError, TypeError):
+                max_floor = 0
 
             # The address cell stacks the village/town on its own line
             # above the street, e.g. "Kadaga\nKadagas 9" - td.text merges
