@@ -76,8 +76,7 @@
                         {% for region in parent_regions %}
                         <div class="region-checkbox-item">
                             <label class="mb-0">
-                                <input type="checkbox" name="regions" value="{{ region.id }}" {% if
-                                    region.id|stringformat:"s" in selected_ids %}checked{% endif %}>
+                                <input type="checkbox" name="regions" value="{{ region.id }}" {% if region.id|stringformat:"s" in selected_ids %}checked{% endif %}>
                                 {{ region.name }}
                             </label>
                         </div>
@@ -117,15 +116,13 @@
                                 </td>
                                 <td class="text-right">{{ result.total_ads }}</td>
                                 <td class="text-right">
-                                    {% if result.avg_price_per_sqm %}{{ result.avg_price_per_sqm|floatformat:0 }}{% else
-                                    %}—{% endif %}
+                                    {% if result.avg_price_per_sqm %}{{ result.avg_price_per_sqm|floatformat:0 }}{% else %}—{% endif %}
                                 </td>
                                 <td class="text-right">
                                     {% if result.avg_size %}{{ result.avg_size|floatformat:1 }}{% else %}—{% endif %}
                                 </td>
                                 <td class="text-right">
-                                    {% if result.avg_days_tracked %}{{ result.avg_days_tracked|floatformat:1 }}{% else
-                                    %}—{% endif %}
+                                    {% if result.avg_days_tracked %}{{ result.avg_days_tracked|floatformat:1 }}{% else %}—{% endif %}
                                 </td>
                             </tr>
                             {% empty %}
