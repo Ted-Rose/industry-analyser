@@ -103,13 +103,16 @@ def _region_and_descendant_ids(region):
     return ids
 
 
-def _compute_region_stats(region, date_from, date_to):
+def _compute_region_stats(region, date_from, date_to, deal_type=''):
     region_ids = _region_and_descendant_ids(region)
     ads_qs = ClassifiedAd.objects.filter(
         region_id__in=region_ids,
         first_seen__date__gte=date_from,
         first_seen__date__lte=date_to,
     ).annotate(sighting_count=Count('sightings', distinct=True))
+
+    if deal_type:
+        ads_qs = ads_qs.filter(deal_type=deal_type)
 
     stats = ads_qs.aggregate(
         total_ads=Count('id', distinct=True),
@@ -123,6 +126,7 @@ def _compute_region_stats(region, date_from, date_to):
 
 def region_stats(request):
     date_from, date_to = _parse_date_range(request)
+    deal_type = request.GET.get('deal_type', '').strip()
 
     parent_regions = Region.objects.filter(parent__isnull=True).order_by('name')
     selected_ids = set(request.GET.getlist('regions'))
@@ -131,7 +135,7 @@ def region_stats(request):
     if selected_ids:
         selected_regions = parent_regions.filter(id__in=selected_ids)
         results = [
-            _compute_region_stats(region, date_from, date_to)
+            _compute_region_stats(region, date_from, date_to, deal_type)
             for region in selected_regions
         ]
 
@@ -140,6 +144,8 @@ def region_stats(request):
         'selected_ids': selected_ids,
         'date_from': date_from,
         'date_to': date_to,
+        'deal_type': deal_type,
+        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
         'results': results,
     })
 
@@ -147,10 +153,11 @@ def region_stats(request):
 def region_stats_children(request, region_id):
     parent_region = get_object_or_404(Region, pk=region_id, parent__isnull=True)
     date_from, date_to = _parse_date_range(request)
+    deal_type = request.GET.get('deal_type', '').strip()
 
     children = parent_region.sub_regions.order_by('name')
     results = [
-        _compute_region_stats(child, date_from, date_to)
+        _compute_region_stats(child, date_from, date_to, deal_type)
         for child in children
     ]
 
@@ -159,4 +166,6 @@ def region_stats_children(request, region_id):
         'results': results,
         'date_from': date_from,
         'date_to': date_to,
+        'deal_type': deal_type,
+        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
     })
