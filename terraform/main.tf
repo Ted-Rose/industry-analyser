@@ -261,8 +261,8 @@ resource "google_cloud_run_v2_job" "scrape_classified_ads" {
   template {
     task_count = 1
     template {
-      timeout         = "10800s"
-      max_retries     = 0
+      timeout         = "21600s"
+      max_retries     = 2
       service_account = google_service_account.job_runtime.email
 
       containers {
