@@ -20,7 +20,7 @@ DEAL_SUFFIXES = {
 
 class SsComScraper(BaseScraper):
 
-    def __init__(self, max_pages=10):
+    def __init__(self, max_pages=100):
         super().__init__()
         self.max_pages = max_pages
         self.enrich_search_results = True
@@ -42,6 +42,10 @@ class SsComScraper(BaseScraper):
             self._current_region = region
             for suffix, deal_type in DEAL_SUFFIXES.items():
                 self._current_deal_type = deal_type
+
+                # Max pages is a random, high number. Once first empty result
+                # page is returned stop scraping current deal type for
+                # the region.
                 for page in range(1, self.max_pages + 1):
                     if page == 1:
                         yield region.url + suffix
@@ -196,6 +200,8 @@ class SsComScraper(BaseScraper):
             return 0.0
 
     def remove_redundant_results(self, resources):
+        # TODO: Here existing records shouldn't be regarded as redundant
+        # As we need to record their recurrence in ClassifiedAdSighting table
         if not resources:
             return resources
         incoming_ids = [r['ad_id'] for r in resources]
@@ -207,6 +213,8 @@ class SsComScraper(BaseScraper):
         return [r for r in resources if r['ad_id'] not in existing_ids]
 
     def enrich_result(self, partial_result):
+        # TODO: For existing records no need to make API request - just record
+        # recurrence fact
         detail_response = self.make_request(partial_result['link'])
         detail = self._parse_detail_page(detail_response)
         return {**partial_result, **detail}
@@ -250,6 +258,13 @@ class SsComScraper(BaseScraper):
     def create_or_update_resources(self, ads):
         if not ads:
             return
+        # TODO: Here somehow we have to create new ads and add
+        # new records in ClassifiedAdSighting table for existing ads
+        # though it has to be ensured that there isn't made more than
+        # one record for each date in ClassifiedAdSighting table for
+        # single resource - meaning that there aren't two entries
+        # for a single resource with date July 19th (thus the model
+        # has to be updated with this guard)
         ClassifiedAd.objects.bulk_create(
             ads,
             update_conflicts=True,
