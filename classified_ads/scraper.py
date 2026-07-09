@@ -200,8 +200,6 @@ class SsComScraper(BaseScraper):
             return 0.0
 
     def remove_redundant_results(self, resources):
-        # TODO: Here existing records shouldn't be regarded as redundant
-        # As we need to record their recurrence in ClassifiedAdSighting table
         if not resources:
             return resources
         incoming_ids = [r['ad_id'] for r in resources]
@@ -210,11 +208,14 @@ class SsComScraper(BaseScraper):
                 ad_id__in=incoming_ids
             ).values_list('ad_id', flat=True)
         )
+        # Existing ads are dropped from the pipeline below (no enrichment
+        # request, no re-creation), but they're still active listings, so
+        # record today's recurrence for them here instead.
+        if existing_ids:
+            self._write_sightings(existing_ids)
         return [r for r in resources if r['ad_id'] not in existing_ids]
 
     def enrich_result(self, partial_result):
-        # TODO: For existing records no need to make API request - just record
-        # recurrence fact
         detail_response = self.make_request(partial_result['link'])
         detail = self._parse_detail_page(detail_response)
         return {**partial_result, **detail}
@@ -258,13 +259,6 @@ class SsComScraper(BaseScraper):
     def create_or_update_resources(self, ads):
         if not ads:
             return
-        # TODO: Here somehow we have to create new ads and add
-        # new records in ClassifiedAdSighting table for existing ads
-        # though it has to be ensured that there isn't made more than
-        # one record for each date in ClassifiedAdSighting table for
-        # single resource - meaning that there aren't two entries
-        # for a single resource with date July 19th (thus the model
-        # has to be updated with this guard)
         ClassifiedAd.objects.bulk_create(
             ads,
             update_conflicts=True,
