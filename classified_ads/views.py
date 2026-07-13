@@ -169,3 +169,33 @@ def region_stats_children(request, region_id):
         'deal_type': deal_type,
         'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
     })
+
+
+def region_ads_list(request, region_id):
+    region = get_object_or_404(Region, pk=region_id)
+    date_from, date_to = _parse_date_range(request)
+    deal_type = request.GET.get('deal_type', '').strip()
+
+    region_ids = _region_and_descendant_ids(region)
+    ads_qs = ClassifiedAd.objects.filter(
+        region_id__in=region_ids,
+        first_seen__date__gte=date_from,
+        first_seen__date__lte=date_to,
+    ).order_by('-first_seen')
+
+    if deal_type:
+        ads_qs = ads_qs.filter(deal_type=deal_type)
+
+    paginator = Paginator(ads_qs, 50)
+    page_number = request.GET.get('page')
+    ads = paginator.get_page(page_number)
+
+    return render(request, 'classified_ads/region_ads_list.html', {
+        'region': region,
+        'ads': ads,
+        'date_from': date_from,
+        'date_to': date_to,
+        'deal_type': deal_type,
+        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
+        'total_count': ads_qs.count(),
+    })

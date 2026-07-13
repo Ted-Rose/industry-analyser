@@ -14,4 +14,9 @@ urlpatterns = [
         views.region_stats_children,
         name='region_stats_children',
     ),
+    path(
+        'regions/<int:region_id>/ads/',
+        views.region_ads_list,
+        name='region_ads_list',
+    ),
 ]

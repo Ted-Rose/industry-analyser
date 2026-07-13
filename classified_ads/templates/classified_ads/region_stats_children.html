@@ -37,6 +37,16 @@
             display: inline-block;
             margin-bottom: .5rem;
         }
+
+        .region-link {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .region-link:hover {
+            text-decoration: underline;
+            color: #0056b3;
+        }
     </style>
 </head>
 
@@ -97,7 +107,12 @@
                         <tbody>
                             {% for result in results %}
                             <tr>
-                                <td>{{ result.region.name }}</td>
+                                <td>
+                                    <a href="{% url 'classified_ads:region_ads_list' result.region.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}" 
+                                       class="region-link">
+                                        {{ result.region.name }}
+                                    </a>
+                                </td>
                                 <td class="text-right">{{ result.total_ads }}</td>
                                 <td class="text-right">
                                     {% if result.avg_price_per_sqm %}{{ result.avg_price_per_sqm|floatformat:0 }}{% else %}—{% endif %}
