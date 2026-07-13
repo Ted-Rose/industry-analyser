@@ -1,30 +1,87 @@
 from django.contrib import admin
 
-from .models import ClassifiedAd, ClassifiedAdSighting, Region, Seller
+from .models import (
+    ApartmentForRent,
+    ApartmentForRentSighting,
+    ApartmentForSale,
+    ApartmentForSaleSighting,
+    Region,
+    Seller,
+)
 
 
-class ClassifiedAdSightingInline(admin.TabularInline):
-    model = ClassifiedAdSighting
+class ApartmentForRentSightingInline(admin.TabularInline):
+    model = ApartmentForRentSighting
     extra = 0
     readonly_fields = ['seen_on']
     can_delete = False
     ordering = ['-seen_on']
 
 
-@admin.register(ClassifiedAd)
-class ClassifiedAdAdmin(admin.ModelAdmin):
+class ApartmentForSaleSightingInline(admin.TabularInline):
+    model = ApartmentForSaleSighting
+    extra = 0
+    readonly_fields = ['seen_on']
+    can_delete = False
+    ordering = ['-seen_on']
+
+
+@admin.register(ApartmentForRent)
+class ApartmentForRentAdmin(admin.ModelAdmin):
     list_display = [
-        'region_name', 'district', 'deal_type', 'rooms', 'size',
-        'floor', 'project', 'total_price', 'post_date',
-        'seller', 'days_active',
+        'region_name',
+        'district',
+        'rooms',
+        'size',
+        'floor',
+        'project',
+        'monthly_price',
+        'monthly_price_per_sqm',
+        'post_date',
+        'seller',
+        'days_active',
     ]
-    list_filter = ['deal_type', 'region', 'district', 'project']
+    list_filter = ['region', 'district', 'project']
     search_fields = [
-        'district', 'street_name', 'project', 'seller__phone',
+        'district',
+        'street_name',
+        'project',
+        'seller__phone',
     ]
     ordering = ['-post_date']
     readonly_fields = ['first_seen', 'last_seen', 'days_active']
-    inlines = [ClassifiedAdSightingInline]
+    inlines = [ApartmentForRentSightingInline]
+
+    @admin.display(description='Days active')
+    def days_active(self, obj):
+        return obj.days_active
+
+
+@admin.register(ApartmentForSale)
+class ApartmentForSaleAdmin(admin.ModelAdmin):
+    list_display = [
+        'region_name',
+        'district',
+        'rooms',
+        'size',
+        'floor',
+        'project',
+        'total_price',
+        'price_per_sqm',
+        'post_date',
+        'seller',
+        'days_active',
+    ]
+    list_filter = ['region', 'district', 'project']
+    search_fields = [
+        'district',
+        'street_name',
+        'project',
+        'seller__phone',
+    ]
+    ordering = ['-post_date']
+    readonly_fields = ['first_seen', 'last_seen', 'days_active']
+    inlines = [ApartmentForSaleSightingInline]
 
     @admin.display(description='Days active')
     def days_active(self, obj):
@@ -37,13 +94,6 @@ class RegionAdmin(admin.ModelAdmin):
     list_filter = ['scrape_enabled', 'parent']
     list_editable = ['scrape_enabled']
     search_fields = ['name', 'url']
-
-
-@admin.register(ClassifiedAdSighting)
-class ClassifiedAdSightingAdmin(admin.ModelAdmin):
-    list_display = ['ad', 'seen_on']
-    list_filter = ['seen_on']
-    ordering = ['-seen_on']
 
 
 @admin.register(Seller)

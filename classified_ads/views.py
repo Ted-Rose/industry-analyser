@@ -4,7 +4,7 @@ from django.core.paginator import Paginator
 from django.db.models import Avg, Count
 from django.shortcuts import get_object_or_404, render, redirect
 
-from .models import ClassifiedAd, Region
+from .models import ApartmentForRent, ApartmentForSale, Region
 
 STATS_DEFAULT_DAYS = 30
 
@@ -14,15 +14,19 @@ def index(request):
 
 
 def ads_table(request):
-    qs = ClassifiedAd.objects.all().order_by('-post_date')
+    return redirect('classified_ads:rent_ads_table')
+
+
+def rent_ads_table(request):
+    qs = ApartmentForRent.objects.all().order_by('-post_date')
 
     districts = (
-        ClassifiedAd.objects.values_list('district', flat=True)
+        ApartmentForRent.objects.values_list('district', flat=True)
         .distinct()
         .order_by('district')
     )
     room_choices = (
-        ClassifiedAd.objects.values_list('rooms', flat=True)
+        ApartmentForRent.objects.values_list('rooms', flat=True)
         .distinct()
         .order_by('rooms')
     )
@@ -31,7 +35,51 @@ def ads_table(request):
     rooms = request.GET.get('rooms', '').strip()
     price_min = request.GET.get('price_min', '').strip()
     price_max = request.GET.get('price_max', '').strip()
-    deal_type = request.GET.get('deal_type', '').strip()
+
+    if district:
+        qs = qs.filter(district=district)
+    if rooms:
+        qs = qs.filter(rooms=rooms)
+    if price_min:
+        qs = qs.filter(monthly_price_per_sqm__gte=price_min)
+    if price_max:
+        qs = qs.filter(monthly_price_per_sqm__lte=price_max)
+
+    paginator = Paginator(qs, 50)
+    page_number = request.GET.get('page')
+    ads = paginator.get_page(page_number)
+
+    return render(request, 'classified_ads/rent_ads_table.html', {
+        'ads': ads,
+        'districts': districts,
+        'room_choices': room_choices,
+        'selected_district': district,
+        'selected_rooms': rooms,
+        'selected_price_min': price_min,
+        'selected_price_max': price_max,
+        'total_count': qs.count(),
+        'ad_type': 'rent',
+    })
+
+
+def sale_ads_table(request):
+    qs = ApartmentForSale.objects.all().order_by('-post_date')
+
+    districts = (
+        ApartmentForSale.objects.values_list('district', flat=True)
+        .distinct()
+        .order_by('district')
+    )
+    room_choices = (
+        ApartmentForSale.objects.values_list('rooms', flat=True)
+        .distinct()
+        .order_by('rooms')
+    )
+
+    district = request.GET.get('district', '').strip()
+    rooms = request.GET.get('rooms', '').strip()
+    price_min = request.GET.get('price_min', '').strip()
+    price_max = request.GET.get('price_max', '').strip()
 
     if district:
         qs = qs.filter(district=district)
@@ -41,24 +89,21 @@ def ads_table(request):
         qs = qs.filter(price_per_sqm__gte=price_min)
     if price_max:
         qs = qs.filter(price_per_sqm__lte=price_max)
-    if deal_type:
-        qs = qs.filter(deal_type=deal_type)
 
     paginator = Paginator(qs, 50)
     page_number = request.GET.get('page')
     ads = paginator.get_page(page_number)
 
-    return render(request, 'classified_ads/ads_table.html', {
+    return render(request, 'classified_ads/sale_ads_table.html', {
         'ads': ads,
         'districts': districts,
         'room_choices': room_choices,
-        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
         'selected_district': district,
         'selected_rooms': rooms,
         'selected_price_min': price_min,
         'selected_price_max': price_max,
-        'selected_deal_type': deal_type,
         'total_count': qs.count(),
+        'ad_type': 'sale',
     })
 
 
@@ -105,18 +150,45 @@ def _region_and_descendant_ids(region):
 
 def _compute_region_stats(region, date_from, date_to, deal_type=''):
     region_ids = _region_and_descendant_ids(region)
-    ads_qs = ClassifiedAd.objects.filter(
-        region_id__in=region_ids,
-        first_seen__date__gte=date_from,
-        first_seen__date__lte=date_to,
-    ).annotate(sighting_count=Count('sightings', distinct=True))
-
-    if deal_type:
-        ads_qs = ads_qs.filter(deal_type=deal_type)
+    
+    if deal_type == 'RENT':
+        ads_qs = ApartmentForRent.objects.filter(
+            region_id__in=region_ids,
+            first_seen__date__gte=date_from,
+            first_seen__date__lte=date_to,
+        ).annotate(sighting_count=Count('sightings', distinct=True))
+        price_field = 'monthly_price_per_sqm'
+    elif deal_type == 'SELL':
+        ads_qs = ApartmentForSale.objects.filter(
+            region_id__in=region_ids,
+            first_seen__date__gte=date_from,
+            first_seen__date__lte=date_to,
+        ).annotate(sighting_count=Count('sightings', distinct=True))
+        price_field = 'price_per_sqm'
+    else:
+        rent_qs = ApartmentForRent.objects.filter(
+            region_id__in=region_ids,
+            first_seen__date__gte=date_from,
+            first_seen__date__lte=date_to,
+        )
+        sale_qs = ApartmentForSale.objects.filter(
+            region_id__in=region_ids,
+            first_seen__date__gte=date_from,
+            first_seen__date__lte=date_to,
+        )
+        total_ads = rent_qs.count() + sale_qs.count()
+        stats = {
+            'total_ads': total_ads,
+            'avg_price_per_sqm': None,
+            'avg_size': None,
+            'avg_days_tracked': None,
+            'region': region,
+        }
+        return stats
 
     stats = ads_qs.aggregate(
         total_ads=Count('id', distinct=True),
-        avg_price_per_sqm=Avg('price_per_sqm'),
+        avg_price_per_sqm=Avg(price_field),
         avg_size=Avg('size'),
         avg_days_tracked=Avg('sighting_count'),
     )
@@ -139,13 +211,15 @@ def region_stats(request):
             for region in selected_regions
         ]
 
+    deal_type_choices = [('RENT', 'Rent'), ('SELL', 'Sell')]
+
     return render(request, 'classified_ads/region_stats.html', {
         'parent_regions': parent_regions,
         'selected_ids': selected_ids,
         'date_from': date_from,
         'date_to': date_to,
         'deal_type': deal_type,
-        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
+        'deal_type_choices': deal_type_choices,
         'results': results,
     })
 
@@ -161,13 +235,15 @@ def region_stats_children(request, region_id):
         for child in children
     ]
 
+    deal_type_choices = [('RENT', 'Rent'), ('SELL', 'Sell')]
+
     return render(request, 'classified_ads/region_stats_children.html', {
         'parent_region': parent_region,
         'results': results,
         'date_from': date_from,
         'date_to': date_to,
         'deal_type': deal_type,
-        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
+        'deal_type_choices': deal_type_choices,
     })
 
 
@@ -177,18 +253,27 @@ def region_ads_list(request, region_id):
     deal_type = request.GET.get('deal_type', '').strip()
 
     region_ids = _region_and_descendant_ids(region)
-    ads_qs = ClassifiedAd.objects.filter(
-        region_id__in=region_ids,
-        first_seen__date__gte=date_from,
-        first_seen__date__lte=date_to,
-    ).order_by('-first_seen')
-
-    if deal_type:
-        ads_qs = ads_qs.filter(deal_type=deal_type)
+    
+    if deal_type == 'RENT':
+        ads_qs = ApartmentForRent.objects.filter(
+            region_id__in=region_ids,
+            first_seen__date__gte=date_from,
+            first_seen__date__lte=date_to,
+        ).order_by('-first_seen')
+    elif deal_type == 'SELL':
+        ads_qs = ApartmentForSale.objects.filter(
+            region_id__in=region_ids,
+            first_seen__date__gte=date_from,
+            first_seen__date__lte=date_to,
+        ).order_by('-first_seen')
+    else:
+        ads_qs = ApartmentForRent.objects.none()
 
     paginator = Paginator(ads_qs, 50)
     page_number = request.GET.get('page')
     ads = paginator.get_page(page_number)
+
+    deal_type_choices = [('RENT', 'Rent'), ('SELL', 'Sell')]
 
     return render(request, 'classified_ads/region_ads_list.html', {
         'region': region,
@@ -196,6 +281,6 @@ def region_ads_list(request, region_id):
         'date_from': date_from,
         'date_to': date_to,
         'deal_type': deal_type,
-        'deal_type_choices': ClassifiedAd.DEAL_TYPE_CHOICES,
+        'deal_type_choices': deal_type_choices,
         'total_count': ads_qs.count(),
     })
