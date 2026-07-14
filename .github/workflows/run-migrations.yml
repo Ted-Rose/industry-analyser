@@ -77,6 +77,7 @@ jobs:
               --project="${PROJECT_ID}" \
               --command=python \
               --args=manage.py,migrate \
+              --task-timeout=3600 \
               --quiet
           else
             gcloud run jobs create run-migrations \
@@ -90,6 +91,7 @@ jobs:
               --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
               --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
               --update-env-vars="DEBUG=False" \
+              --task-timeout=3600 \
               --max-retries=0 \
               --quiet
           fi
