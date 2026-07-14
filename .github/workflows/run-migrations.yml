@@ -1,11 +1,13 @@
 name: Run database migrations
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - "Deploy scraper jobs (Artifact Registry + Cloud Run)"
+    types:
+      - completed
     branches:
       - master
-    paths:
-      - '**/migrations/*.py'
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +18,33 @@ env:
   REGION: europe-north1
 
 jobs:
+  check-migrations-changed:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    outputs:
+      migrations_changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check if migration files changed
+        id: check
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q 'migrations/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   run-migrations:
+    needs: check-migrations-changed
+    if: >
+      needs.check-migrations-changed.outputs.migrations_changed == 'true' ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Authenticate to Google Cloud
