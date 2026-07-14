@@ -60,6 +60,10 @@ jobs:
       - name: Run migrations via Cloud Run Job
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          ENV_SECRET_KEY: ${{ secrets.TF_VAR_secret_key }}
+          ENV_DATABASE_URL: ${{ secrets.TF_VAR_database_url }}
+          ENV_BASE_URL: ${{ secrets.TF_VAR_base_url }}
+          ENV_DB_SSL_CERT: ${{ secrets.TF_VAR_db_ssl_cert }}
         run: |
           set -euo pipefail
 
@@ -81,7 +85,11 @@ jobs:
               --project="${PROJECT_ID}" \
               --command=python \
               --args=manage.py,migrate \
-              --set-env-vars="SECRET_KEY=${{ secrets.TF_VAR_secret_key }},DATABASE_URL=${{ secrets.TF_VAR_database_url }},BASE_URL=${{ secrets.TF_VAR_base_url }},DB_SSL_CERT=${{ secrets.TF_VAR_db_ssl_cert }},DEBUG=False" \
+              --update-env-vars="SECRET_KEY=${ENV_SECRET_KEY}" \
+              --update-env-vars="DATABASE_URL=${ENV_DATABASE_URL}" \
+              --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
+              --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
+              --update-env-vars="DEBUG=False" \
               --max-retries=0 \
               --quiet
           fi
