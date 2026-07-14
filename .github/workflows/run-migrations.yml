@@ -1,0 +1,68 @@
+name: Run database migrations
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '**/migrations/*.py'
+  workflow_dispatch:
+
+concurrency:
+  group: run-migrations-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGION: europe-north1
+
+jobs:
+  run-migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Run migrations via Cloud Run Job
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:latest"
+
+          # Create or update a one-off migration job
+          if gcloud run jobs describe run-migrations --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+            gcloud run jobs update run-migrations \
+              --image="${IMAGE}" \
+              --region="${REGION}" \
+              --project="${PROJECT_ID}" \
+              --command=python \
+              --args=manage.py,migrate \
+              --quiet
+          else
+            gcloud run jobs create run-migrations \
+              --image="${IMAGE}" \
+              --region="${REGION}" \
+              --project="${PROJECT_ID}" \
+              --command=python \
+              --args=manage.py,migrate \
+              --set-env-vars="SECRET_KEY=${{ secrets.TF_VAR_secret_key }},DATABASE_URL=${{ secrets.TF_VAR_database_url }},BASE_URL=${{ secrets.TF_VAR_base_url }},DB_SSL_CERT=${{ secrets.TF_VAR_db_ssl_cert }},DEBUG=False" \
+              --max-retries=0 \
+              --quiet
+          fi
+
+          # Execute and wait for completion
+          gcloud run jobs execute run-migrations \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --wait \
+            --quiet
+
+          echo "Migrations completed successfully."
