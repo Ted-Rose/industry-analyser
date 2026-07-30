@@ -8,13 +8,17 @@ from django.utils import timezone
 from bs4 import BeautifulSoup
 
 from core_scraper.base import BaseScraper
-from .models import ClassifiedAd, ClassifiedAdSighting, Region, Seller
+from .models import (
+    ApartmentForRent, ApartmentForRentSighting,
+    ApartmentForSale, ApartmentForSaleSighting,
+    Region, Seller,
+)
 
 logger = logging.getLogger('classified_ads')
 
 DEAL_SUFFIXES = {
-    'hand_over/': ClassifiedAd.DEAL_RENT,
-    'sell/': ClassifiedAd.DEAL_SELL,
+    'hand_over/': 'RENT',
+    'sell/': 'SELL',
 }
 
 
@@ -82,7 +86,7 @@ class SsComScraper(BaseScraper):
             total_price = self._clean_price(cells[9])
 
             deal_type = self._current_deal_type
-            if deal_type == ClassifiedAd.DEAL_RENT:
+            if deal_type == 'RENT':
                 alt_price = float(total_price) * 120
                 alt_price_per_sqm = float(sqm_price) * 120
             else:
@@ -202,17 +206,35 @@ class SsComScraper(BaseScraper):
     def remove_redundant_results(self, resources):
         if not resources:
             return resources
-        incoming_ids = [r['ad_id'] for r in resources]
-        existing_ids = set(
-            ClassifiedAd.objects.filter(
-                ad_id__in=incoming_ids
+
+        rent_incoming = {
+            r['ad_id'] for r in resources if r['deal_type'] == 'RENT'
+        }
+        sell_incoming = {
+            r['ad_id'] for r in resources if r['deal_type'] == 'SELL'
+        }
+
+        existing_rent_ids = set(
+            ApartmentForRent.objects.filter(
+                ad_id__in=rent_incoming
             ).values_list('ad_id', flat=True)
-        )
+        ) if rent_incoming else set()
+
+        existing_sell_ids = set(
+            ApartmentForSale.objects.filter(
+                ad_id__in=sell_incoming
+            ).values_list('ad_id', flat=True)
+        ) if sell_incoming else set()
+
         # Existing ads are dropped from the pipeline below (no enrichment
         # request, no re-creation), but they're still active listings, so
         # record today's recurrence for them here instead.
-        if existing_ids:
-            self._write_sightings(existing_ids)
+        if existing_rent_ids:
+            self._write_sightings(existing_rent_ids, 'RENT')
+        if existing_sell_ids:
+            self._write_sightings(existing_sell_ids, 'SELL')
+
+        existing_ids = existing_rent_ids | existing_sell_ids
         return [r for r in resources if r['ad_id'] not in existing_ids]
 
     def enrich_result(self, partial_result):
@@ -231,9 +253,9 @@ class SsComScraper(BaseScraper):
             seller, _ = Seller.objects.get_or_create(
                 phone=phone, contact_id=contact_id
             )
-        return ClassifiedAd(
+
+        common_kwargs = dict(
             ad_id=enriched_result['ad_id'],
-            deal_type=enriched_result['deal_type'],
             comment=enriched_result.get('comment', ''),
             link=enriched_result['link'],
             region=self._current_region,
@@ -251,39 +273,82 @@ class SsComScraper(BaseScraper):
             post_date=enriched_result.get('post_date'),
             seller=seller,
             price_per_sqm=enriched_result['price_per_sqm'],
-            alt_price_per_sqm=enriched_result['alt_price_per_sqm'],
             total_price=enriched_result['total_price'],
-            alt_price=enriched_result['alt_price'],
         )
+
+        if enriched_result['deal_type'] == 'RENT':
+            return ApartmentForRent(
+                **common_kwargs,
+                monthly_price=enriched_result['total_price'],
+                monthly_price_per_sqm=enriched_result['price_per_sqm'],
+                total_price_120m=enriched_result['alt_price'],
+                price_per_sqm_120m=enriched_result['alt_price_per_sqm'],
+            )
+        return ApartmentForSale(**common_kwargs)
 
     def create_or_update_resources(self, ads):
         if not ads:
             return
-        ClassifiedAd.objects.bulk_create(
-            ads,
-            update_conflicts=True,
-            unique_fields=['ad_id'],
-            update_fields=[
-                'comment', 'link', 'price_per_sqm',
-                'alt_price_per_sqm', 'total_price',
-                'alt_price', 'post_date', 'last_seen',
-                'seller', 'house_type', 'facilities',
-            ],
-        )
-        logger.info(f"Saved {len(ads)} classified ads.")
-        self._write_sightings([ad.ad_id for ad in ads])
 
-    def _write_sightings(self, ad_ids):
+        rent_ads = [a for a in ads if isinstance(a, ApartmentForRent)]
+        sell_ads = [a for a in ads if isinstance(a, ApartmentForSale)]
+
+        if rent_ads:
+            ApartmentForRent.objects.bulk_create(
+                rent_ads,
+                update_conflicts=True,
+                unique_fields=['ad_id'],
+                update_fields=[
+                    'comment', 'link', 'price_per_sqm',
+                    'monthly_price', 'monthly_price_per_sqm',
+                    'total_price_120m', 'price_per_sqm_120m',
+                    'total_price', 'post_date', 'last_seen',
+                    'seller', 'house_type', 'facilities',
+                ],
+            )
+            logger.info(f"Saved {len(rent_ads)} rent ads.")
+            self._write_sightings(
+                [ad.ad_id for ad in rent_ads], 'RENT'
+            )
+
+        if sell_ads:
+            ApartmentForSale.objects.bulk_create(
+                sell_ads,
+                update_conflicts=True,
+                unique_fields=['ad_id'],
+                update_fields=[
+                    'comment', 'link', 'price_per_sqm',
+                    'total_price', 'post_date', 'last_seen',
+                    'seller', 'house_type', 'facilities',
+                ],
+            )
+            logger.info(f"Saved {len(sell_ads)} sale ads.")
+            self._write_sightings(
+                [ad.ad_id for ad in sell_ads], 'SELL'
+            )
+
+    def _write_sightings(self, ad_ids, deal_type):
         today = date.today()
-        ads = ClassifiedAd.objects.filter(ad_id__in=ad_ids)
-        sightings = [
-            ClassifiedAdSighting(ad=ad, seen_on=today)
-            for ad in ads
-        ]
-        ClassifiedAdSighting.objects.bulk_create(
-            sightings,
-            ignore_conflicts=True,
-        )
+        if deal_type == 'RENT':
+            ads = ApartmentForRent.objects.filter(ad_id__in=ad_ids)
+            sightings = [
+                ApartmentForRentSighting(ad=ad, seen_on=today)
+                for ad in ads
+            ]
+            ApartmentForRentSighting.objects.bulk_create(
+                sightings,
+                ignore_conflicts=True,
+            )
+        else:
+            ads = ApartmentForSale.objects.filter(ad_id__in=ad_ids)
+            sightings = [
+                ApartmentForSaleSighting(ad=ad, seen_on=today)
+                for ad in ads
+            ]
+            ApartmentForSaleSighting.objects.bulk_create(
+                sightings,
+                ignore_conflicts=True,
+            )
         logger.info(
             f"Recorded {len(sightings)} sightings for {today}."
         )
