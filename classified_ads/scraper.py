@@ -21,6 +21,34 @@ DEAL_SUFFIXES = {
     'sell/': 'SELL',
 }
 
+PRICE_THRESHOLD = 50
+SALE_KEYWORDS = [
+    'pārdod', 'pārdošan', 'pārdots', 'izpirkum', 'pirkt',
+    'pardod', 'pardosan', 'pardots',
+    'продаётся', 'Продаем', 'Продается', 'Продам',
+]
+
+
+def is_sale_misclassified(comment, monthly_price_per_sqm):
+    """
+    Check if a rental ad is actually a for-sale listing (Strategy C+).
+    
+    Two complementary signals:
+    1. Price signal: monthly_price_per_sqm > 50 (sale price entered as rent)
+    2. Keyword signal: Latvian/Russian sale vocabulary in comment
+    
+    See: docs/misclassified_sale_ads_analysis.md
+    """
+    if monthly_price_per_sqm > PRICE_THRESHOLD:
+        return True
+    
+    comment_lower = comment.lower()
+    for keyword in SALE_KEYWORDS:
+        if keyword.lower() in comment_lower:
+            return True
+    
+    return False
+
 
 class SsComScraper(BaseScraper):
 
@@ -215,7 +243,7 @@ class SsComScraper(BaseScraper):
         }
 
         existing_rent_ids = set(
-            ApartmentForRent.objects.filter(
+            ApartmentForRent.all_objects.filter(
                 ad_id__in=rent_incoming
             ).values_list('ad_id', flat=True)
         ) if rent_incoming else set()
@@ -277,12 +305,18 @@ class SsComScraper(BaseScraper):
         )
 
         if enriched_result['deal_type'] == 'RENT':
+            monthly_price_per_sqm = enriched_result['price_per_sqm']
+            comment = enriched_result.get('comment', '')
+            
             return ApartmentForRent(
                 **common_kwargs,
                 monthly_price=enriched_result['total_price'],
-                monthly_price_per_sqm=enriched_result['price_per_sqm'],
+                monthly_price_per_sqm=monthly_price_per_sqm,
                 total_price_120m=enriched_result['alt_price'],
                 price_per_sqm_120m=enriched_result['alt_price_per_sqm'],
+                is_sale_misclassified=is_sale_misclassified(
+                    comment, monthly_price_per_sqm
+                ),
             )
         return ApartmentForSale(**common_kwargs)
 
@@ -294,7 +328,7 @@ class SsComScraper(BaseScraper):
         sell_ads = [a for a in ads if isinstance(a, ApartmentForSale)]
 
         if rent_ads:
-            ApartmentForRent.objects.bulk_create(
+            ApartmentForRent.all_objects.bulk_create(
                 rent_ads,
                 update_conflicts=True,
                 unique_fields=['ad_id'],
@@ -304,6 +338,7 @@ class SsComScraper(BaseScraper):
                     'total_price_120m', 'price_per_sqm_120m',
                     'total_price', 'post_date', 'last_seen',
                     'seller', 'house_type', 'facilities',
+                    'is_sale_misclassified',
                 ],
             )
             logger.info(f"Saved {len(rent_ads)} rent ads.")
@@ -330,7 +365,7 @@ class SsComScraper(BaseScraper):
     def _write_sightings(self, ad_ids, deal_type):
         today = date.today()
         if deal_type == 'RENT':
-            ads = ApartmentForRent.objects.filter(ad_id__in=ad_ids)
+            ads = ApartmentForRent.all_objects.filter(ad_id__in=ad_ids)
             sightings = [
                 ApartmentForRentSighting(ad=ad, seen_on=today)
                 for ad in ads

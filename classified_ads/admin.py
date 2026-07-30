@@ -37,11 +37,13 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
         'project',
         'monthly_price',
         'monthly_price_per_sqm',
+        'is_sale_misclassified',
         'post_date',
         'seller',
         'days_active',
     ]
-    list_filter = ['region', 'district', 'project']
+    list_filter = ['is_sale_misclassified', 'region', 'district', 'project']
+    list_editable = ['is_sale_misclassified']
     search_fields = [
         'district',
         'street_name',
@@ -51,6 +53,11 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
     ordering = ['-post_date']
     readonly_fields = ['first_seen', 'last_seen', 'days_active']
     inlines = [ApartmentForRentSightingInline]
+    show_full_result_count = False
+
+    def get_queryset(self, request):
+        """Use unfiltered manager so all records are visible in Admin."""
+        return self.model.all_objects.get_queryset()
 
     @admin.display(description='Days active')
     def days_active(self, obj):
