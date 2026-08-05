@@ -71,11 +71,29 @@ class BaseApartmentAd(models.Model):
         return self.sightings.count()
 
 
+class CleanRentalManager(models.Manager):
+    """Manager that excludes misclassified for-sale ads."""
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            is_sale_misclassified=False
+        )
+
+
 class ApartmentForRent(BaseApartmentAd):
     monthly_price = models.FloatField()
     monthly_price_per_sqm = models.FloatField()
     total_price_120m = models.FloatField()
     price_per_sqm_120m = models.FloatField()
+    is_sale_misclassified = models.BooleanField(
+        default=False,
+        help_text=(
+            'True if this rental ad is actually a for-sale listing '
+            'posted in the wrong category'
+        )
+    )
+
+    objects = CleanRentalManager()
+    all_objects = models.Manager()
 
     class Meta:
         db_table = 'classified_ads_apartment_rent'
