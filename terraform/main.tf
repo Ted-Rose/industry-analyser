@@ -321,6 +321,73 @@ resource "google_cloud_run_v2_job" "scrape_classified_ads" {
   }
 }
 
+resource "google_cloud_run_v2_job" "scrape_housing_ads" {
+  name     = "scrape-housing-ads"
+  location = var.region
+
+  template {
+    task_count = 1
+    template {
+      timeout         = "21600s"
+      max_retries     = 2
+      service_account = google_service_account.job_runtime.email
+
+      containers {
+        image   = local.job_image
+        command = ["python", "manage.py", "scrape_housing_ads"]
+
+        env {
+          name  = "DEBUG"
+          value = "False"
+        }
+        env {
+          name  = "SECRET_KEY"
+          value = var.secret_key
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = var.database_url
+        }
+        env {
+          name  = "BASE_URL"
+          value = var.base_url
+        }
+        env {
+          name  = "DB_SSL_CERT"
+          value = var.db_ssl_cert
+        }
+        env {
+          name  = "HARD_CODED_PASSWORD"
+          value = var.hard_coded_password
+        }
+        env {
+          name  = "GEMINI_API_KEY"
+          value = var.gemini_api_key
+        }
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_artifact_registry_repository.dockerhub_cache,
+    google_project_service.apis,
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+    ]
+    prevent_destroy = true
+  }
+}
+
 resource "google_cloud_run_v2_job" "sync_regions" {
   name     = "sync-regions"
   location = var.region
