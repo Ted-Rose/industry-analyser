@@ -164,6 +164,12 @@ jobs:
             --command=python \
             --args=manage.py,scrape_classified_ads
 
+          # Housing ads scraper: standard Django entrypoint
+          update_job_if_exists scrape-housing-ads \
+            --image="${IMAGE}" \
+            --command=python \
+            --args=manage.py,scrape_housing_ads
+
           # Region sync: fetches ss.com region list and upserts into DB
           update_job_if_exists sync-regions \
             --image="${IMAGE}" \
