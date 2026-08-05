@@ -5,6 +5,8 @@ from .models import (
     ApartmentForRentSighting,
     ApartmentForSale,
     ApartmentForSaleSighting,
+    HouseForSale,
+    HouseForSaleSighting,
     Region,
     Seller,
 )
@@ -20,6 +22,14 @@ class ApartmentForRentSightingInline(admin.TabularInline):
 
 class ApartmentForSaleSightingInline(admin.TabularInline):
     model = ApartmentForSaleSighting
+    extra = 0
+    readonly_fields = ['seen_on']
+    can_delete = False
+    ordering = ['-seen_on']
+
+
+class HouseForSaleSightingInline(admin.TabularInline):
+    model = HouseForSaleSighting
     extra = 0
     readonly_fields = ['seen_on']
     can_delete = False
@@ -94,6 +104,36 @@ class RegionAdmin(admin.ModelAdmin):
     list_filter = ['scrape_enabled', 'parent']
     list_editable = ['scrape_enabled']
     search_fields = ['name', 'url']
+
+
+@admin.register(HouseForSale)
+class HouseForSaleAdmin(admin.ModelAdmin):
+    list_display = [
+        'region_name',
+        'district',
+        'rooms',
+        'size',
+        'floors',
+        'land_area_sqm',
+        'total_price',
+        'price_per_sqm',
+        'post_date',
+        'seller',
+        'days_active',
+    ]
+    list_filter = ['region', 'district']
+    search_fields = [
+        'district',
+        'street_name',
+        'seller__phone',
+    ]
+    ordering = ['-post_date']
+    readonly_fields = ['first_seen', 'last_seen', 'days_active']
+    inlines = [HouseForSaleSightingInline]
+
+    @admin.display(description='Days active')
+    def days_active(self, obj):
+        return obj.days_active
 
 
 @admin.register(Seller)
