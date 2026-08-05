@@ -13,3 +13,8 @@ EOT
 
 hard_coded_password = ""
 gemini_api_key      = ""
+
+# Note: Email for Cloud Run job failure alerts is stored in Secret Manager
+# Secret name: industry-analyser-alert-email
+# Create with: gcloud secrets create industry-analyser-alert-email --data-file=-
+# (then paste your email and press Ctrl+D)

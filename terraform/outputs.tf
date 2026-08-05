@@ -41,3 +41,20 @@ output "ci_container_image_prefix" {
   value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.app_images.repository_id}/industry-analyser"
   description = "Image path for CI docker push and gcloud run jobs update (tag with commit SHA)"
 }
+
+output "notification_channel_email" {
+  value       = length(google_monitoring_notification_channel.email) > 0 ? google_monitoring_notification_channel.email[0].name : "Not configured (create secret: industry-analyser-alert-email)"
+  description = "Email notification channel for Cloud Run job failure alerts"
+}
+
+output "alert_policies" {
+  value = length(google_monitoring_notification_channel.email) > 0 ? [
+    google_monitoring_alert_policy.scrape_vacancy_failure[0].name,
+    google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
+    google_monitoring_alert_policy.scrape_classified_ads_failure[0].name,
+    google_monitoring_alert_policy.scrape_housing_ads_failure[0].name,
+    google_monitoring_alert_policy.sync_regions_failure[0].name,
+    google_monitoring_alert_policy.sync_housing_regions_failure[0].name,
+  ] : []
+  description = "Cloud Run job failure alert policies"
+}
