@@ -178,6 +178,24 @@ class BaseHouseAd(models.Model):
         return self.sightings.count()
 
 
+class HouseForRent(BaseHouseAd):
+    monthly_price = models.FloatField()
+    monthly_price_per_sqm = models.FloatField()
+    total_price_120m = models.FloatField()
+    price_per_sqm_120m = models.FloatField()
+
+    class Meta:
+        db_table = 'classified_ads_house_rent'
+        verbose_name = 'House for Rent'
+        verbose_name_plural = 'Houses for Rent'
+
+    def __str__(self):
+        return (
+            f"RENT | {self.district} | "
+            f"{self.rooms}rm | {self.size}m² | €{self.monthly_price}/mo"
+        )
+
+
 class HouseForSale(BaseHouseAd):
     class Meta:
         db_table = 'classified_ads_house_sale'
@@ -189,6 +207,22 @@ class HouseForSale(BaseHouseAd):
             f"SALE | {self.district} | "
             f"{self.rooms}rm | {self.size}m² | €{self.total_price}"
         )
+
+
+class HouseForRentSighting(models.Model):
+    ad = models.ForeignKey(
+        HouseForRent,
+        on_delete=models.CASCADE,
+        related_name='sightings',
+    )
+    seen_on = models.DateField()
+
+    class Meta:
+        unique_together = [('ad', 'seen_on')]
+        db_table = 'classified_ads_house_rent_sighting'
+
+    def __str__(self):
+        return f"{self.ad.ad_id} seen on {self.seen_on}"
 
 
 class HouseForSaleSighting(models.Model):

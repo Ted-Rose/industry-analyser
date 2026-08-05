@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 
 from core_scraper.base import BaseScraper
 from .models import (
+    HouseForRent, HouseForRentSighting,
     HouseForSale, HouseForSaleSighting,
     Region, Seller,
 )
@@ -20,6 +21,7 @@ HOUSING_BASE = (
 )
 
 HOUSING_DEAL_SUFFIXES = {
+    'hand_over/': 'RENT',
     'sell/': 'SELL',
 }
 
@@ -109,6 +111,12 @@ class HousingAdScraper(BaseScraper):
 
             total_price = self._clean_price(cells[8])
 
+            deal_type = self._current_deal_type
+            if deal_type == 'RENT':
+                alt_price = float(total_price) * 120
+            else:
+                alt_price = total_price
+
             try:
                 rooms_raw = cells[6]
                 if len(str(rooms_raw)) > 2 or len(str(rooms_raw)) == 0:
@@ -144,7 +152,7 @@ class HousingAdScraper(BaseScraper):
 
             results.append({
                 'ad_id': ad_id,
-                'deal_type': self._current_deal_type,
+                'deal_type': deal_type,
                 'district': self._current_region.name,
                 'region_name': self._current_region.name,
                 'link': link,
@@ -156,6 +164,7 @@ class HousingAdScraper(BaseScraper):
                 'floors': floors,
                 'land_area_sqm': land_area_sqm,
                 'total_price': total_price,
+                'alt_price': alt_price,
             })
         return results
 
@@ -207,9 +216,18 @@ class HousingAdScraper(BaseScraper):
         if not resources:
             return resources
 
+        rent_incoming = {
+            r['ad_id'] for r in resources if r['deal_type'] == 'RENT'
+        }
         sell_incoming = {
             r['ad_id'] for r in resources if r['deal_type'] == 'SELL'
         }
+
+        existing_rent_ids = set(
+            HouseForRent.objects.filter(
+                ad_id__in=rent_incoming
+            ).values_list('ad_id', flat=True)
+        ) if rent_incoming else set()
 
         existing_sell_ids = set(
             HouseForSale.objects.filter(
@@ -217,10 +235,13 @@ class HousingAdScraper(BaseScraper):
             ).values_list('ad_id', flat=True)
         ) if sell_incoming else set()
 
+        if existing_rent_ids:
+            self._write_sightings(existing_rent_ids, 'RENT')
         if existing_sell_ids:
             self._write_sightings(existing_sell_ids, 'SELL')
 
-        return [r for r in resources if r['ad_id'] not in existing_sell_ids]
+        existing_ids = existing_rent_ids | existing_sell_ids
+        return [r for r in resources if r['ad_id'] not in existing_ids]
 
     def enrich_result(self, partial_result):
         detail_response = self.make_request(partial_result['link'])
@@ -276,7 +297,37 @@ class HousingAdScraper(BaseScraper):
         )
 
         deal_type = result['deal_type']
-        if deal_type == 'SELL':
+        if deal_type == 'RENT':
+            monthly_price = result['total_price']
+            monthly_price_per_sqm = price_per_sqm
+            total_price_120m = result['alt_price']
+            price_per_sqm_120m = (
+                total_price_120m / size_val if size_val > 0 else 0.0
+            )
+
+            return HouseForRent(
+                ad_id=result['ad_id'],
+                comment=result['comment'],
+                link=result['link'],
+                region=self._current_region,
+                region_name=result['region_name'],
+                district=result['district'],
+                street_name=result['street_name'],
+                street_no=result['street_no'],
+                rooms=result['rooms'],
+                size=size_val,
+                floors=result['floors'],
+                land_area_sqm=result.get('land_area_sqm'),
+                post_date=result.get('post_date'),
+                seller=seller,
+                price_per_sqm=price_per_sqm,
+                total_price=result['total_price'],
+                monthly_price=monthly_price,
+                monthly_price_per_sqm=monthly_price_per_sqm,
+                total_price_120m=total_price_120m,
+                price_per_sqm_120m=price_per_sqm_120m,
+            )
+        elif deal_type == 'SELL':
             return HouseForSale(
                 ad_id=result['ad_id'],
                 comment=result['comment'],
@@ -302,7 +353,15 @@ class HousingAdScraper(BaseScraper):
         if not resources:
             return
 
+        rent_ads = [r for r in resources if isinstance(r, HouseForRent)]
         sell_ads = [r for r in resources if isinstance(r, HouseForSale)]
+
+        if rent_ads:
+            HouseForRent.objects.bulk_create(
+                rent_ads, ignore_conflicts=True
+            )
+            rent_ids = {ad.ad_id for ad in rent_ads}
+            self._write_sightings(rent_ids, 'RENT')
 
         if sell_ads:
             HouseForSale.objects.bulk_create(
@@ -314,7 +373,32 @@ class HousingAdScraper(BaseScraper):
     def _write_sightings(self, ad_ids, deal_type):
         today = date.today()
 
-        if deal_type == 'SELL':
+        if deal_type == 'RENT':
+            existing_ads = HouseForRent.objects.filter(
+                ad_id__in=ad_ids
+            ).values_list('id', 'ad_id')
+            ad_map = {ad_id: pk for pk, ad_id in existing_ads}
+
+            existing_sightings = set(
+                HouseForRentSighting.objects.filter(
+                    ad_id__in=ad_map.values(),
+                    seen_on=today,
+                ).values_list('ad_id', flat=True)
+            )
+
+            new_sightings = [
+                HouseForRentSighting(ad_id=ad_map[ad_id], seen_on=today)
+                for ad_id in ad_ids
+                if ad_id in ad_map and ad_map[ad_id] not in
+                existing_sightings
+            ]
+
+            if new_sightings:
+                HouseForRentSighting.objects.bulk_create(
+                    new_sightings, ignore_conflicts=True
+                )
+
+        elif deal_type == 'SELL':
             existing_ads = HouseForSale.objects.filter(
                 ad_id__in=ad_ids
             ).values_list('id', 'ad_id')
