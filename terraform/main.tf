@@ -14,6 +14,7 @@ resource "google_project_service" "apis" {
     "iam.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "secretmanager.googleapis.com",
+    "monitoring.googleapis.com",
   ])
 
   project            = var.project_id
@@ -107,7 +108,7 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
       service_account = google_service_account.job_runtime.email
 
       containers {
-        image   = local.job_image
+        image = local.job_image
         command = [
           "python3",
           "scripts/materialize_fetcher_config_and_scrape.py",
@@ -455,10 +456,85 @@ resource "google_cloud_run_v2_job" "sync_regions" {
   }
 }
 
+resource "google_cloud_run_v2_job" "sync_housing_regions" {
+  name     = "sync-housing-regions"
+  location = var.region
+
+  template {
+    task_count = 1
+    template {
+      timeout         = "1800s"
+      max_retries     = 0
+      service_account = google_service_account.job_runtime.email
+
+      containers {
+        image   = local.job_image
+        command = ["python", "manage.py", "sync_housing_regions"]
+
+        env {
+          name  = "DEBUG"
+          value = "False"
+        }
+        env {
+          name  = "SECRET_KEY"
+          value = var.secret_key
+        }
+        env {
+          name  = "DATABASE_URL"
+          value = var.database_url
+        }
+        env {
+          name  = "BASE_URL"
+          value = var.base_url
+        }
+        env {
+          name  = "DB_SSL_CERT"
+          value = var.db_ssl_cert
+        }
+        env {
+          name  = "HARD_CODED_PASSWORD"
+          value = var.hard_coded_password
+        }
+        env {
+          name  = "GEMINI_API_KEY"
+          value = var.gemini_api_key
+        }
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_artifact_registry_repository.dockerhub_cache,
+    google_project_service.apis,
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+    ]
+    prevent_destroy = true
+  }
+}
+
 resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_regions" {
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_job.sync_regions.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}
+
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_housing_regions" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.sync_housing_regions.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
@@ -483,6 +559,30 @@ resource "google_cloud_scheduler_job" "trigger_sync_regions" {
 
   depends_on = [
     google_cloud_run_v2_job.sync_regions,
+    google_project_service.apis,
+  ]
+}
+
+resource "google_cloud_scheduler_job" "trigger_sync_housing_regions" {
+  name             = "trigger-sync-housing-regions"
+  description      = "Sync ss.com housing regions to DB weekly (Sunday 01:30 UTC)"
+  schedule         = "30 1 * * 0"
+  time_zone        = "Etc/UTC"
+  region           = var.scheduler_region
+  attempt_deadline = "600s"
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_housing_regions.name}:run"
+    body        = base64encode("{}")
+
+    oauth_token {
+      service_account_email = google_service_account.scheduler_invoker.email
+    }
+  }
+
+  depends_on = [
+    google_cloud_run_v2_job.sync_housing_regions,
     google_project_service.apis,
   ]
 }

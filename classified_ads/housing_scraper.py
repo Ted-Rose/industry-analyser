@@ -96,7 +96,7 @@ class HousingAdScraper(BaseScraper):
         for row in soup.find_all('tr'):
             tds = row.find_all('td')
             cells = [td.text for td in tds]
-            if len(cells) != 9:
+            if len(cells) != 8:
                 continue
             row_id = row.get('id')
             if not row_id:
@@ -109,7 +109,7 @@ class HousingAdScraper(BaseScraper):
                     link = 'https://www.ss.com' + href
                     break
 
-            total_price = self._clean_price(cells[8])
+            total_price = self._clean_price(cells[7])
 
             deal_type = self._current_deal_type
             if deal_type == 'RENT':
@@ -117,18 +117,7 @@ class HousingAdScraper(BaseScraper):
             else:
                 alt_price = total_price
 
-            try:
-                rooms_raw = cells[6]
-                if len(str(rooms_raw)) > 2 or len(str(rooms_raw)) == 0:
-                    rooms = 0
-                elif len(str(rooms_raw)) > 0:
-                    rooms = int(rooms_raw)
-                else:
-                    rooms = 0
-            except (ValueError, TypeError):
-                rooms = 0
-
-            if rooms == 0 or total_price == 0.0:
+            if total_price == 0.0:
                 continue
 
             try:
@@ -139,7 +128,7 @@ class HousingAdScraper(BaseScraper):
             street_source = cells[3].strip()
             street_name, street_no = self._split_street(street_source)
 
-            land_area_sqm = _parse_land_area(cells[7])
+            land_area_sqm = _parse_land_area(cells[6])
 
             ad_id = str(
                 str(row_id)
@@ -147,7 +136,6 @@ class HousingAdScraper(BaseScraper):
                 + cells[4]
                 + cells[5]
                 + cells[6]
-                + cells[7]
             )
 
             results.append({
@@ -159,7 +147,7 @@ class HousingAdScraper(BaseScraper):
                 'comment': str(cells[2]),
                 'street_name': street_name,
                 'street_no': street_no,
-                'rooms': rooms,
+                'rooms': 0,
                 'size': cells[4],
                 'floors': floors,
                 'land_area_sqm': land_area_sqm,
