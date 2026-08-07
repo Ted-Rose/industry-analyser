@@ -7,6 +7,8 @@ app_name = 'classified_ads'
 urlpatterns = [
     path('', views.index, name='index'),
     path('ads/', views.ads_table, name='ads_table'),
+    path('ads/rent/', views.rent_ads_table, name='rent_ads_table'),
+    path('ads/sale/', views.sale_ads_table, name='sale_ads_table'),
     path('regions/', views.region_config, name='region_config'),
     path('regions/stats/', views.region_stats, name='region_stats'),
     path(
