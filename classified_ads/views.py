@@ -133,19 +133,29 @@ def region_config(request):
     total_count = Region.objects.count()
     enabled_count = Region.objects.filter(scrape_enabled=True).count()
 
-    return render(request, 'classified_ads/region_config.html', {
-        'regions_tree': regions,
-        'enabled_count': enabled_count,
-        'total_count': total_count,
-    })
+    return render(
+        request,
+        'classified_ads/region_config.html',
+        {
+            'regions_tree': regions,
+            'enabled_count': enabled_count,
+            'total_count': total_count,
+        }
+    )
 
 
 def _parse_date_range(request):
     default_from = date.today() - timedelta(days=STATS_DEFAULT_DAYS)
     default_to = date.today()
 
-    date_from = request.GET.get('date_from', '').strip() or default_from.isoformat()
-    date_to = request.GET.get('date_to', '').strip() or default_to.isoformat()
+    date_from = (
+        request.GET.get('date_from', '').strip()
+        or default_from.isoformat()
+    )
+    date_to = (
+        request.GET.get('date_to', '').strip()
+        or default_to.isoformat()
+    )
     return date_from, date_to
 
 
@@ -160,7 +170,7 @@ def _compute_apartment_region_stats(
     region, date_from, date_to, deal_type=''
 ):
     region_ids = _region_and_descendant_ids(region)
-    
+
     if deal_type == 'RENT':
         ads_qs = ApartmentForRent.objects.filter(
             region_id__in=region_ids,
@@ -210,7 +220,9 @@ def apartment_region_stats(request):
     date_from, date_to = _parse_date_range(request)
     deal_type = request.GET.get('deal_type', '').strip()
 
-    parent_regions = Region.objects.filter(parent__isnull=True).order_by('name')
+    parent_regions = (
+        Region.objects.filter(parent__isnull=True).order_by('name')
+    )
     selected_ids = set(request.GET.getlist('regions'))
 
     results = None
@@ -225,19 +237,25 @@ def apartment_region_stats(request):
 
     deal_type_choices = [('RENT', 'Rent'), ('SELL', 'Sell')]
 
-    return render(request, 'classified_ads/region_stats.html', {
-        'parent_regions': parent_regions,
-        'selected_ids': selected_ids,
-        'date_from': date_from,
-        'date_to': date_to,
-        'deal_type': deal_type,
-        'deal_type_choices': deal_type_choices,
-        'results': results,
-    })
+    return render(
+        request,
+        'classified_ads/region_stats.html',
+        {
+            'parent_regions': parent_regions,
+            'selected_ids': selected_ids,
+            'date_from': date_from,
+            'date_to': date_to,
+            'deal_type': deal_type,
+            'deal_type_choices': deal_type_choices,
+            'results': results,
+        }
+    )
 
 
 def apartment_region_stats_children(request, region_id):
-    parent_region = get_object_or_404(Region, pk=region_id, parent__isnull=True)
+    parent_region = get_object_or_404(
+        Region, pk=region_id, parent__isnull=True
+    )
     date_from, date_to = _parse_date_range(request)
     deal_type = request.GET.get('deal_type', '').strip()
 
@@ -251,14 +269,18 @@ def apartment_region_stats_children(request, region_id):
 
     deal_type_choices = [('RENT', 'Rent'), ('SELL', 'Sell')]
 
-    return render(request, 'classified_ads/region_stats_children.html', {
-        'parent_region': parent_region,
-        'results': results,
-        'date_from': date_from,
-        'date_to': date_to,
-        'deal_type': deal_type,
-        'deal_type_choices': deal_type_choices,
-    })
+    return render(
+        request,
+        'classified_ads/region_stats_children.html',
+        {
+            'parent_region': parent_region,
+            'results': results,
+            'date_from': date_from,
+            'date_to': date_to,
+            'deal_type': deal_type,
+            'deal_type_choices': deal_type_choices,
+        }
+    )
 
 
 def apartment_region_ads_list(request, region_id):
@@ -267,7 +289,7 @@ def apartment_region_ads_list(request, region_id):
     deal_type = request.GET.get('deal_type', '').strip()
 
     region_ids = _region_and_descendant_ids(region)
-    
+
     if deal_type == 'RENT':
         ads_qs = ApartmentForRent.objects.filter(
             region_id__in=region_ids,
