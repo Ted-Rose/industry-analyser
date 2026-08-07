@@ -57,7 +57,7 @@
         <!-- Filters -->
         <div class="card filter-card mb-4">
             <div class="card-body">
-                <form method="GET" action="{% url 'classified_ads:region_stats' %}">
+                <form method="GET" action="{% url 'classified_ads:apartment_region_stats' %}">
                     <div class="form-row align-items-end mb-2">
                         <div class="form-group col-md-2 mb-2">
                             <label class="filter-label" for="id_date_from">From</label>
@@ -121,7 +121,7 @@
                             <tr>
                                 <td>
                                     <a
-                                        href="{% url 'classified_ads:region_stats_children' result.region.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}">
+                                        href="{% url 'classified_ads:apartment_region_stats_children' result.region.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}">
                                         {{ result.region.name }}
                                     </a>
                                 </td>

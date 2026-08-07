@@ -14,7 +14,7 @@ BASE_LV = '/lv/real-estate/flats/'
 
 
 class Command(BaseCommand):
-    help = 'Fetch regions from ss.com and sync to DB'
+    help = 'Fetch apartment regions from ss.com and sync to DB'
 
     def handle(self, *args, **options):
         all_regions = self._fetch_all_regions()

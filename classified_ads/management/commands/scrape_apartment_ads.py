@@ -1,10 +1,10 @@
 from django.core.management.base import BaseCommand, CommandError
 
-from classified_ads.scraper import SsComScraper
+from classified_ads.apartment_scraper import ApartmentAdScraper
 
 
 class Command(BaseCommand):
-    help = 'Scrapes classified real estate ads from ss.com.'
+    help = 'Scrapes apartment ads from ss.com.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -16,13 +16,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            scraper = SsComScraper(
+            scraper = ApartmentAdScraper(
                 max_pages=options['max_pages'],
             )
             scraper.run()
             self.stdout.write(
                 self.style.SUCCESS(
-                    'Classified ads scraping complete.'
+                    'Apartment ads scraping complete.'
                 )
             )
         except Exception as e:

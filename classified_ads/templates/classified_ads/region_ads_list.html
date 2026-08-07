@@ -32,10 +32,10 @@
 <body>
 <div class="container-fluid py-4">
     {% if region.parent %}
-    <a href="{% url 'classified_ads:region_stats_children' region.parent.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}"
+    <a href="{% url 'classified_ads:apartment_region_stats_children' region.parent.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}"
        class="back-link">← Back to {{ region.parent.name }}</a>
     {% else %}
-    <a href="{% url 'classified_ads:region_stats' %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}&regions={{ region.id }}"
+    <a href="{% url 'classified_ads:apartment_region_stats' %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}&regions={{ region.id }}"
        class="back-link">← Back to region stats</a>
     {% endif %}
 

@@ -50,7 +50,7 @@ def is_sale_misclassified(comment, monthly_price_per_sqm):
     return False
 
 
-class SsComScraper(BaseScraper):
+class ApartmentAdScraper(BaseScraper):
 
     def __init__(self, max_pages=100):
         super().__init__()

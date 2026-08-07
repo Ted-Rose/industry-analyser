@@ -13,11 +13,11 @@ def index(request):
     return render(request, 'classified_ads/index.html')
 
 
-def ads_table(request):
-    return redirect('classified_ads:rent_ads_table')
+def apartment_ads_table(request):
+    return redirect('classified_ads:apartment_rent_ads_table')
 
 
-def rent_ads_table(request):
+def apartment_rent_ads_table(request):
     qs = ApartmentForRent.objects.all().order_by('-post_date')
 
     districts = (
@@ -49,20 +49,24 @@ def rent_ads_table(request):
     page_number = request.GET.get('page')
     ads = paginator.get_page(page_number)
 
-    return render(request, 'classified_ads/rent_ads_table.html', {
-        'ads': ads,
-        'districts': districts,
-        'room_choices': room_choices,
-        'selected_district': district,
-        'selected_rooms': rooms,
-        'selected_price_min': price_min,
-        'selected_price_max': price_max,
-        'total_count': qs.count(),
-        'ad_type': 'rent',
-    })
+    return render(
+        request,
+        'classified_ads/apartment_rent_ads_table.html',
+        {
+            'ads': ads,
+            'districts': districts,
+            'room_choices': room_choices,
+            'selected_district': district,
+            'selected_rooms': rooms,
+            'selected_price_min': price_min,
+            'selected_price_max': price_max,
+            'total_count': qs.count(),
+            'ad_type': 'rent',
+        }
+    )
 
 
-def sale_ads_table(request):
+def apartment_sale_ads_table(request):
     qs = ApartmentForSale.objects.all().order_by('-post_date')
 
     districts = (
@@ -94,17 +98,21 @@ def sale_ads_table(request):
     page_number = request.GET.get('page')
     ads = paginator.get_page(page_number)
 
-    return render(request, 'classified_ads/sale_ads_table.html', {
-        'ads': ads,
-        'districts': districts,
-        'room_choices': room_choices,
-        'selected_district': district,
-        'selected_rooms': rooms,
-        'selected_price_min': price_min,
-        'selected_price_max': price_max,
-        'total_count': qs.count(),
-        'ad_type': 'sale',
-    })
+    return render(
+        request,
+        'classified_ads/apartment_sale_ads_table.html',
+        {
+            'ads': ads,
+            'districts': districts,
+            'room_choices': room_choices,
+            'selected_district': district,
+            'selected_rooms': rooms,
+            'selected_price_min': price_min,
+            'selected_price_max': price_max,
+            'total_count': qs.count(),
+            'ad_type': 'sale',
+        }
+    )
 
 
 def region_config(request):
@@ -148,7 +156,9 @@ def _region_and_descendant_ids(region):
     return ids
 
 
-def _compute_region_stats(region, date_from, date_to, deal_type=''):
+def _compute_apartment_region_stats(
+    region, date_from, date_to, deal_type=''
+):
     region_ids = _region_and_descendant_ids(region)
     
     if deal_type == 'RENT':
@@ -196,7 +206,7 @@ def _compute_region_stats(region, date_from, date_to, deal_type=''):
     return stats
 
 
-def region_stats(request):
+def apartment_region_stats(request):
     date_from, date_to = _parse_date_range(request)
     deal_type = request.GET.get('deal_type', '').strip()
 
@@ -207,7 +217,9 @@ def region_stats(request):
     if selected_ids:
         selected_regions = parent_regions.filter(id__in=selected_ids)
         results = [
-            _compute_region_stats(region, date_from, date_to, deal_type)
+            _compute_apartment_region_stats(
+                region, date_from, date_to, deal_type
+            )
             for region in selected_regions
         ]
 
@@ -224,14 +236,16 @@ def region_stats(request):
     })
 
 
-def region_stats_children(request, region_id):
+def apartment_region_stats_children(request, region_id):
     parent_region = get_object_or_404(Region, pk=region_id, parent__isnull=True)
     date_from, date_to = _parse_date_range(request)
     deal_type = request.GET.get('deal_type', '').strip()
 
     children = parent_region.sub_regions.order_by('name')
     results = [
-        _compute_region_stats(child, date_from, date_to, deal_type)
+        _compute_apartment_region_stats(
+            child, date_from, date_to, deal_type
+        )
         for child in children
     ]
 
@@ -247,7 +261,7 @@ def region_stats_children(request, region_id):
     })
 
 
-def region_ads_list(request, region_id):
+def apartment_region_ads_list(request, region_id):
     region = get_object_or_404(Region, pk=region_id)
     date_from, date_to = _parse_date_range(request)
     deal_type = request.GET.get('deal_type', '').strip()

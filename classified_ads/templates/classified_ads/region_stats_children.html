@@ -52,14 +52,14 @@
 
 <body>
     <div class="container-fluid py-4">
-        <a href="{% url 'classified_ads:region_stats' %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}&regions={{ parent_region.id }}"
+        <a href="{% url 'classified_ads:apartment_region_stats' %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}&regions={{ parent_region.id }}"
             class="back-link">← Back to parent regions</a>
         <h2 class="mb-4">{{ parent_region.name }} — Sub-regions</h2>
 
         <!-- Filters -->
         <div class="card filter-card mb-4">
             <div class="card-body">
-                <form method="GET" action="{% url 'classified_ads:region_stats_children' parent_region.id %}">
+                <form method="GET" action="{% url 'classified_ads:apartment_region_stats_children' parent_region.id %}">
                     <div class="form-row align-items-end">
                         <div class="form-group col-md-2 mb-2">
                             <label class="filter-label" for="id_date_from">From</label>
@@ -108,7 +108,7 @@
                             {% for result in results %}
                             <tr>
                                 <td>
-                                    <a href="{% url 'classified_ads:region_ads_list' result.region.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}" 
+                                    <a href="{% url 'classified_ads:apartment_region_ads_list' result.region.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}" 
                                        class="region-link">
                                         {{ result.region.name }}
                                     </a>
