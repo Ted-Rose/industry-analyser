@@ -65,7 +65,7 @@
       }
     },
     {
-      "name": "Scrape Classified Ads",
+      "name": "Scrape Apartment Ads",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/manage.py",
@@ -80,11 +80,41 @@
       }
     },
     {
-      "name": "Scrape Classified Ads Regions",
+      "name": "Scrape Housing Ads",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["scrape_housing_ads"],
+      "django": true,
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Sync Apartment Regions",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/manage.py",
       "args": ["sync_regions"],
+      "django": true,
+      "justMyCode": true,
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/venv/bin/python",
+      "console": "integratedTerminal",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Sync Housing Regions",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["sync_housing_regions"],
       "django": true,
       "justMyCode": true,
       "cwd": "${workspaceFolder}",
