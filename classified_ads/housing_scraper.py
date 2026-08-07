@@ -242,20 +242,35 @@ class HousingAdScraper(BaseScraper):
         seller_phone = ''
         seller_contact_id = ''
 
-        for row in soup.find_all('tr'):
+        # Find the main content table with ad details
+        detail_table = soup.find('table', {'id': 'page_main'})
+        if not detail_table:
+            # Fallback to searching all tables
+            detail_table = soup
+
+        for row in detail_table.find_all('tr'):
             tds = row.find_all('td')
-            if len(tds) < 2:
+            if len(tds) != 2:
                 continue
+
             label = tds[0].text.strip()
             value = tds[1].text.strip()
 
+            # Skip if value is too long (likely not a simple field)
+            if len(value) > 100:
+                continue
+
             if 'Date' in label or 'Datums' in label:
-                try:
-                    post_date = timezone.make_aware(
-                        timezone.datetime.strptime(value, '%d.%m.%Y')
-                    )
-                except (ValueError, TypeError):
-                    pass
+                # Only try to parse if value looks like a date
+                if re.match(r'\d{1,2}\.\d{1,2}\.\d{4}', value):
+                    try:
+                        post_date = timezone.make_aware(
+                            timezone.datetime.strptime(
+                                value, '%d.%m.%Y'
+                            )
+                        )
+                    except (ValueError, TypeError):
+                        pass
             elif 'Phone' in label or 'Tālrunis' in label:
                 seller_phone = value
             elif 'Contact' in label or 'Kontakts' in label:
