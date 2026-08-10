@@ -9,6 +9,7 @@
     }
   ],
   "routes": [
+    { "handle": "filesystem" },
     {
       "src": "/(.*)",
       "dest": "industry_analyser/wsgi.py"
