@@ -21,7 +21,11 @@ urlpatterns = [
         views.apartment_sale_ads_table,
         name='apartment_sale_ads_table'
     ),
-    path('regions/', views.region_config, name='region_config'),
+    path(
+        'apartments/regions/config/',
+        views.apartment_region_config,
+        name='apartment_region_config'
+    ),
     path(
         'apartments/regions/stats/',
         views.apartment_region_stats,
@@ -51,6 +55,11 @@ urlpatterns = [
         'houses/sale/',
         views.house_sale_ads_table,
         name='house_sale_ads_table'
+    ),
+    path(
+        'houses/regions/config/',
+        views.house_region_config,
+        name='house_region_config'
     ),
     path(
         'houses/regions/stats/',

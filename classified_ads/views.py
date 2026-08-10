@@ -121,16 +121,81 @@ def apartment_sale_ads_table(request):
     )
 
 
-def region_config(request):
+def apartment_region_config(request):
     if request.method == 'POST':
         checked_urls = set(request.POST.getlist('regions'))
-        Region.objects.all().update(scrape_enabled=False)
+        apartment_regions = Region.objects.exclude(
+            url__contains='/homes-summer-residences/'
+        )
+        apartment_regions.update(scrape_enabled=False)
 
         if checked_urls:
-            Region.objects.filter(url__in=checked_urls).update(scrape_enabled=True)
-        return redirect('classified_ads:region_config')
+            Region.objects.filter(url__in=checked_urls).update(
+                scrape_enabled=True
+            )
+        return redirect('classified_ads:apartment_region_config')
 
-    return redirect('classified_ads:index')
+    regions = (
+        Region.objects
+        .filter(parent__isnull=True)
+        .exclude(url__contains='/homes-summer-residences/')
+        .prefetch_related('sub_regions')
+        .order_by('name')
+    )
+    total_count = Region.objects.exclude(
+        url__contains='/homes-summer-residences/'
+    ).count()
+    enabled_count = Region.objects.filter(
+        scrape_enabled=True
+    ).exclude(url__contains='/homes-summer-residences/').count()
+
+    return render(
+        request,
+        'classified_ads/apartment_region_config.html',
+        {
+            'regions_tree': regions,
+            'enabled_count': enabled_count,
+            'total_count': total_count,
+        }
+    )
+
+
+def house_region_config(request):
+    if request.method == 'POST':
+        checked_urls = set(request.POST.getlist('regions'))
+        house_regions = Region.objects.filter(
+            url__contains='/homes-summer-residences/'
+        )
+        house_regions.update(scrape_enabled=False)
+
+        if checked_urls:
+            Region.objects.filter(url__in=checked_urls).update(
+                scrape_enabled=True
+            )
+        return redirect('classified_ads:house_region_config')
+
+    regions = (
+        Region.objects
+        .filter(parent__isnull=True, url__contains='/homes-summer-residences/')
+        .prefetch_related('sub_regions')
+        .order_by('name')
+    )
+    total_count = Region.objects.filter(
+        url__contains='/homes-summer-residences/'
+    ).count()
+    enabled_count = Region.objects.filter(
+        scrape_enabled=True, url__contains='/homes-summer-residences/'
+    ).count()
+
+    return render(
+        request,
+        'classified_ads/house_region_config.html',
+        {
+            'regions_tree': regions,
+            'enabled_count': enabled_count,
+            'total_count': total_count,
+        }
+    )
 
 
 def _parse_date_range(request):
