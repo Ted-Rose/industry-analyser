@@ -61,6 +61,12 @@ jobs:
       - name: Deploy to Cloud Run Service
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          ENV_SECRET_KEY: ${{ secrets.TF_VAR_secret_key }}
+          ENV_DATABASE_URL: ${{ secrets.TF_VAR_database_url }}
+          ENV_BASE_URL: ${{ secrets.TF_VAR_base_url }}
+          ENV_DB_SSL_CERT: ${{ secrets.TF_VAR_db_ssl_cert }}
+          ENV_HARD_CODED_PASSWORD: ${{ secrets.TF_VAR_hard_coded_password }}
+          ENV_GEMINI_API_KEY: ${{ secrets.TF_VAR_gemini_api_key }}
         run: |
           set -euo pipefail
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}"
@@ -76,13 +82,13 @@ jobs:
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
-            --set-env-vars="DEBUG=False" \
-            --set-env-vars="SECRET_KEY=${{ secrets.TF_VAR_secret_key }}" \
-            --set-env-vars="DATABASE_URL=${{ secrets.TF_VAR_database_url }}" \
-            --set-env-vars="BASE_URL=${{ secrets.TF_VAR_base_url }}" \
-            --set-env-vars="DB_SSL_CERT=${{ secrets.TF_VAR_db_ssl_cert }}" \
-            --set-env-vars="HARD_CODED_PASSWORD=${{ secrets.TF_VAR_hard_coded_password }}" \
-            --set-env-vars="GEMINI_API_KEY=${{ secrets.TF_VAR_gemini_api_key }}" \
+            --update-env-vars="DEBUG=False" \
+            --update-env-vars="SECRET_KEY=${ENV_SECRET_KEY}" \
+            --update-env-vars="DATABASE_URL=${ENV_DATABASE_URL}" \
+            --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
+            --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
+            --update-env-vars="HARD_CODED_PASSWORD=${ENV_HARD_CODED_PASSWORD}" \
+            --update-env-vars="GEMINI_API_KEY=${ENV_GEMINI_API_KEY}" \
             --quiet
 
       - name: Get Service URL
