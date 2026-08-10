@@ -11,7 +11,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN SECRET_KEY=build-time-secret DATABASE_URL=sqlite:///db.sqlite3 python manage.py collectstatic --noinput
+ENV SECRET_KEY=build-time-dummy-secret
+ENV DATABASE_URL=sqlite:///db.sqlite3
+ENV DEBUG=False
+ENV BASE_URL=http://localhost
+
+RUN python manage.py collectstatic --noinput
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
