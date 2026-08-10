@@ -76,4 +76,9 @@ urlpatterns = [
         views.house_region_ads_list,
         name='house_region_ads_list',
     ),
+    path(
+        'daily-sightings/',
+        views.daily_sightings_report,
+        name='daily_sightings_report'
+    ),
 ]

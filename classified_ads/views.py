@@ -7,8 +7,12 @@ from django.shortcuts import get_object_or_404, render, redirect
 from .models import (
     ApartmentForRent,
     ApartmentForSale,
+    ApartmentForRentSighting,
+    ApartmentForSaleSighting,
     HouseForRent,
     HouseForSale,
+    HouseForRentSighting,
+    HouseForSaleSighting,
     Region,
 )
 
@@ -634,3 +638,103 @@ def house_region_ads_list(request, region_id):
         'deal_type_choices': deal_type_choices,
         'total_count': ads_qs.count(),
     })
+
+
+def daily_sightings_report(request):
+    default_from = date.today() - timedelta(days=30)
+    default_to = date.today()
+
+    date_from_str = (
+        request.GET.get('date_from', '').strip()
+        or default_from.isoformat()
+    )
+    date_to_str = (
+        request.GET.get('date_to', '').strip()
+        or default_to.isoformat()
+    )
+
+    date_from = date.fromisoformat(date_from_str)
+    date_to = date.fromisoformat(date_to_str)
+
+    apartment_rent_sightings = (
+        ApartmentForRentSighting.objects
+        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        .values('seen_on')
+        .annotate(count=Count('id'))
+        .order_by('seen_on')
+    )
+
+    apartment_sale_sightings = (
+        ApartmentForSaleSighting.objects
+        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        .values('seen_on')
+        .annotate(count=Count('id'))
+        .order_by('seen_on')
+    )
+
+    house_rent_sightings = (
+        HouseForRentSighting.objects
+        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        .values('seen_on')
+        .annotate(count=Count('id'))
+        .order_by('seen_on')
+    )
+
+    house_sale_sightings = (
+        HouseForSaleSighting.objects
+        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        .values('seen_on')
+        .annotate(count=Count('id'))
+        .order_by('seen_on')
+    )
+
+    apartment_rent_by_date = {
+        item['seen_on']: item['count']
+        for item in apartment_rent_sightings
+    }
+    apartment_sale_by_date = {
+        item['seen_on']: item['count']
+        for item in apartment_sale_sightings
+    }
+    house_rent_by_date = {
+        item['seen_on']: item['count']
+        for item in house_rent_sightings
+    }
+    house_sale_by_date = {
+        item['seen_on']: item['count']
+        for item in house_sale_sightings
+    }
+
+    all_dates = set()
+    all_dates.update(apartment_rent_by_date.keys())
+    all_dates.update(apartment_sale_by_date.keys())
+    all_dates.update(house_rent_by_date.keys())
+    all_dates.update(house_sale_by_date.keys())
+
+    daily_data = []
+    for current_date in sorted(all_dates):
+        apt_rent = apartment_rent_by_date.get(current_date, 0)
+        apt_sale = apartment_sale_by_date.get(current_date, 0)
+        house_rent = house_rent_by_date.get(current_date, 0)
+        house_sale = house_sale_by_date.get(current_date, 0)
+
+        daily_data.append({
+            'date': current_date,
+            'apartment_rent': apt_rent,
+            'apartment_sale': apt_sale,
+            'apartment_total': apt_rent + apt_sale,
+            'house_rent': house_rent,
+            'house_sale': house_sale,
+            'house_total': house_rent + house_sale,
+            'grand_total': apt_rent + apt_sale + house_rent + house_sale,
+        })
+
+    return render(
+        request,
+        'classified_ads/daily_sightings_report.html',
+        {
+            'date_from': date_from_str,
+            'date_to': date_to_str,
+            'daily_data': daily_data,
+        }
+    )
