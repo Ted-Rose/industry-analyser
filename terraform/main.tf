@@ -35,6 +35,22 @@ resource "google_artifact_registry_repository" "dockerhub_cache" {
     }
   }
 
+  cleanup_policies {
+    id     = "keep-latest-3"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-untagged"
+    action = "DELETE"
+    condition {
+      tag_state = "UNTAGGED"
+    }
+  }
+
   depends_on = [google_project_service.apis]
 
   lifecycle {
@@ -47,6 +63,22 @@ resource "google_artifact_registry_repository" "app_images" {
   repository_id = "industry-analyser-app"
   description   = "Container images built and pushed from GitHub Actions"
   format        = "DOCKER"
+
+  cleanup_policies {
+    id     = "keep-latest-3"
+    action = "KEEP"
+    most_recent_versions {
+      keep_count = 3
+    }
+  }
+
+  cleanup_policies {
+    id     = "delete-untagged"
+    action = "DELETE"
+    condition {
+      tag_state = "UNTAGGED"
+    }
+  }
 
   depends_on = [google_project_service.apis]
 
