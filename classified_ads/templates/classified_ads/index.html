@@ -26,10 +26,21 @@
             color: #666;
             margin-bottom: 30px;
         }
+        .property-section {
+            margin-bottom: 30px;
+        }
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e0e0e0;
+        }
         .nav-list {
             list-style: none;
             padding: 0;
-            margin: 0 0 30px;
+            margin: 0;
         }
         .nav-list li {
             margin-bottom: 10px;
@@ -45,6 +56,26 @@
         }
         .nav-list a:hover {
             background: #e9f3ff;
+        }
+        .nav-list a.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #f0f0f0;
+            color: #999;
+        }
+        .nav-list a.disabled:hover {
+            background: #f0f0f0;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            background: #ffc107;
+            color: #333;
+            border-radius: 3px;
+            margin-left: 8px;
+            text-transform: uppercase;
         }
         .actions {
             padding-top: 20px;
@@ -68,13 +99,32 @@
 <body>
     <div class="container">
         <h1>Classified Ads</h1>
-        <p class="subtitle">SS.com scraper - browse ads and manage regions.</p>
+        <p class="subtitle">Real estate listings from SS.com Latvia</p>
 
-        <ul class="nav-list">
-            <li><a href="{% url 'classified_ads:apartment_ads_table' %}">Apartment Ads Table</a></li>
-            <li><a href="{% url 'classified_ads:region_config' %}">Region Configuration</a></li>
-            <li><a href="{% url 'classified_ads:apartment_region_stats' %}">Apartment Region Stats</a></li>
-        </ul>
+        <section class="property-section">
+            <h2 class="section-title">🏢 Apartments</h2>
+            <ul class="nav-list">
+                <li><a href="{% url 'classified_ads:apartment_rent_ads_table' %}">Browse Rental Apartments</a></li>
+                <li><a href="{% url 'classified_ads:apartment_sale_ads_table' %}">Browse Apartments for Sale</a></li>
+                <li><a href="{% url 'classified_ads:apartment_region_stats' %}">Apartment Regional Statistics</a></li>
+            </ul>
+        </section>
+
+        <section class="property-section">
+            <h2 class="section-title">🏡 Houses</h2>
+            <ul class="nav-list">
+                <li><a href="#" class="disabled" title="Coming soon">Browse Rental Houses <span class="badge">Coming Soon</span></a></li>
+                <li><a href="#" class="disabled" title="Coming soon">Browse Houses for Sale <span class="badge">Coming Soon</span></a></li>
+                <li><a href="#" class="disabled" title="Coming soon">House Regional Statistics <span class="badge">Coming Soon</span></a></li>
+            </ul>
+        </section>
+
+        <section class="property-section">
+            <h2 class="section-title">⚙️ Configuration</h2>
+            <ul class="nav-list">
+                <li><a href="{% url 'classified_ads:region_config' %}">Region Configuration</a></li>
+            </ul>
+        </section>
 
         <div class="actions">
             <button type="button" onclick="window.location.href='/'">← Back to Home</button>
