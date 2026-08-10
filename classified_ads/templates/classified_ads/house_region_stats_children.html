@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ parent_region.name }} - Region Stats</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css"
+        integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+
+        .filter-card {
+            border: none;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+        }
+
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+            border-color: #454d55;
+            white-space: nowrap;
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: #e9f3ff;
+        }
+
+        .filter-label {
+            font-weight: 600;
+            font-size: .85rem;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: .5rem;
+        }
+
+        .region-link {
+            color: #007bff;
+            text-decoration: none;
+        }
+
+        .region-link:hover {
+            text-decoration: underline;
+            color: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container-fluid py-4">
+        <a href="{% url 'classified_ads:house_region_stats' %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}&regions={{ parent_region.id }}"
+            class="back-link">← Back to parent regions</a>
+        <h2 class="mb-4">{{ parent_region.name }} — Sub-regions</h2>
+
+        <!-- Filters -->
+        <div class="card filter-card mb-4">
+            <div class="card-body">
+                <form method="GET" action="{% url 'classified_ads:house_region_stats_children' parent_region.id %}">
+                    <div class="form-row align-items-end">
+                        <div class="form-group col-md-2 mb-2">
+                            <label class="filter-label" for="id_date_from">From</label>
+                            <input type="date" name="date_from" id="id_date_from" class="form-control form-control-sm"
+                                value="{{ date_from }}">
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
+                            <label class="filter-label" for="id_date_to">To</label>
+                            <input type="date" name="date_to" id="id_date_to" class="form-control form-control-sm"
+                                value="{{ date_to }}">
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
+                            <label class="filter-label" for="id_deal_type">Deal type</label>
+                            <select name="deal_type" id="id_deal_type" class="form-control form-control-sm">
+                                <option value="">All</option>
+                                {% for value, label in deal_type_choices %}
+                                <option value="{{ value }}" {% if deal_type == value %}selected{% endif %}>
+                                    {{ label }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group col-md-1 mb-2 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary btn-sm btn-block">Fetch</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div class="card filter-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Region</th>
+                                <th class="text-right">Total ads</th>
+                                <th class="text-right">Avg €/m²</th>
+                                <th class="text-right">Avg size m²</th>
+                                <th class="text-right">Avg day count ad is open</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in results %}
+                            <tr>
+                                <td>
+                                    <a href="{% url 'classified_ads:house_region_ads_list' result.region.id %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}" 
+                                       class="region-link">
+                                        {{ result.region.name }}
+                                    </a>
+                                </td>
+                                <td class="text-right">{{ result.total_ads }}</td>
+                                <td class="text-right">
+                                    {% if result.avg_price_per_sqm %}{{ result.avg_price_per_sqm|floatformat:0 }}{% else %}—{% endif %}
+                                </td>
+                                <td class="text-right">
+                                    {% if result.avg_size %}{{ result.avg_size|floatformat:1 }}{% else %}—{% endif %}
+                                </td>
+                                <td class="text-right">
+                                    {% if result.avg_days_tracked %}{{ result.avg_days_tracked|floatformat:1 }}{% else %}—{% endif %}
+                                </td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">No sub-regions found.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</body>
+
+</html>

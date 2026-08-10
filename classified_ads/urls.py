@@ -37,4 +37,34 @@ urlpatterns = [
         views.apartment_region_ads_list,
         name='apartment_region_ads_list',
     ),
+    path(
+        'houses/',
+        views.house_ads_table,
+        name='house_ads_table'
+    ),
+    path(
+        'houses/rent/',
+        views.house_rent_ads_table,
+        name='house_rent_ads_table'
+    ),
+    path(
+        'houses/sale/',
+        views.house_sale_ads_table,
+        name='house_sale_ads_table'
+    ),
+    path(
+        'houses/regions/stats/',
+        views.house_region_stats,
+        name='house_region_stats'
+    ),
+    path(
+        'houses/regions/stats/<int:region_id>/children/',
+        views.house_region_stats_children,
+        name='house_region_stats_children',
+    ),
+    path(
+        'houses/regions/<int:region_id>/ads/',
+        views.house_region_ads_list,
+        name='house_region_ads_list',
+    ),
 ]

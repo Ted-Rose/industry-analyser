@@ -113,9 +113,9 @@
         <section class="property-section">
             <h2 class="section-title">🏡 Houses</h2>
             <ul class="nav-list">
-                <li><a href="#" class="disabled" title="Coming soon">Browse Rental Houses <span class="badge">Coming Soon</span></a></li>
-                <li><a href="#" class="disabled" title="Coming soon">Browse Houses for Sale <span class="badge">Coming Soon</span></a></li>
-                <li><a href="#" class="disabled" title="Coming soon">House Regional Statistics <span class="badge">Coming Soon</span></a></li>
+                <li><a href="{% url 'classified_ads:house_rent_ads_table' %}">Browse Rental Houses</a></li>
+                <li><a href="{% url 'classified_ads:house_sale_ads_table' %}">Browse Houses for Sale</a></li>
+                <li><a href="{% url 'classified_ads:house_region_stats' %}">House Regional Statistics</a></li>
             </ul>
         </section>
 
