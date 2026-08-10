@@ -23,6 +23,22 @@ def home(request):
     return render(request, 'fetcher/home.html')
 
 
+def pwa_manifest(request):
+    return render(
+        request,
+        'fetcher/manifest.json',
+        content_type='application/json',
+    )
+
+
+def pwa_service_worker(request):
+    return render(
+        request,
+        'fetcher/sw.js',
+        content_type='application/javascript',
+    )
+
+
 def save_or_update_keywords(vacancy_id, content, keywords):
     # TODO Pass vacancy_obj to save_or_update_keywords
     if not content:
