@@ -268,7 +268,7 @@ resource "google_cloud_run_v2_job" "scrape_classified_ads" {
 
       containers {
         image   = local.job_image
-        command = ["python", "manage.py", "scrape_classified_ads"]
+        command = ["python", "manage.py", "scrape_apartment_ads"]
 
         env {
           name  = "DEBUG"
