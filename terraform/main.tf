@@ -611,6 +611,14 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_classified_ads"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
 
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_housing_ads" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_job.scrape_housing_ads.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}
+
 resource "google_cloud_scheduler_job" "trigger_scrape_vacancy" {
   name             = "trigger-scrape-vacancy"
   description      = "Run scrape-vacancy job every 48h (02:00 UTC)"
@@ -679,6 +687,30 @@ resource "google_cloud_scheduler_job" "trigger_scrape_classified_ads" {
 
   depends_on = [
     google_cloud_run_v2_job.scrape_classified_ads,
+    google_project_service.apis,
+  ]
+}
+
+resource "google_cloud_scheduler_job" "trigger_scrape_housing_ads" {
+  name             = "trigger-scrape-housing-ads"
+  description      = "Run scrape-housing-ads job daily (02:00 UTC)"
+  schedule         = "0 2 * * *"
+  time_zone        = "Etc/UTC"
+  region           = var.scheduler_region
+  attempt_deadline = "600s"
+
+  http_target {
+    http_method = "POST"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scrape_housing_ads.name}:run"
+    body        = base64encode("{}")
+
+    oauth_token {
+      service_account_email = google_service_account.scheduler_invoker.email
+    }
+  }
+
+  depends_on = [
+    google_cloud_run_v2_job.scrape_housing_ads,
     google_project_service.apis,
   ]
 }
