@@ -109,10 +109,14 @@
             text-decoration: underline;
         }
     </style>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0066cc">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Industry Analyser">
 </head>
 <body>
     <div class="container">
-        <a href="{% url 'classified_ads:house_ads_table' %}" class="back-link">← Back to Ads</a>
+        <a href="{% url 'classified_ads:index' %}" class="back-link">← Back to Ads</a>
         <a href="{% url 'classified_ads:house_region_stats' %}" class="back-link" style="margin-left: 20px;">View Region Stats →</a>
 
         <h1>🏡 House Region Configuration</h1>
@@ -181,6 +185,11 @@
                 });
             });
         });
+    </script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js');
+        }
     </script>
 </body>
 </html>
