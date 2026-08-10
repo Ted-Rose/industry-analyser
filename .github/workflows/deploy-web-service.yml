@@ -25,7 +25,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGION: us-central1
+  REGION: europe-north1
   SERVICE_NAME: industry-analyser
 
 jobs:
@@ -53,17 +53,17 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}-web"
-          docker build -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" .
-          docker push "${IMAGE}:${GITHUB_SHA}"
-          docker push "${IMAGE}:latest"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}"
+          docker build -t "${IMAGE}:web-${GITHUB_SHA}" -t "${IMAGE}:web-latest" .
+          docker push "${IMAGE}:web-${GITHUB_SHA}"
+          docker push "${IMAGE}:web-latest"
 
       - name: Deploy to Cloud Run Service
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}-web:${GITHUB_SHA}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}"
           
           gcloud run deploy ${SERVICE_NAME} \
             --image="${IMAGE}" \
@@ -119,7 +119,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Service**: ${SERVICE_NAME}" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Region**: ${REGION}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Image**: ${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}-web:${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Image**: ${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Min Instances**: 0" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Max Instances**: 1" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Memory**: 512Mi" >> $GITHUB_STEP_SUMMARY
