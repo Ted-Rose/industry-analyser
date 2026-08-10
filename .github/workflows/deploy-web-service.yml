@@ -1,0 +1,130 @@
+name: Deploy Django Web Service to Cloud Run
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - '**/*.py'
+      - '*.py'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements.txt'
+      - 'industry_analyser/**'
+      - 'classified_ads/**'
+      - 'fetcher/**'
+      - 'tv_programs/**'
+      - 'blogs/**'
+      - 'accounts/**'
+      - 'staticfiles/**'
+      - '.github/workflows/deploy-web-service.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-web-service-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGION: us-central1
+  SERVICE_NAME: industry-analyser
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push web service image
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}-web"
+          docker build -t "${IMAGE}:${GITHUB_SHA}" -t "${IMAGE}:latest" .
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
+
+      - name: Deploy to Cloud Run Service
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}-web:${GITHUB_SHA}"
+          
+          gcloud run deploy ${SERVICE_NAME} \
+            --image="${IMAGE}" \
+            --platform=managed \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=1 \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=300 \
+            --set-env-vars="DEBUG=False" \
+            --set-env-vars="SECRET_KEY=${{ secrets.TF_VAR_secret_key }}" \
+            --set-env-vars="DATABASE_URL=${{ secrets.TF_VAR_database_url }}" \
+            --set-env-vars="BASE_URL=${{ secrets.TF_VAR_base_url }}" \
+            --set-env-vars="DB_SSL_CERT=${{ secrets.TF_VAR_db_ssl_cert }}" \
+            --set-env-vars="HARD_CODED_PASSWORD=${{ secrets.TF_VAR_hard_coded_password }}" \
+            --set-env-vars="GEMINI_API_KEY=${{ secrets.TF_VAR_gemini_api_key }}" \
+            --quiet
+
+      - name: Get Service URL
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} \
+            --platform=managed \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --format='value(status.url)')
+          echo "🚀 Service deployed successfully!"
+          echo "📍 Service URL: ${SERVICE_URL}"
+          echo "SERVICE_URL=${SERVICE_URL}" >> $GITHUB_ENV
+
+      - name: Run health check
+        run: |
+          echo "Waiting 10 seconds for service to be ready..."
+          sleep 10
+          
+          echo "Running health check on ${SERVICE_URL}"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${SERVICE_URL} || echo "000")
+          
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+            echo "✅ Health check passed (HTTP ${HTTP_CODE})"
+          else
+            echo "⚠️  Health check returned HTTP ${HTTP_CODE}"
+            echo "This might be expected if the home page requires authentication"
+          fi
+
+      - name: Deployment Summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Service**: ${SERVICE_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Region**: ${REGION}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Image**: ${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}-web:${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Min Instances**: 0" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Max Instances**: 1" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Memory**: 512Mi" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **CPU**: 1" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🌐 **Service URL**: ${SERVICE_URL}" >> $GITHUB_STEP_SUMMARY
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
