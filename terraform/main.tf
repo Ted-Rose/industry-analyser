@@ -402,7 +402,7 @@ resource "google_cloud_run_v2_job" "sync_regions" {
 
       containers {
         image   = local.job_image
-        command = ["python", "manage.py", "sync_regions"]
+        command = ["python", "manage.py", "sync_apartment_regions"]
 
         env {
           name  = "DEBUG"

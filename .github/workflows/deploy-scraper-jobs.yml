@@ -174,7 +174,7 @@ jobs:
           update_job_if_exists sync-regions \
             --image="${IMAGE}" \
             --command=python \
-            --args=manage.py,sync_regions
+            --args=manage.py,sync_apartment_regions
 
           # Housing region sync: fetches ss.com housing region list and upserts into DB
           update_job_if_exists sync-housing-regions \

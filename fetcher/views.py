@@ -19,6 +19,10 @@ from lxml import html
 logger = logging.getLogger(__name__)
 today = timezone.now().date()
 
+def home(request):
+    return render(request, 'fetcher/home.html')
+
+
 def save_or_update_keywords(vacancy_id, content, keywords):
     # TODO Pass vacancy_obj to save_or_update_keywords
     if not content:
