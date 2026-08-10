@@ -96,7 +96,7 @@ class HousingAdScraper(BaseScraper):
         for row in soup.find_all('tr'):
             tds = row.find_all('td')
             cells = [td.text for td in tds]
-            if len(cells) != 8:
+            if len(cells) != 9:
                 continue
             row_id = row.get('id')
             if not row_id:
@@ -109,7 +109,7 @@ class HousingAdScraper(BaseScraper):
                     link = 'https://www.ss.com' + href
                     break
 
-            total_price = self._clean_price(cells[7])
+            total_price = self._clean_price(cells[8])
 
             deal_type = self._current_deal_type
             if deal_type == 'RENT':
@@ -128,14 +128,14 @@ class HousingAdScraper(BaseScraper):
             street_source = cells[3].strip()
             street_name, street_no = self._split_street(street_source)
 
-            land_area_sqm = _parse_land_area(cells[6])
+            land_area_sqm = _parse_land_area(cells[7])
 
             ad_id = str(
                 str(row_id)
                 + cells[3]
                 + cells[4]
                 + cells[5]
-                + cells[6]
+                + cells[7]
             )
 
             results.append({
