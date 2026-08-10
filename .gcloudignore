@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+
+# Environment
+.env
+.env.local
+*.pem
+ca.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation
+README.md
+docs/
+*.md
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Terraform
+terraform/
+
+# Backups
+db_backups/
+
+# Logs
+logs/
+
+# Other
+.DS_Store
+*.bak
+test_*.py

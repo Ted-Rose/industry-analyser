@@ -92,7 +92,8 @@ GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 ALLOWED_HOSTS = [
     '127.0.0.1',
     '0.0.0.0',
-    '.vercel.app'
+    '.vercel.app',
+    '.run.app'
 ]
 
 _extra_host = env('ALLOWED_HOST_IP', default='')
