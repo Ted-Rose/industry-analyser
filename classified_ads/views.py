@@ -130,24 +130,7 @@ def region_config(request):
             Region.objects.filter(url__in=checked_urls).update(scrape_enabled=True)
         return redirect('classified_ads:region_config')
 
-    regions = (
-        Region.objects
-        .filter(parent__isnull=True)
-        .prefetch_related('sub_regions')
-        .order_by('name')
-    )
-    total_count = Region.objects.count()
-    enabled_count = Region.objects.filter(scrape_enabled=True).count()
-
-    return render(
-        request,
-        'classified_ads/region_config.html',
-        {
-            'regions_tree': regions,
-            'enabled_count': enabled_count,
-            'total_count': total_count,
-        }
-    )
+    return redirect('classified_ads:index')
 
 
 def _parse_date_range(request):
