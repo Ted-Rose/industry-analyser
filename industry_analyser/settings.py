@@ -100,6 +100,12 @@ _extra_host = env('ALLOWED_HOST_IP', default='')
 if _extra_host:
     ALLOWED_HOSTS.append(_extra_host)
 
+# CSRF trusted origins for Cloud Run and Vercel
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.run.app',
+    'https://*.vercel.app',
+]
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
