@@ -287,8 +287,8 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
   }
 }
 
-resource "google_cloud_run_v2_job" "scrape_classified_ads" {
-  name     = "scrape-classified-ads"
+resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
+  name     = "scrape-apartment-ads"
   location = var.region
 
   template {
@@ -635,10 +635,10 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_tv" {
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
 
-resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_classified_ads" {
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_apartment_ads" {
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_job.scrape_classified_ads.name
+  name     = google_cloud_run_v2_job.scrape_apartment_ads.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
@@ -699,9 +699,9 @@ resource "google_cloud_scheduler_job" "trigger_scrape_tv_programs" {
   ]
 }
 
-resource "google_cloud_scheduler_job" "trigger_scrape_classified_ads" {
-  name             = "trigger-scrape-classified-ads"
-  description      = "Run scrape-classified-ads job daily (04:00 UTC)"
+resource "google_cloud_scheduler_job" "trigger_scrape_apartment_ads" {
+  name             = "trigger-scrape-apartment-ads"
+  description      = "Run scrape-apartment-ads job daily (04:00 UTC)"
   schedule         = "0 4 * * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
@@ -709,7 +709,7 @@ resource "google_cloud_scheduler_job" "trigger_scrape_classified_ads" {
 
   http_target {
     http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scrape_classified_ads.name}:run"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scrape_apartment_ads.name}:run"
     body        = base64encode("{}")
 
     oauth_token {
@@ -718,7 +718,7 @@ resource "google_cloud_scheduler_job" "trigger_scrape_classified_ads" {
   }
 
   depends_on = [
-    google_cloud_run_v2_job.scrape_classified_ads,
+    google_cloud_run_v2_job.scrape_apartment_ads,
     google_project_service.apis,
   ]
 }

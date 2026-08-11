@@ -69,7 +69,7 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/manage.py",
-      "args": ["scrape_classified_ads"],
+      "args": ["scrape_apartment_ads"],
       "django": true,
       "justMyCode": true,
       "cwd": "${workspaceFolder}",

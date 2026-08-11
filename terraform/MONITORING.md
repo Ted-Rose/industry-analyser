@@ -6,7 +6,7 @@ This document explains the Cloud Monitoring alert setup for Cloud Run job failur
 
 The monitoring setup includes:
 - **Email notification channel** - Sends alerts to your specified email address
-- **Alert policies** - One for each Cloud Run job (scrape-vacancy, scrape-tv-programs, scrape-classified-ads, scrape-blogs)
+- **Alert policies** - One for each Cloud Run job (scrape-vacancy, scrape-tv-programs, scrape-apartment-ads, scrape-blogs)
 - **Comprehensive failure detection** - Catches ALL failure types including:
   - Application errors (non-zero exit codes)
   - OOM (Out of Memory) kills

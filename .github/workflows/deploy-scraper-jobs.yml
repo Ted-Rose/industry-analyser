@@ -158,8 +158,8 @@ jobs:
             --command=python \
             --args=manage.py,scrape_tv_programs
 
-          # Classified ads scraper: standard Django entrypoint
-          update_job_if_exists scrape-classified-ads \
+          # Apartment ads scraper: standard Django entrypoint
+          update_job_if_exists scrape-apartment-ads \
             --image="${IMAGE}" \
             --command=python \
             --args=manage.py,scrape_apartment_ads

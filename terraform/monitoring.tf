@@ -137,16 +137,16 @@ resource "google_monitoring_alert_policy" "scrape_tv_programs_failure" {
   ]
 }
 
-# Alert policy for scrape-classified-ads job failures
-resource "google_monitoring_alert_policy" "scrape_classified_ads_failure" {
+# Alert policy for scrape-apartment-ads job failures
+resource "google_monitoring_alert_policy" "scrape_apartment_ads_failure" {
   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
 
-  display_name = "Cloud Run Job Failure: scrape-classified-ads"
+  display_name = "Cloud Run Job Failure: scrape-apartment-ads"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      The Cloud Run job "scrape-classified-ads" has failed.
+      The Cloud Run job "scrape-apartment-ads" has failed.
       
       This alert monitors the completed_execution_count metric with 
       result="failed" label.
@@ -160,7 +160,7 @@ resource "google_monitoring_alert_policy" "scrape_classified_ads_failure" {
       being marked as failed.
       
       Check the Cloud Run logs for details:
-      https://console.cloud.google.com/run/jobs/details/${var.region}/scrape-classified-ads?project=${var.project_id}
+      https://console.cloud.google.com/run/jobs/details/${var.region}/scrape-apartment-ads?project=${var.project_id}
     EOT
     mime_type = "text/markdown"
   }
@@ -170,7 +170,7 @@ resource "google_monitoring_alert_policy" "scrape_classified_ads_failure" {
     condition_threshold {
       filter = join(" AND ", [
         "resource.type=\"cloud_run_job\"",
-        "resource.labels.job_name=\"scrape-classified-ads\"",
+        "resource.labels.job_name=\"scrape-apartment-ads\"",
         "resource.labels.location=\"${var.region}\"",
         "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
         "metric.labels.result=\"failed\""
@@ -195,7 +195,7 @@ resource "google_monitoring_alert_policy" "scrape_classified_ads_failure" {
   }
 
   depends_on = [
-    google_cloud_run_v2_job.scrape_classified_ads,
+    google_cloud_run_v2_job.scrape_apartment_ads,
     google_project_service.apis
   ]
 }

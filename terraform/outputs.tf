@@ -51,7 +51,7 @@ output "alert_policies" {
   value = length(google_monitoring_notification_channel.email) > 0 ? [
     google_monitoring_alert_policy.scrape_vacancy_failure[0].name,
     google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
-    google_monitoring_alert_policy.scrape_classified_ads_failure[0].name,
+    google_monitoring_alert_policy.scrape_apartment_ads_failure[0].name,
     google_monitoring_alert_policy.scrape_housing_ads_failure[0].name,
     google_monitoring_alert_policy.sync_regions_failure[0].name,
     google_monitoring_alert_policy.sync_housing_regions_failure[0].name,

@@ -5,7 +5,7 @@
 Automatically sends you an email whenever any of your Cloud Run jobs fail:
 - `scrape-vacancy`
 - `scrape-tv-programs`
-- `scrape-classified-ads`
+- `scrape-apartment-ads`
 - `scrape-housing-ads`
 - `sync-regions`
 
