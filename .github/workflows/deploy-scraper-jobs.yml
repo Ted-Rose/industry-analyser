@@ -162,7 +162,7 @@ jobs:
           update_job_if_exists scrape-classified-ads \
             --image="${IMAGE}" \
             --command=python \
-            --args=manage.py,scrape_classified_ads
+            --args=manage.py,scrape_apartment_ads
 
           # Housing ads scraper: standard Django entrypoint
           update_job_if_exists scrape-housing-ads \
