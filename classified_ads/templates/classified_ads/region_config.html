@@ -178,11 +178,16 @@
 
     <script>
         document.querySelectorAll('.parent-checkbox').forEach((parentCheckbox) => {
-            parentCheckbox.addEventListener('change', () => {
-                const subRegions = parentCheckbox.closest('.region-item').querySelectorAll('.sub-checkbox');
-                subRegions.forEach((subCheckbox) => {
-                    subCheckbox.checked = parentCheckbox.checked;
-                });
+            parentCheckbox.addEventListener('change', function() {
+                const parentRegionItem = this.closest('.region-item');
+                const subRegionsContainer = parentRegionItem.querySelector('.sub-regions');
+                
+                if (subRegionsContainer) {
+                    const subCheckboxes = subRegionsContainer.querySelectorAll('.sub-checkbox');
+                    subCheckboxes.forEach((subCheckbox) => {
+                        subCheckbox.checked = this.checked;
+                    });
+                }
             });
         });
     </script>
