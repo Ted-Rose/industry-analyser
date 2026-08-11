@@ -652,6 +652,9 @@ def daily_sightings_report(request):
         request.GET.get('date_to', '').strip()
         or default_to.isoformat()
     )
+    order = request.GET.get('order', 'asc').strip()
+    if order not in ['asc', 'desc']:
+        order = 'asc'
 
     date_from = date.fromisoformat(date_from_str)
     date_to = date.fromisoformat(date_to_str)
@@ -712,7 +715,8 @@ def daily_sightings_report(request):
     all_dates.update(house_sale_by_date.keys())
 
     daily_data = []
-    for current_date in sorted(all_dates):
+    sorted_dates = sorted(all_dates, reverse=(order == 'desc'))
+    for current_date in sorted_dates:
         apt_rent = apartment_rent_by_date.get(current_date, 0)
         apt_sale = apartment_sale_by_date.get(current_date, 0)
         house_rent = house_rent_by_date.get(current_date, 0)
@@ -736,5 +740,6 @@ def daily_sightings_report(request):
             'date_from': date_from_str,
             'date_to': date_to_str,
             'daily_data': daily_data,
+            'order': order,
         }
     )

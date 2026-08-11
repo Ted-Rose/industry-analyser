@@ -84,6 +84,20 @@
                                    value="{{ date_to }}">
                         </div>
                         <div class="form-group col-md-2 mb-2">
+                            <label class="filter-label" for="id_order">Order</label>
+                            <select name="order" id="id_order" 
+                                    class="form-control form-control-sm">
+                                <option value="asc" 
+                                    {% if order == 'asc' %}selected{% endif %}>
+                                    Oldest First
+                                </option>
+                                <option value="desc" 
+                                    {% if order == 'desc' %}selected{% endif %}>
+                                    Newest First
+                                </option>
+                            </select>
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
                             <button type="submit" class="btn btn-primary btn-sm">
                                 Fetch
                             </button>
