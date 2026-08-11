@@ -84,6 +84,27 @@
                                    value="{{ date_to }}">
                         </div>
                         <div class="form-group col-md-2 mb-2">
+                            <label class="filter-label" for="id_region">Region</label>
+                            <select name="region" id="id_region" 
+                                    class="form-control form-control-sm">
+                                <option value="">All Regions</option>
+                                {% for region in regions %}
+                                    <optgroup label="{{ region.name }}">
+                                        <option value="{{ region.id }}" 
+                                            {% if selected_region == region.id|stringformat:"s" %}selected{% endif %}>
+                                            {{ region.name }}
+                                        </option>
+                                        {% for sub_region in region.sub_regions.all %}
+                                            <option value="{{ sub_region.id }}" 
+                                                {% if selected_region == sub_region.id|stringformat:"s" %}selected{% endif %}>
+                                                &nbsp;&nbsp;{{ sub_region.name }}
+                                            </option>
+                                        {% endfor %}
+                                    </optgroup>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group col-md-2 mb-2">
                             <label class="filter-label" for="id_order">Order</label>
                             <select name="order" id="id_order" 
                                     class="form-control form-control-sm">

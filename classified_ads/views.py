@@ -656,36 +656,63 @@ def daily_sightings_report(request):
     if order not in ['asc', 'desc']:
         order = 'asc'
 
+    region_id = request.GET.get('region', '').strip()
+
     date_from = date.fromisoformat(date_from_str)
     date_to = date.fromisoformat(date_to_str)
 
+    apartment_rent_qs = ApartmentForRentSighting.objects.filter(
+        seen_on__gte=date_from, seen_on__lte=date_to
+    )
+    apartment_sale_qs = ApartmentForSaleSighting.objects.filter(
+        seen_on__gte=date_from, seen_on__lte=date_to
+    )
+    house_rent_qs = HouseForRentSighting.objects.filter(
+        seen_on__gte=date_from, seen_on__lte=date_to
+    )
+    house_sale_qs = HouseForSaleSighting.objects.filter(
+        seen_on__gte=date_from, seen_on__lte=date_to
+    )
+
+    if region_id:
+        region = Region.objects.get(id=region_id)
+        region_ids = _region_and_descendant_ids(region)
+        apartment_rent_qs = apartment_rent_qs.filter(
+            ad__region_id__in=region_ids
+        )
+        apartment_sale_qs = apartment_sale_qs.filter(
+            ad__region_id__in=region_ids
+        )
+        house_rent_qs = house_rent_qs.filter(
+            ad__region_id__in=region_ids
+        )
+        house_sale_qs = house_sale_qs.filter(
+            ad__region_id__in=region_ids
+        )
+
     apartment_rent_sightings = (
-        ApartmentForRentSighting.objects
-        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        apartment_rent_qs
         .values('seen_on')
         .annotate(count=Count('id'))
         .order_by('seen_on')
     )
 
     apartment_sale_sightings = (
-        ApartmentForSaleSighting.objects
-        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        apartment_sale_qs
         .values('seen_on')
         .annotate(count=Count('id'))
         .order_by('seen_on')
     )
 
     house_rent_sightings = (
-        HouseForRentSighting.objects
-        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        house_rent_qs
         .values('seen_on')
         .annotate(count=Count('id'))
         .order_by('seen_on')
     )
 
     house_sale_sightings = (
-        HouseForSaleSighting.objects
-        .filter(seen_on__gte=date_from, seen_on__lte=date_to)
+        house_sale_qs
         .values('seen_on')
         .annotate(count=Count('id'))
         .order_by('seen_on')
@@ -733,6 +760,13 @@ def daily_sightings_report(request):
             'grand_total': apt_rent + apt_sale + house_rent + house_sale,
         })
 
+    regions = (
+        Region.objects
+        .filter(parent__isnull=True)
+        .prefetch_related('sub_regions')
+        .order_by('name')
+    )
+
     return render(
         request,
         'classified_ads/daily_sightings_report.html',
@@ -741,5 +775,7 @@ def daily_sightings_report(request):
             'date_to': date_to_str,
             'daily_data': daily_data,
             'order': order,
+            'regions': regions,
+            'selected_region': region_id,
         }
     )
