@@ -27,7 +27,8 @@ env = environ.Env(
 
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'), overwrite=False)
 
-# CA PEM from env (DB_SSL_CERT or legacy capem), written to /tmp — same pattern as Vercel/GCP.
+# CA PEM from env (DB_SSL_CERT or legacy capem), written to /tmp
+# Same pattern as Vercel/GCP.
 _DB_SSL_CA_FILE = '/tmp/industry-analyser-postgres-ca.pem'
 
 
@@ -154,7 +155,8 @@ WSGI_APPLICATION = 'industry_analyser.wsgi.app'
 
 
 def _database_url_default() -> str:
-    """Prefer DATABASE_URL; otherwise build from legacy DB_* vars (still set on Vercel)."""
+    """Prefer DATABASE_URL; otherwise build from legacy DB_* vars
+    (still set on Vercel)."""
     explicit = os.environ.get('DATABASE_URL', '').strip()
     if explicit:
         return explicit
