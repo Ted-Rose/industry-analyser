@@ -652,9 +652,9 @@ def daily_sightings_report(request):
         request.GET.get('date_to', '').strip()
         or default_to.isoformat()
     )
-    order = request.GET.get('order', 'asc').strip()
+    order = request.GET.get('order', 'desc').strip()
     if order not in ['asc', 'desc']:
-        order = 'asc'
+        order = 'desc'
 
     region_id = request.GET.get('region', '').strip()
 
