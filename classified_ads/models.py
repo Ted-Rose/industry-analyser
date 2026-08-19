@@ -2,8 +2,20 @@ from django.db import models
 
 
 class Region(models.Model):
+    CATEGORY_CHOICES = [
+        ('APARTMENT', 'Apartment'),
+        ('HOUSE', 'House'),
+        ('PHONE', 'Phone'),
+        ('HOUSEHOLD', 'Household Items'),
+    ]
+
     name = models.CharField(max_length=255)
     url = models.URLField(max_length=500, unique=True)
+    category = models.CharField(
+        max_length=20,
+        choices=CATEGORY_CHOICES,
+        default='APARTMENT',
+    )
     parent = models.ForeignKey(
         'self',
         null=True,
@@ -14,10 +26,10 @@ class Region(models.Model):
     scrape_enabled = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ['name']
+        ordering = ['category', 'name']
 
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.get_category_display()})"
 
 
 class Seller(models.Model):

@@ -29,7 +29,11 @@ class Command(BaseCommand):
         for rd in top_level:
             region, is_created = Region.objects.get_or_create(
                 url=rd['url'],
-                defaults={'name': rd['name'], 'scrape_enabled': False},
+                defaults={
+                    'name': rd['name'],
+                    'category': 'APARTMENT',
+                    'scrape_enabled': False,
+                },
             )
             if not is_created:
                 region.name = rd['name']
@@ -51,6 +55,7 @@ class Command(BaseCommand):
                 url=rd['url'],
                 defaults={
                     'name': rd['name'],
+                    'category': 'APARTMENT',
                     'parent': parent,
                     'scrape_enabled': True,
                 },

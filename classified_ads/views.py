@@ -279,7 +279,9 @@ def apartment_region_stats(request):
     deal_type = request.GET.get('deal_type', '').strip()
 
     parent_regions = (
-        Region.objects.filter(parent__isnull=True).order_by('name')
+        Region.objects.filter(
+            parent__isnull=True, category='APARTMENT'
+        ).order_by('name')
     )
     selected_ids = set(request.GET.getlist('regions'))
 
@@ -538,7 +540,7 @@ def house_region_stats(request):
 
     parent_regions = (
         Region.objects
-        .filter(parent__isnull=True, url__contains='/homes-summer-residences/')
+        .filter(parent__isnull=True, category='HOUSE')
         .order_by('name')
     )
     selected_ids = set(request.GET.getlist('regions'))

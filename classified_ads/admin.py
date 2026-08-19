@@ -117,8 +117,8 @@ class ApartmentForSaleAdmin(admin.ModelAdmin):
 
 @admin.register(Region)
 class RegionAdmin(admin.ModelAdmin):
-    list_display = ['name', 'parent', 'url', 'scrape_enabled']
-    list_filter = ['scrape_enabled', 'parent']
+    list_display = ['name', 'category', 'parent', 'url', 'scrape_enabled']
+    list_filter = ['category', 'scrape_enabled', 'parent']
     list_editable = ['scrape_enabled']
     search_fields = ['name', 'url']
 
