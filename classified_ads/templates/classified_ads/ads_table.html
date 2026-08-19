@@ -1,35 +1,31 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Classified Ads</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
-    <style>
-        body { background-color: #f8f9fa; }
-        .filter-card {
-            border: none;
-            box-shadow: 0 1px 4px rgba(0,0,0,.1);
-        }
-        .table thead th {
-            background-color: #343a40;
-            color: #fff;
-            border-color: #454d55;
-            white-space: nowrap;
-        }
-        .table-hover tbody tr:hover { background-color: #e9f3ff; }
-        .badge-rent { background-color: #17a2b8; }
-        .badge-sell { background-color: #28a745; }
-        .ad-link { font-size: .85rem; }
-        .filter-label { font-weight: 600; font-size: .85rem; }
-        .result-count { font-size: .9rem; color: #6c757d; }
-    </style>
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0066cc">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Industry Analyser">
-</head>
-<body>
+{% extends "classified_ads/base.html" %}
+
+{% block title %}Classified Ads{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+<style>
+    body { background-color: #f8f9fa; }
+    .filter-card {
+        border: none;
+        box-shadow: 0 1px 4px rgba(0,0,0,.1);
+    }
+    .table thead th {
+        background-color: #343a40;
+        color: #fff;
+        border-color: #454d55;
+        white-space: nowrap;
+    }
+    .table-hover tbody tr:hover { background-color: #e9f3ff; }
+    .badge-rent { background-color: #17a2b8; }
+    .badge-sell { background-color: #28a745; }
+    .ad-link { font-size: .85rem; }
+    .filter-label { font-weight: 600; font-size: .85rem; }
+    .result-count { font-size: .9rem; color: #6c757d; }
+</style>
+{% endblock %}
+
+{% block content %}
 <div class="container-fluid py-4">
     <div class="d-flex align-items-center mb-3">
         <h2 class="mb-0 mr-3">Classified Ads</h2>
@@ -215,10 +211,4 @@
     {% endif %}
 
 </div>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js');
-        }
-    </script>
-</body>
-</html>
+{% endblock %}

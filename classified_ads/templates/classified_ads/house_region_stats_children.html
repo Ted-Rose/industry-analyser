@@ -1,13 +1,11 @@
-<!DOCTYPE html>
-<html lang="en">
+{% extends "classified_ads/base.html" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ parent_region.name }} - Region Stats</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css"
-        integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
-    <style>
+{% block title %}{{ parent_region.name }} - House Region Stats{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css"
+    integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+<style>
         body {
             background-color: #f8f9fa;
         }
@@ -48,13 +46,9 @@
             color: #0056b3;
         }
     </style>
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0066cc">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Industry Analyser">
-</head>
+{% endblock %}
 
-<body>
+{% block content %}
     <div class="container-fluid py-4">
         <a href="{% url 'classified_ads:house_region_stats' %}?date_from={{ date_from }}&date_to={{ date_to }}&deal_type={{ deal_type }}&regions={{ parent_region.id }}"
             class="back-link">← Back to parent regions</a>
@@ -145,11 +139,4 @@
         {% endif %}
 
     </div>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js');
-        }
-    </script>
-</body>
-
-</html>
+{% endblock %}

@@ -1,10 +1,9 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Region Configuration - SS.com Scraper</title>
-    <style>
+{% extends "classified_ads/base.html" %}
+
+{% block title %}Region Configuration - SS.com Scraper{% endblock %}
+
+{% block extra_head %}
+<style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             max-width: 1000px;
@@ -109,12 +108,9 @@
             text-decoration: underline;
         }
     </style>
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0066cc">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Industry Analyser">
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
     <div class="container">
         <a href="{% url 'classified_ads:apartment_ads_table' %}" class="back-link">← Back to Ads</a>
         <a href="{% url 'classified_ads:apartment_region_stats' %}" class="back-link" style="margin-left: 20px;">View Region Stats →</a>
@@ -196,5 +192,4 @@
             navigator.serviceWorker.register('/sw.js');
         }
     </script>
-</body>
-</html>
+{% endblock %}

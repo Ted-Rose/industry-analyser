@@ -1,145 +1,114 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Classified Ads - SS.com Scraper</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 700px;
-            margin: 40px auto;
-            padding: 0 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            margin-bottom: 10px;
-        }
-        .subtitle {
-            color: #666;
-            margin-bottom: 30px;
-        }
-        .property-section {
-            margin-bottom: 30px;
-        }
-        .section-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 2px solid #e0e0e0;
-        }
-        .nav-list {
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .nav-list li {
-            margin-bottom: 10px;
-        }
-        .nav-list a {
-            display: block;
-            padding: 14px 16px;
-            border-radius: 4px;
-            background: #f8f9fa;
-            color: #0066cc;
-            text-decoration: none;
-            font-weight: 500;
-        }
-        .nav-list a:hover {
-            background: #e9f3ff;
-        }
-        .nav-list a.disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            background: #f0f0f0;
-            color: #999;
-        }
-        .nav-list a.disabled:hover {
-            background: #f0f0f0;
-        }
-        .badge {
-            display: inline-block;
-            padding: 2px 8px;
-            font-size: 11px;
-            font-weight: 600;
-            background: #ffc107;
-            color: #333;
-            border-radius: 3px;
-            margin-left: 8px;
-            text-transform: uppercase;
-        }
-        .actions {
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
-        }
-        button {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-            background: #e0e0e0;
-            color: #333;
-        }
-        button:hover {
-            background: #d0d0d0;
-        }
-    </style>
-    <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0066cc">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="Industry Analyser">
-</head>
-<body>
-    <div class="container">
-        <h1>Classified Ads</h1>
-        <p class="subtitle">Real estate listings from SS.com Latvia</p>
+{% extends "classified_ads/base.html" %}
 
-        <section class="property-section">
-            <h2 class="section-title">🏢 Apartments</h2>
-            <ul class="nav-list">
-                <li><a href="{% url 'classified_ads:apartment_rent_ads_table' %}">Browse Rental Apartments</a></li>
-                <li><a href="{% url 'classified_ads:apartment_sale_ads_table' %}">Browse Apartments for Sale</a></li>
-                <li><a href="{% url 'classified_ads:apartment_region_stats' %}">Apartment Regional Statistics</a></li>
-                <li><a href="{% url 'classified_ads:apartment_region_config' %}">Apartment Region Configuration</a></li>
-            </ul>
-        </section>
+{% block title %}Classified Ads - SS.com Scraper{% endblock %}
 
-        <section class="property-section">
-            <h2 class="section-title">🏡 Houses</h2>
-            <ul class="nav-list">
-                <li><a href="{% url 'classified_ads:house_rent_ads_table' %}">Browse Rental Houses</a></li>
-                <li><a href="{% url 'classified_ads:house_sale_ads_table' %}">Browse Houses for Sale</a></li>
-                <li><a href="{% url 'classified_ads:house_region_stats' %}">House Regional Statistics</a></li>
-                <li><a href="{% url 'classified_ads:house_region_config' %}">House Region Configuration</a></li>
-            </ul>
-        </section>
+{% block extra_head %}
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        max-width: 700px;
+        margin: 40px auto;
+        padding: 0 20px;
+        background: #f5f5f5;
+    }
+    .container {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+        color: #333;
+        margin-bottom: 10px;
+    }
+    .subtitle {
+        color: #666;
+        margin-bottom: 30px;
+    }
+    .property-section {
+        margin-bottom: 30px;
+    }
+    .section-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid #e0e0e0;
+    }
+    .nav-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    .nav-list li {
+        margin-bottom: 10px;
+    }
+    .nav-list a {
+        display: block;
+        padding: 14px 16px;
+        border-radius: 4px;
+        background: #f8f9fa;
+        color: #0066cc;
+        text-decoration: none;
+        font-weight: 500;
+    }
+    .nav-list a:hover {
+        background: #e9f3ff;
+    }
+    .nav-list a.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        background: #f0f0f0;
+        color: #999;
+    }
+    .nav-list a.disabled:hover {
+        background: #f0f0f0;
+    }
+    .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #ffc107;
+        color: #333;
+        border-radius: 3px;
+        margin-left: 8px;
+        text-transform: uppercase;
+    }
+</style>
+{% endblock %}
 
-        <section class="property-section">
-            <h2 class="section-title">📊 Reports</h2>
-            <ul class="nav-list">
-                <li><a href="{% url 'classified_ads:daily_sightings_report' %}">Daily Sightings Report</a></li>
-            </ul>
-        </section>
+{% block content %}
+<div class="container">
+    <h1>Classified Ads</h1>
+    <p class="subtitle">Real estate listings from SS.com Latvia</p>
 
-        <div class="actions">
-            <button type="button" onclick="window.location.href='/'">← Back to Home</button>
-        </div>
-    </div>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js');
-        }
-    </script>
-</body>
-</html>
+    <section class="property-section">
+        <h2 class="section-title">🏢 Apartments</h2>
+        <ul class="nav-list">
+            <li><a href="{% url 'classified_ads:apartment_rent_ads_table' %}">Browse Rental Apartments</a></li>
+            <li><a href="{% url 'classified_ads:apartment_sale_ads_table' %}">Browse Apartments for Sale</a></li>
+            <li><a href="{% url 'classified_ads:apartment_region_stats' %}">Apartment Regional Statistics</a></li>
+            <li><a href="{% url 'classified_ads:apartment_region_config' %}">Apartment Region Configuration</a></li>
+        </ul>
+    </section>
+
+    <section class="property-section">
+        <h2 class="section-title">🏡 Houses</h2>
+        <ul class="nav-list">
+            <li><a href="{% url 'classified_ads:house_rent_ads_table' %}">Browse Rental Houses</a></li>
+            <li><a href="{% url 'classified_ads:house_sale_ads_table' %}">Browse Houses for Sale</a></li>
+            <li><a href="{% url 'classified_ads:house_region_stats' %}">House Regional Statistics</a></li>
+            <li><a href="{% url 'classified_ads:house_region_config' %}">House Region Configuration</a></li>
+        </ul>
+    </section>
+
+    <section class="property-section">
+        <h2 class="section-title">📊 Reports</h2>
+        <ul class="nav-list">
+            <li><a href="{% url 'classified_ads:daily_sightings_report' %}">Daily Sightings Report</a></li>
+        </ul>
+    </section>
+</div>
+{% endblock %}

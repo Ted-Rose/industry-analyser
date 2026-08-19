@@ -12,6 +12,7 @@ from django.conf import settings
 import time
 import random
 from django.utils import timezone
+from django.db.models import F
 from .forms import KeywordForm
 from lxml import html
 
@@ -229,7 +230,7 @@ def find_vacancies(request):
         )
 
     vacancies = vacancies.distinct().order_by(
-        '-application_deadline', '-last_seen'
+        F('application_deadline').desc(nulls_last=True), '-last_seen'
     )
 
     paginator = Paginator(vacancies, 300)

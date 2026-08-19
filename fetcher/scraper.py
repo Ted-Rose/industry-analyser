@@ -137,8 +137,18 @@ class VacancyScrapper(BaseScraper):
             )
 
             if not created:
+                update_fields = ['last_seen']
                 vacancy.last_seen = timezone.now()
-                vacancy.save(update_fields=['last_seen'])
+                if not vacancy.title and result.get('positionTitle'):
+                    vacancy.title = result.get('positionTitle')
+                    update_fields.append('title')
+                if (
+                    not vacancy.company_name
+                    and result.get('employerName')
+                ):
+                    vacancy.company_name = result.get('employerName')
+                    update_fields.append('company_name')
+                vacancy.save(update_fields=update_fields)
 
             # Handle dependencies (e.g., industries)
             portal_industries = result.get('categories')
