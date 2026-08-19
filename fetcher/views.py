@@ -205,12 +205,9 @@ def find_vacancies(request):
     industries = Industry.objects.all()
 
     include_keywords = request.GET.getlist('include_keywords')
-    if include_keywords == []:
-        include_keywords = None
     exclude_keywords = request.GET.getlist('exclude_keywords')
-    if exclude_keywords == []:
-        exclude_keywords == None
     include_industries = request.GET.getlist('include_industries')
+    show_active_only = request.GET.get('show_active_only') == '1'
 
     vacancies = Vacancy.objects.filter(
         **{
@@ -219,23 +216,41 @@ def find_vacancies(request):
         **{
             'vacancycontainskeyword__keyword__name__in': include_keywords
         } if include_keywords else {}
-    ).exclude(
-        vacancycontainskeyword__keyword__name__in=exclude_keywords
-    ).distinct().order_by('-application_deadline', '-last_seen')
+    )
+
+    if exclude_keywords:
+        vacancies = vacancies.exclude(
+            vacancycontainskeyword__keyword__name__in=exclude_keywords
+        )
+
+    if show_active_only:
+        vacancies = vacancies.filter(
+            application_deadline__gte=timezone.now()
+        )
+
+    vacancies = vacancies.distinct().order_by(
+        '-application_deadline', '-last_seen'
+    )
 
     paginator = Paginator(vacancies, 300)
     page = request.GET.get('page')
-    try:
-        vacancies = paginator.get_page(page)
-    except PageNotAnInteger:
-        vacancies = paginator.get_page(1)
-    except EmptyPage:
-        vacancies = paginator.get_page(paginator.num_pages)
+    vacancies_page = paginator.get_page(page)
+
+    query_dict = request.GET.copy()
+    query_dict.pop('page', None)
+    query_params = query_dict.urlencode()
 
     return render(request, 'fetcher/vacancies.html', {
-        'vacancies': vacancies,
+        'vacancies': vacancies_page,
         'keywords': keywords,
         'industries': industries,
+        'include_keywords': include_keywords,
+        'exclude_keywords': exclude_keywords,
+        'include_industries': include_industries,
+        'show_active_only': show_active_only,
+        'total_count': paginator.count,
+        'query_params': query_params,
+        'now': timezone.now(),
     })
 
 

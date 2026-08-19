@@ -5,104 +5,298 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Vacancies</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .filter-card {
+            border: none;
+            box-shadow: 0 1px 4px rgba(0,0,0,.1);
+        }
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+            border-color: #454d55;
+            white-space: nowrap;
+        }
+        .table-hover tbody tr:hover {
+            background-color: #e9f3ff;
+        }
+        .filter-label {
+            font-weight: 600;
+            font-size: .85rem;
+        }
+        .checkbox-scroll-list {
+            max-height: 180px;
+            overflow-y: auto;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 8px 12px;
+            background: #fff;
+        }
+        .checkbox-scroll-list label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: .875rem;
+            cursor: pointer;
+        }
+        .checkbox-scroll-list label:last-child {
+            margin-bottom: 0;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: .5rem;
+            color: #0066cc;
+            text-decoration: none;
+            font-size: .9rem;
+        }
+        .back-link:hover { text-decoration: underline; color: #0066cc; }
+        .results-summary {
+            font-size: .875rem;
+            color: #6c757d;
+        }
+        .industry-tag {
+            display: inline-block;
+            background: #e9f3ff;
+            color: #0066cc;
+            border-radius: 3px;
+            padding: 1px 6px;
+            font-size: .75rem;
+            margin: 1px 2px 1px 0;
+        }
+        .vacancy-title a {
+            color: #333;
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .vacancy-title a:hover {
+            color: #0066cc;
+            text-decoration: underline;
+        }
+        .deadline-past { color: #dc3545; }
+        .deadline-active { color: #28a745; }
+        .salary-cell { white-space: nowrap; }
+        .keyword-match-badge {
+            display: inline-block;
+            background: #fff3cd;
+            color: #856404;
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: .7rem;
+            margin: 1px 2px 1px 0;
+        }
+    </style>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0066cc">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Industry Analyser">
 </head>
 <body>
-    <div class="container">
-        <h1 class="text-center">Search Vacancies</h1>
-        <div class="text-center mb-3">
-            <a href="{% url 'add_keyword' %}" class="btn btn-secondary">Add Keyword</a>
+    <div class="container-fluid py-4" style="max-width: 1400px;">
+        <a href="{% url 'home' %}" class="back-link">← Back to Home</a>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="mb-0">Vacancies</h2>
+            <a href="{% url 'add_keyword' %}" class="btn btn-sm btn-outline-secondary">+ Add Keyword</a>
         </div>
-        <form method="GET" action="{% url 'find_vacancies' %}">
-            <div class="form-group">
-                <label for="include_industries">Include industries:</label>
-                <select id="include_industries" name="include_industries" class="form-control" multiple>
-                    {% for industry in industries %}
-                        <option value="{{ industry.name }}">{{ industry.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="include_keywords">Include keywords:</label>
-                <select id="include_keywords" name="include_keywords" class="form-control" multiple>
-                    {% for keyword in keywords %}
-                        <option value="{{ keyword.name }}">{{ keyword.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="exclude_keywords">Exclude keywords:</label>
-                <select id="exclude_keywords" name="exclude_keywords" class="form-control" multiple>
-                    {% for keyword in keywords %}
-                        <option value="{{ keyword.name }}">{{ keyword.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Search</button>
-        </form>
 
-        <!-- Display the results -->
-        <h2 class="mt-5">Vacancies</h2>
-        <table class="table">
-            <thead>
-                <tr>
-                    <th>Title</th>
-                    <th>Company Name</th>
-                    <th>Salary From</th>
-                    <th>Salary To</th>
-                    <th>URL</th>
-                    <th>First Seen</th>
-                    <th>Last Seen</th>
-                    <th>Application Deadline</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for vacancy in vacancies %}
-                    <tr>
-                        <td>{{ vacancy.title }}</td>
-                        <td>{{ vacancy.company_name }}</td>
-                        <td>{{ vacancy.salary_from }}</td>
-                        <td>{{ vacancy.salary_to }}</td>
-                        <td><a href="https://{{ vacancy.url }}" target="_blank">Link</a></td>
-                        <td>{{ vacancy.first_seen|date:"Y.m.d" }}</td>
-                        <td>{{ vacancy.last_seen|date:"Y.m.d" }}</td>
-                        <td>{{ vacancy.application_deadline|date:"Y.m.d" }}</td>
-                    </tr>
-                {% empty %}
-                    <tr>
-                        <td colspan="8">No vacancies found.</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <nav aria-label="Page navigation">
-            <ul class="pagination justify-content-center">
+        <!-- Filters -->
+        <div class="card filter-card mb-4">
+            <div class="card-body">
+                <form method="GET" action="{% url 'find_vacancies' %}">
+
+                    <!-- Industries row -->
+                    {% if industries %}
+                    <div class="mb-3">
+                        <label class="filter-label d-block mb-2">Industries</label>
+                        <div class="d-flex flex-wrap">
+                            {% for industry in industries %}
+                            <div class="form-check mr-4 mb-1">
+                                <input class="form-check-input" type="checkbox"
+                                    id="ind_{{ forloop.counter }}"
+                                    name="include_industries"
+                                    value="{{ industry.name }}"
+                                    {% if industry.name in include_industries %}checked{% endif %}>
+                                <label class="form-check-label" for="ind_{{ forloop.counter }}">
+                                    {{ industry.name }}
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Keywords + options row -->
+                    <div class="form-row align-items-end">
+                        <div class="col-md-5 mb-2">
+                            <label class="filter-label d-block mb-1">Include keywords</label>
+                            <div class="checkbox-scroll-list">
+                                {% for keyword in keywords %}
+                                <label>
+                                    <input type="checkbox"
+                                        name="include_keywords"
+                                        value="{{ keyword.name }}"
+                                        {% if keyword.name in include_keywords %}checked{% endif %}>
+                                    {{ keyword.name }}
+                                </label>
+                                {% empty %}
+                                <span class="text-muted">No keywords yet.</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-5 mb-2">
+                            <label class="filter-label d-block mb-1">Exclude keywords</label>
+                            <div class="checkbox-scroll-list">
+                                {% for keyword in keywords %}
+                                <label>
+                                    <input type="checkbox"
+                                        name="exclude_keywords"
+                                        value="{{ keyword.name }}"
+                                        {% if keyword.name in exclude_keywords %}checked{% endif %}>
+                                    {{ keyword.name }}
+                                </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <div class="col-md-2 mb-2 d-flex flex-column justify-content-end">
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox"
+                                    id="show_active_only" name="show_active_only" value="1"
+                                    {% if show_active_only %}checked{% endif %}>
+                                <label class="form-check-label filter-label" for="show_active_only">
+                                    Active only
+                                </label>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-sm">Search</button>
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+        </div>
+
+        <!-- Results summary -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="results-summary">
+                {% if total_count %}
+                    {% if vacancies.paginator.num_pages > 1 %}
+                        Showing {{ vacancies.start_index }}–{{ vacancies.end_index }} of {{ total_count }} vacancies
+                    {% else %}
+                        {{ total_count }} vacanc{% if total_count == 1 %}y{% else %}ies{% endif %} found
+                    {% endif %}
+                {% else %}
+                    No vacancies found
+                {% endif %}
+            </span>
+        </div>
+
+        <!-- Table -->
+        <div class="card filter-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Company</th>
+                                <th>Salary</th>
+                                <th>Keywords</th>
+                                <th>Industries</th>
+                                <th>Deadline</th>
+                                <th>Last seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for vacancy in vacancies %}
+                            <tr>
+                                <td class="vacancy-title">
+                                    <a href="{{ vacancy.url }}" target="_blank" rel="noopener">
+                                        {{ vacancy.title|default:"(no title)" }}
+                                    </a>
+                                </td>
+                                <td>{{ vacancy.company_name|default:"—" }}</td>
+                                <td class="salary-cell">
+                                    {% if vacancy.salary_from and vacancy.salary_to %}
+                                        €{{ vacancy.salary_from|floatformat:0 }} – €{{ vacancy.salary_to|floatformat:0 }}
+                                    {% elif vacancy.salary_from %}
+                                        From €{{ vacancy.salary_from|floatformat:0 }}
+                                    {% elif vacancy.salary_to %}
+                                        Up to €{{ vacancy.salary_to|floatformat:0 }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% for kw in vacancy.keywords.all %}
+                                        <span class="keyword-match-badge">{{ kw.name }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {% for industry in vacancy.industries.all %}
+                                        <span class="industry-tag">{{ industry.name }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {% if vacancy.application_deadline %}
+                                        {% if vacancy.application_deadline < now %}
+                                            <span class="deadline-past">{{ vacancy.application_deadline|date:"Y.m.d" }}</span>
+                                        {% else %}
+                                            <span class="deadline-active">{{ vacancy.application_deadline|date:"Y.m.d" }}</span>
+                                        {% endif %}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-muted">{{ vacancy.last_seen|date:"Y.m.d"|default:"—" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-5">
+                                    No vacancies found. Try adjusting your filters.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        {% if vacancies.paginator.num_pages > 1 %}
+        <nav class="mt-3" aria-label="Page navigation">
+            <ul class="pagination pagination-sm justify-content-center">
                 {% if vacancies.has_previous %}
                 <li class="page-item">
-                    <a class="page-link" href="?page=1">First</a>
+                    <a class="page-link" href="?{{ query_params }}&page=1">«</a>
                 </li>
                 <li class="page-item">
-                    <a class="page-link" href="?page={{ vacancies.previous_page_number }}">Previous</a>
+                    <a class="page-link" href="?{{ query_params }}&page={{ vacancies.previous_page_number }}">‹</a>
                 </li>
                 {% endif %}
                 {% for page_num in vacancies.paginator.page_range %}
-                <li class="page-item {% if page_num == vacancies.number %}active{% endif %}">
-                    <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
-                </li>
+                    {% if page_num == vacancies.number %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% elif page_num > vacancies.number|add:"-3" and page_num < vacancies.number|add:"3" %}
+                    <li class="page-item">
+                        <a class="page-link" href="?{{ query_params }}&page={{ page_num }}">{{ page_num }}</a>
+                    </li>
+                    {% endif %}
                 {% endfor %}
                 {% if vacancies.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="?page={{ vacancies.next_page_number }}">Next</a>
+                    <a class="page-link" href="?{{ query_params }}&page={{ vacancies.next_page_number }}">›</a>
                 </li>
                 <li class="page-item">
-                    <a class="page-link" href="?page={{ vacancies.paginator.num_pages }}">Last</a>
+                    <a class="page-link" href="?{{ query_params }}&page={{ vacancies.paginator.num_pages }}">»</a>
                 </li>
                 {% endif %}
             </ul>
         </nav>
+        {% endif %}
+
     </div>
     <script>
         if ('serviceWorker' in navigator) {
