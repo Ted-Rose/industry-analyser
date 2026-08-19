@@ -74,6 +74,7 @@ class BaseApartmentAd(models.Model):
     total_price = models.FloatField()
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
+    is_hidden = models.BooleanField(default=False)
 
     class Meta:
         abstract = True
@@ -83,11 +84,18 @@ class BaseApartmentAd(models.Model):
         return self.sightings.count()
 
 
+class VisibleApartmentManager(models.Manager):
+    """Manager that excludes hidden apartment ads."""
+    def get_queryset(self):
+        return super().get_queryset().filter(is_hidden=False)
+
+
 class CleanRentalManager(models.Manager):
-    """Manager that excludes misclassified for-sale ads."""
+    """Manager that excludes misclassified for-sale ads and hidden ads."""
     def get_queryset(self):
         return super().get_queryset().filter(
-            is_sale_misclassified=False
+            is_sale_misclassified=False,
+            is_hidden=False
         )
 
 
@@ -120,6 +128,9 @@ class ApartmentForRent(BaseApartmentAd):
 
 
 class ApartmentForSale(BaseApartmentAd):
+    objects = VisibleApartmentManager()
+    all_objects = models.Manager()
+
     class Meta:
         db_table = 'classified_ads_apartment_sale'
         verbose_name = 'Apartment for Sale'
@@ -164,6 +175,12 @@ class ApartmentForSaleSighting(models.Model):
         return f"{self.ad.ad_id} seen on {self.seen_on}"
 
 
+class VisibleHouseManager(models.Manager):
+    """Manager that excludes hidden house ads."""
+    def get_queryset(self):
+        return super().get_queryset().filter(is_hidden=False)
+
+
 class BaseHouseAd(models.Model):
     ad_id = models.CharField(max_length=255, unique=True)
     comment = models.TextField(blank=True)
@@ -199,6 +216,7 @@ class BaseHouseAd(models.Model):
     total_price = models.FloatField()
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
+    is_hidden = models.BooleanField(default=False)
 
     class Meta:
         abstract = True
@@ -214,6 +232,9 @@ class HouseForRent(BaseHouseAd):
     total_price_120m = models.FloatField()
     price_per_sqm_120m = models.FloatField()
 
+    objects = VisibleHouseManager()
+    all_objects = models.Manager()
+
     class Meta:
         db_table = 'classified_ads_house_rent'
         verbose_name = 'House for Rent'
@@ -227,6 +248,9 @@ class HouseForRent(BaseHouseAd):
 
 
 class HouseForSale(BaseHouseAd):
+    objects = VisibleHouseManager()
+    all_objects = models.Manager()
+
     class Meta:
         db_table = 'classified_ads_house_sale'
         verbose_name = 'House for Sale'
