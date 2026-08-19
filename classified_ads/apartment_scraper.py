@@ -11,7 +11,7 @@ from core_scraper.base import BaseScraper
 from .models import (
     ApartmentForRent, ApartmentForRentSighting,
     ApartmentForSale, ApartmentForSaleSighting,
-    Region, Seller,
+    Project, Region, Seller,
 )
 
 logger = logging.getLogger('classified_ads')
@@ -51,6 +51,40 @@ def is_sale_misclassified(comment, monthly_price_per_sqm):
 
 
 class ApartmentAdScraper(BaseScraper):
+
+    PROJECT_MAPPINGS = {
+        '103-th': 'Series 103',
+        '103.': 'Series 103',
+        '602-th': 'Series 602',
+        '602.': 'Series 602',
+        '467-th': 'Series 467',
+        '467.': 'Series 467',
+        '119-th': 'Series 119',
+        '119.': 'Series 119',
+        '104-th': 'Series 104',
+        '104.': 'Series 104',
+        'Spec. pr.': 'Special Project',
+        'Specpr.': 'Special Project',
+        'Chrusch.': 'Khrushchyovka',
+        'Hrušč.': 'Khrushchyovka',
+        'Czech pr.': 'Czech Project',
+        'Čehu pr.': 'Czech Project',
+        'Lit pr.': 'Lithuanian Project',
+        'LT proj.': 'Lithuanian Project',
+        'Stalin project': 'Stalin Era',
+        'Staļina': 'Stalin Era',
+        'Recon.': 'Renovated',
+        'Renov.': 'Renovated',
+        'New': 'New Construction',
+        'Jaun.': 'New Construction',
+        'Sm.fam.': 'Small Family House',
+        'M. ģim.': 'Small Family House',
+        'Priv.house': 'Private House',
+        'Priv. m.': 'Private House',
+        'Pre-war house': 'Pre-War',
+        'P. kara': 'Pre-War',
+        '-': 'Unknown',
+    }
 
     def __init__(self, max_pages=100):
         super().__init__()
@@ -179,13 +213,25 @@ class ApartmentAdScraper(BaseScraper):
                 'size': cells[5],
                 'floor': floor,
                 'max_floor': max_floor,
-                'project': str(cells[7]),
+                'project_raw': str(cells[7]),
+                'project': self._get_or_create_project(str(cells[7])),
                 'price_per_sqm': sqm_price,
                 'alt_price_per_sqm': alt_price_per_sqm,
                 'total_price': total_price,
                 'alt_price': alt_price,
             })
         return results
+
+    def _get_or_create_project(self, raw_project: str):
+        raw = str(raw_project).strip()
+        normalized_name = self.PROJECT_MAPPINGS.get(raw, None)
+        if normalized_name:
+            project, _ = Project.objects.get_or_create(
+                name=normalized_name
+            )
+            return project
+        logger.warning(f"Unmapped project type: '{raw}'")
+        return None
 
     def _split_street(self, street_raw):
         street_raw = str(street_raw).strip()

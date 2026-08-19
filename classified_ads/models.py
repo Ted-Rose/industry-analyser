@@ -40,6 +40,17 @@ class Seller(models.Model):
         return self.phone or self.contact_id
 
 
+class Project(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+
 class BaseApartmentAd(models.Model):
     ad_id = models.CharField(max_length=255, unique=True)
     comment = models.TextField(blank=True)
@@ -59,7 +70,18 @@ class BaseApartmentAd(models.Model):
     size = models.FloatField(help_text='Square metres')
     floor = models.IntegerField()
     max_floor = models.IntegerField()
-    project = models.CharField(max_length=255)
+    project_raw = models.CharField(
+        max_length=255,
+        help_text='Original project value from source'
+    )
+    project = models.ForeignKey(
+        'Project',
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='%(class)s_ads',
+        help_text='Standardized project type'
+    )
     house_type = models.CharField(max_length=255, blank=True)
     facilities = models.CharField(max_length=500, blank=True)
     post_date = models.DateTimeField(null=True)

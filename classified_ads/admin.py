@@ -9,6 +9,7 @@ from .models import (
     HouseForRentSighting,
     HouseForSale,
     HouseForSaleSighting,
+    Project,
     Region,
     Seller,
 )
@@ -54,6 +55,7 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
         'rooms',
         'size',
         'floor',
+        'project_raw',
         'project',
         'monthly_price',
         'monthly_price_per_sqm',
@@ -62,12 +64,17 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
         'seller',
         'days_active',
     ]
-    list_filter = ['is_sale_misclassified', 'region', 'district', 'project']
+    list_filter = [
+        'is_sale_misclassified',
+        'region',
+        'district',
+        'project',
+    ]
     list_editable = ['is_sale_misclassified']
     search_fields = [
         'district',
         'street_name',
-        'project',
+        'project_raw',
         'seller__phone',
     ]
     ordering = ['-post_date']
@@ -92,6 +99,7 @@ class ApartmentForSaleAdmin(admin.ModelAdmin):
         'rooms',
         'size',
         'floor',
+        'project_raw',
         'project',
         'total_price',
         'price_per_sqm',
@@ -103,7 +111,7 @@ class ApartmentForSaleAdmin(admin.ModelAdmin):
     search_fields = [
         'district',
         'street_name',
-        'project',
+        'project_raw',
         'seller__phone',
     ]
     ordering = ['-post_date']
@@ -181,6 +189,20 @@ class HouseForSaleAdmin(admin.ModelAdmin):
     @admin.display(description='Days active')
     def days_active(self, obj):
         return obj.days_active
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = ['name', 'ad_count_display']
+    search_fields = ['name', 'description']
+    ordering = ['name']
+
+    @admin.display(description='Total Ads')
+    def ad_count_display(self, obj):
+        rent = obj.apartmentforrent_ads.count()
+        sale = obj.apartmentforsale_ads.count()
+        total = rent + sale
+        return f"{total} ({rent} rent, {sale} sale)"
 
 
 @admin.register(Seller)
