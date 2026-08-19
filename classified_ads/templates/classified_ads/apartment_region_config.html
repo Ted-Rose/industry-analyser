@@ -112,8 +112,7 @@
 
 {% block content %}
     <div class="container">
-        <a href="{% url 'classified_ads:index' %}" class="back-link">← Back to Ads</a>
-        <a href="{% url 'classified_ads:apartment_region_stats' %}" class="back-link" style="margin-left: 20px;">View Region Stats →</a>
+        <a href="{% url 'classified_ads:apartment_region_stats' %}" class="back-link">View Region Stats →</a>
 
         <h1>🏢 Apartment Region Configuration</h1>
         <p class="subtitle">Select which apartment regions to scrape from SS.com. Run the <strong>sync-regions</strong> Cloud Run job to refresh this list from SS.com.</p>
