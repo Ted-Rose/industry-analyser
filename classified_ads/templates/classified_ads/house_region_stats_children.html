@@ -138,6 +138,11 @@
                 </div>
             </div>
         </div>
+        {% if not deal_type %}
+        <div class="alert alert-info mt-3">
+            <strong>Note:</strong> Average values (€/m², size, days tracked) are only calculated when a specific deal type (Rent or Sell) is selected. Please select a deal type from the filter above to see these statistics.
+        </div>
+        {% endif %}
 
     </div>
     <script>
