@@ -11,7 +11,7 @@ from core_scraper.base import BaseScraper
 from .models import (
     ApartmentForRent, ApartmentForRentSighting,
     ApartmentForSale, ApartmentForSaleSighting,
-    Region, Seller,
+    Project, Region, Seller,
 )
 
 logger = logging.getLogger('classified_ads')
@@ -282,6 +282,14 @@ class ApartmentAdScraper(BaseScraper):
                 phone=phone, contact_id=contact_id
             )
 
+        project = None
+        project_name = enriched_result.get('project', '').strip()
+        if project_name:
+            project, _ = Project.objects.get_or_create(
+                name=project_name,
+                defaults={'description': ''}
+            )
+
         common_kwargs = dict(
             ad_id=enriched_result['ad_id'],
             comment=enriched_result.get('comment', ''),
@@ -295,7 +303,7 @@ class ApartmentAdScraper(BaseScraper):
             size=enriched_result['size'],
             floor=enriched_result['floor'],
             max_floor=enriched_result['max_floor'],
-            project=enriched_result['project'],
+            project=project,
             house_type=enriched_result.get('house_type', ''),
             facilities=enriched_result.get('facilities', ''),
             post_date=enriched_result.get('post_date'),

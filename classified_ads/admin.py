@@ -9,6 +9,7 @@ from .models import (
     HouseForRentSighting,
     HouseForSale,
     HouseForSaleSighting,
+    Project,
     Region,
     Seller,
 )
@@ -67,7 +68,7 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
     search_fields = [
         'district',
         'street_name',
-        'project',
+        'project__name',
         'seller__phone',
     ]
     ordering = ['-post_date']
@@ -103,7 +104,7 @@ class ApartmentForSaleAdmin(admin.ModelAdmin):
     search_fields = [
         'district',
         'street_name',
-        'project',
+        'project__name',
         'seller__phone',
     ]
     ordering = ['-post_date']
@@ -181,6 +182,12 @@ class HouseForSaleAdmin(admin.ModelAdmin):
     @admin.display(description='Days active')
     def days_active(self, obj):
         return obj.days_active
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = ['name', 'description']
+    search_fields = ['name', 'description']
 
 
 @admin.register(Seller)
