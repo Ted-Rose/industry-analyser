@@ -55,6 +55,7 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
         'rooms',
         'size',
         'floor',
+        'project_raw',
         'project',
         'monthly_price',
         'monthly_price_per_sqm',
@@ -68,6 +69,7 @@ class ApartmentForRentAdmin(admin.ModelAdmin):
     search_fields = [
         'district',
         'street_name',
+        'project_raw',
         'project__name',
         'seller__phone',
     ]
@@ -93,6 +95,7 @@ class ApartmentForSaleAdmin(admin.ModelAdmin):
         'rooms',
         'size',
         'floor',
+        'project_raw',
         'project',
         'total_price',
         'price_per_sqm',
@@ -104,6 +107,7 @@ class ApartmentForSaleAdmin(admin.ModelAdmin):
     search_fields = [
         'district',
         'street_name',
+        'project_raw',
         'project__name',
         'seller__phone',
     ]

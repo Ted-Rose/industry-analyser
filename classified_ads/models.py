@@ -67,12 +67,17 @@ class BaseApartmentAd(models.Model):
     size = models.FloatField(help_text='Square metres')
     floor = models.IntegerField()
     max_floor = models.IntegerField()
+    project_raw = models.CharField(
+        max_length=255,
+        help_text='Original project value from source'
+    )
     project = models.ForeignKey(
         'Project',
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
         related_name='%(class)s_ads',
+        help_text='Standardized project type'
     )
     house_type = models.CharField(max_length=255, blank=True)
     facilities = models.CharField(max_length=500, blank=True)
