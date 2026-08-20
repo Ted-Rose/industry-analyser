@@ -224,6 +224,8 @@ class ApartmentAdScraper(BaseScraper):
 
     def _get_or_create_project(self, raw_project: str):
         raw = str(raw_project).strip()
+        if not raw:
+            return None
         normalized_name = self.PROJECT_MAPPINGS.get(raw, None)
         if normalized_name:
             project, _ = Project.objects.get_or_create(

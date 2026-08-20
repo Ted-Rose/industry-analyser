@@ -69,6 +69,7 @@ class BaseApartmentAd(models.Model):
     max_floor = models.IntegerField()
     project_raw = models.CharField(
         max_length=255,
+        blank=True,
         help_text='Original project value from source'
     )
     project = models.ForeignKey(
