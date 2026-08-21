@@ -146,6 +146,7 @@ class ApartmentAdScraper(BaseScraper):
 
             sqm_price = self._clean_price(cells[8])
             total_price = self._clean_price(cells[9])
+            size = self._clean_size(cells[5])
 
             deal_type = self._current_deal_type
             if deal_type == 'RENT':
@@ -166,7 +167,7 @@ class ApartmentAdScraper(BaseScraper):
             except (ValueError, TypeError):
                 rooms = 0
 
-            if rooms == 0 or total_price == 0.0:
+            if rooms == 0 or total_price == 0.0 or size == 0.0:
                 continue
 
             floor_raw = str(cells[6]).split('/')
@@ -210,7 +211,7 @@ class ApartmentAdScraper(BaseScraper):
                 'street_name': street_name,
                 'street_no': street_no,
                 'rooms': rooms,
-                'size': cells[5],
+                'size': size,
                 'floor': floor,
                 'max_floor': max_floor,
                 'project_raw': str(cells[7]),
@@ -241,6 +242,16 @@ class ApartmentAdScraper(BaseScraper):
         if len(parts) > 1 and parts[-1][:1].isdigit():
             return ' '.join(parts[:-1]), parts[-1]
         return street_raw, ''
+
+    def _clean_size(self, size_str) -> float:
+        """Convert size string to float, handling '-' and invalid values."""
+        size_str = str(size_str).strip()
+        if size_str == '-' or not size_str:
+            return 0.0
+        try:
+            return float(size_str.replace(',', ''))
+        except (ValueError, TypeError):
+            return 0.0
 
     def _clean_price(self, price_str) -> float:
         price_str = str(price_str).strip()
