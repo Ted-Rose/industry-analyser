@@ -73,7 +73,9 @@ class BaseScraper(abc.ABC):
             return
 
         pruned_results = self.remove_redundant_results(parsed_results)
-        self.last_search_had_results = bool(pruned_results)
+        # Keep searching as long as we found ads (even if all duplicates)
+        # to ensure sightings are recorded for all existing ads
+        self.last_search_had_results = bool(parsed_results)
 
         return self.extract_resources(pruned_results)
 
