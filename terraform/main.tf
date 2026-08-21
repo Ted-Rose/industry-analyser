@@ -138,7 +138,7 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
   template {
     task_count = 1
     template {
-      timeout         = "4200s"
+      timeout         = "8000s"
       max_retries     = 0
       service_account = google_service_account.job_runtime.email
 
@@ -297,7 +297,7 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
   template {
     task_count = 1
     template {
-      timeout         = "4200s"
+      timeout         = "8000s"
       max_retries     = 1
       service_account = google_service_account.job_runtime.email
 
@@ -364,7 +364,7 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
   template {
     task_count = 1
     template {
-      timeout         = "4200s"
+      timeout         = "8000s"
       max_retries     = 1
       service_account = google_service_account.job_runtime.email
 
