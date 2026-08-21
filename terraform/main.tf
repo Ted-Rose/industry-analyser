@@ -61,22 +61,25 @@ resource "google_artifact_registry_repository" "dockerhub_cache" {
 resource "google_artifact_registry_repository" "app_images" {
   location      = var.region
   repository_id = "industry-analyser-app"
-  description   = "Container images built and pushed from GitHub Actions"
+  description   = "Container images built and pushed from GitHub Actions - Cost Optimized"
   format        = "DOCKER"
 
+  # 1. DELETE Policy: Target ALL images older than 1 day
+  cleanup_policies {
+    id     = "delete-old-versions"
+    action = "DELETE"
+    condition {
+      tag_state  = "ANY"
+      older_than = "86400s" # 24 Hours
+    }
+  }
+
+  # 2. KEEP Policy: Protect the most recent 3 versions from deletion
   cleanup_policies {
     id     = "keep-latest-3"
     action = "KEEP"
     most_recent_versions {
       keep_count = 3
-    }
-  }
-
-  cleanup_policies {
-    id     = "delete-untagged"
-    action = "DELETE"
-    condition {
-      tag_state = "UNTAGGED"
     }
   }
 
