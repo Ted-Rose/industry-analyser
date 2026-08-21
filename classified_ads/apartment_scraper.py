@@ -95,8 +95,43 @@ class ApartmentAdScraper(BaseScraper):
         self._current_region = None
         self._current_deal_type = None
 
+    def _get_last_scraped_region_id(self, today):
+        """
+        Get the ID of the last region that was scraped today.
+        This helps us resume from the right place if interrupted.
+        """
+        # Get the most recent sighting from today across both models
+        last_rent = (
+            ApartmentForRentSighting.objects
+            .filter(seen_on=today)
+            .select_related('ad__region')
+            .order_by('-id')
+            .first()
+        )
+        last_sale = (
+            ApartmentForSaleSighting.objects
+            .filter(seen_on=today)
+            .select_related('ad__region')
+            .order_by('-id')
+            .first()
+        )
+
+        # Return the region ID from the most recent sighting
+        if last_rent and last_sale:
+            # Compare which is more recent and return that region
+            rent_region_id = last_rent.ad.region_id
+            sale_region_id = last_sale.ad.region_id
+            # Return the max ID (later in the ordered list)
+            return max(rent_region_id, sale_region_id)
+        elif last_rent:
+            return last_rent.ad.region_id
+        elif last_sale:
+            return last_sale.ad.region_id
+        return None
+
     def get_search_urls(self):
-        regions = Region.objects.filter(scrape_enabled=True)
+        # Fetch regions in consistent order (using model's Meta.ordering)
+        regions = Region.objects.filter(scrape_enabled=True).order_by('id')
         if not regions.exists():
             logger.warning(
                 'No regions enabled for scraping. '
@@ -104,14 +139,41 @@ class ApartmentAdScraper(BaseScraper):
             )
             return
 
+        today = date.today()
+
+        # Find the last region that was scraped today
+        last_scraped_region_id = self._get_last_scraped_region_id(today)
+
+        # Determine where to start scraping
+        start_scraping = last_scraped_region_id is None
+
         for region in regions:
+            # If we haven't started yet, skip until we reach the last
+            # scraped region
+            if not start_scraping:
+                if region.id == last_scraped_region_id:
+                    # Re-scrape this region (might have been interrupted)
+                    start_scraping = True
+                    logger.info(
+                        f"Resuming from region '{region.name}' "
+                        f"(last scraped today)"
+                    )
+                else:
+                    logger.info(
+                        f"Skipping region '{region.name}' - "
+                        f"already completed today"
+                    )
+                    continue
+
             self._current_region = region
+            logger.info(f"Scraping region: {region.name}")
+
             for suffix, deal_type in DEAL_SUFFIXES.items():
                 self._current_deal_type = deal_type
 
-                # Max pages is a random, high number. Once first empty result
-                # page is returned stop scraping current deal type for
-                # the region.
+                # Max pages is a random, high number. Once first empty
+                # result page is returned stop scraping current deal
+                # type for the region.
                 for page in range(1, self.max_pages + 1):
                     if page == 1:
                         yield region.url + suffix

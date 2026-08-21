@@ -172,7 +172,7 @@ class BaseScraper(abc.ABC):
             logger.warning("The content is not valid JSON.")
             return None
 
-    def sleep(self, min_seconds=1, max_seconds=3, domain=None):
+    def sleep(self, min_seconds=1, max_seconds=1, domain=None):
         """
         Sleep between requests to avoid overwhelming the target site.
         Only sleeps if necessary based on the time since the last sleep.
