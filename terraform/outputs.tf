@@ -13,19 +13,20 @@ output "scheduler_invoker_service_account" {
   description = "Service account Cloud Scheduler uses to invoke jobs"
 }
 
-output "cloud_run_job_names" {
-  value = [
-    google_cloud_run_v2_job.scrape_vacancy.name,
-    google_cloud_run_v2_job.scrape_tv_programs.name,
-  ]
-}
-
-output "cloud_scheduler_job_names" {
-  value = [
-    google_cloud_scheduler_job.trigger_scrape_vacancy.name,
-    google_cloud_scheduler_job.trigger_scrape_tv_programs.name,
-  ]
-}
+# DISABLED: Uncomment to re-enable
+# output "cloud_run_job_names" {
+#   value = [
+#     google_cloud_run_v2_job.scrape_vacancy.name,
+#     google_cloud_run_v2_job.scrape_tv_programs.name,
+#   ]
+# }
+#
+# output "cloud_scheduler_job_names" {
+#   value = [
+#     google_cloud_scheduler_job.trigger_scrape_vacancy.name,
+#     google_cloud_scheduler_job.trigger_scrape_tv_programs.name,
+#   ]
+# }
 
 output "job_image_uri" {
   value       = local.job_image
@@ -47,14 +48,15 @@ output "notification_channel_email" {
   description = "Email notification channel for Cloud Run job failure alerts"
 }
 
-output "alert_policies" {
-  value = length(google_monitoring_notification_channel.email) > 0 ? [
-    google_monitoring_alert_policy.scrape_vacancy_failure[0].name,
-    google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
-    google_monitoring_alert_policy.scrape_apartment_ads_failure[0].name,
-    google_monitoring_alert_policy.scrape_housing_ads_failure[0].name,
-    google_monitoring_alert_policy.sync_regions_failure[0].name,
-    google_monitoring_alert_policy.sync_housing_regions_failure[0].name,
-  ] : []
-  description = "Cloud Run job failure alert policies"
-}
+# DISABLED: Uncomment to re-enable
+# output "alert_policies" {
+#   value = length(google_monitoring_notification_channel.email) > 0 ? [
+#     google_monitoring_alert_policy.scrape_vacancy_failure[0].name,
+#     google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
+#     google_monitoring_alert_policy.scrape_apartment_ads_failure[0].name,
+#     google_monitoring_alert_policy.scrape_housing_ads_failure[0].name,
+#     google_monitoring_alert_policy.sync_regions_failure[0].name,
+#     google_monitoring_alert_policy.sync_housing_regions_failure[0].name,
+#   ] : []
+#   description = "Cloud Run job failure alert policies"
+# }
