@@ -298,7 +298,7 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
     task_count = 1
     template {
       timeout         = "4200s"
-      max_retries     = 3
+      max_retries     = 1
       service_account = google_service_account.job_runtime.email
 
       containers {
@@ -365,7 +365,7 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
     task_count = 1
     template {
       timeout         = "4200s"
-      max_retries     = 3
+      max_retries     = 1
       service_account = google_service_account.job_runtime.email
 
       containers {
