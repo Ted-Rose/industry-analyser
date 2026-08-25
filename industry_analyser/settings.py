@@ -44,9 +44,18 @@ def _normalize_db_ssl_pem_raw(raw: str) -> str:
 
 
 def _db_ssl_pem_from_env() -> str:
-    return _normalize_db_ssl_pem_raw(
+    # First try environment variables
+    env_cert = _normalize_db_ssl_pem_raw(
         os.environ.get('DB_SSL_CERT') or os.environ.get('capem') or ''
     )
+    if env_cert:
+        return env_cert
+    # Fall back to reading from ca.pem file at project root
+    ca_pem_file = os.path.join(BASE_DIR, 'ca.pem')
+    if os.path.exists(ca_pem_file):
+        with open(ca_pem_file, 'r') as f:
+            return f.read().strip()
+    return ''
 
 
 def _format_db_ssl_pem(capem_content):
