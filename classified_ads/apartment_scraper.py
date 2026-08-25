@@ -322,32 +322,30 @@ class ApartmentAdScraper(BaseScraper):
         if price_str in ('-', 'buy '):
             return 0.0
         try:
-            if '/' not in price_str:
-                return float(
-                    price_str.replace(',', '')
-                    .encode('ascii', 'ignore')
-                )
-            if '/day' in price_str:
+            cleaned = (
+                price_str.replace('€', '')
+                .replace('$', '')
+                .replace(',', '')
+                .replace(' ', '')
+            )
+            if '/' not in cleaned:
+                return float(cleaned)
+            if '/day' in cleaned or '/dienā' in cleaned:
                 val = float(
-                    price_str.replace('/day', '')
-                    .replace(',', '')
-                    .replace(' ', '')
-                    .encode('ascii', 'ignore')
+                    cleaned.replace('/day', '')
+                    .replace('/dienā', '')
                 )
                 return val * 30
-            if '/week' in price_str:
+            if '/week' in cleaned or '/nedēļā' in cleaned:
                 val = float(
-                    price_str.replace('/week', '')
-                    .replace(',', '')
-                    .replace(' ', '')
-                    .encode('ascii', 'ignore')
+                    cleaned.replace('/week', '')
+                    .replace('/nedēļā', '')
                 )
                 return val * 4
             return float(
-                price_str.replace('/mon.', '')
-                .replace(',', '')
-                .replace(' ', '')
-                .encode('ascii', 'ignore')
+                cleaned.replace('/mon.', '')
+                .replace('/mn.', '')
+                .replace('/mēn.', '')
             )
         except (ValueError, TypeError):
             return 0.0
