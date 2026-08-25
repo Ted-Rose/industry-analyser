@@ -172,6 +172,60 @@ class BaseScraper(abc.ABC):
             logger.warning("The content is not valid JSON.")
             return None
 
+    def refetch_single(self, existing_resource):
+        """
+        Refetch and update a single existing resource from its source.
+
+        This method fetches only the detail page data (enrichment data)
+        and returns a partial update. Subclasses can override this for
+        custom refetch behavior.
+
+        Args:
+            existing_resource (Model): The existing model instance to refetch
+
+        Returns:
+            dict: Dictionary with updated field values, or None if failed
+        """
+        if not hasattr(existing_resource, 'link'):
+            logger.error(
+                f"Resource {existing_resource} has no 'link' attribute"
+            )
+            return None
+
+        logger.debug(f"Refetching resource from {existing_resource.link}")
+
+        try:
+            detail_response = self.make_request(existing_resource.link)
+            if not detail_response:
+                logger.warning(
+                    f"Failed to fetch {existing_resource.link}"
+                )
+                return None
+
+            detail_data = self._parse_detail_for_refetch(detail_response)
+            return detail_data
+
+        except Exception as e:
+            logger.error(
+                f"Error refetching {existing_resource.link}: {e}"
+            )
+            return None
+
+    def _parse_detail_for_refetch(self, response):
+        """
+        Parse detail page for refetch operation.
+        Override this in subclasses to extract refetchable fields.
+
+        Args:
+            response: HTTP response from detail page
+
+        Returns:
+            dict: Dictionary with field names and values to update
+        """
+        raise NotImplementedError(
+            "Subclasses must implement _parse_detail_for_refetch()"
+        )
+
     def sleep(self, min_seconds=1, max_seconds=1, domain=None):
         """
         Sleep between requests to avoid overwhelming the target site.

@@ -1,241 +1,91 @@
 {
-  // VS Code launch configurations for Industry Analyser
-  // 
-  // Vacancy Scrapers (all 3 portals):
-  // - Scrape Vacancy Portal 1 (cv.lv API): cv.lv JSON API scraper
-  // - Scrape Vacancy Portal 2 (likeit.lv): likeit.lv HTML scraper
-  // - Scrape Vacancy Portal 3 (cv.lv IT category): cv.lv IT filter HTML scraper
-  //
-  // Other Scrapers:
-  // - Scrape TV Programs: TV program scraper
-  // - Scrape Blogs: Blog content scraper
-  // - Scrape Apartment Ads: Apartment rental ads scraper
-  // - Scrape Housing Ads: Housing sale ads scraper
-  //
-  // Utilities:
-  // - Django Shell: Interactive Python shell with Django context
-  // - Django: Run Server: Start development server
-  // - Sync Apartment/Housing Regions: Sync region data
-  //
-  // Note: To test vacancy scraper with limited keywords, use Django Shell:
-  //   from fetcher.models import Keyword
-  //   Keyword.objects.exclude(name__in=['python']).update(only_filter=True)
-  //   # Then run any "Scrape Vacancy Portal" configuration
-  //   # Restore: Keyword.objects.all().update(only_filter=False)
-  
-  "version": "0.2.0",
-  "configurations": [
-    {
-        "name": "Scrape First Vacancy Portal",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${workspaceFolder}/manage.py",
-        "args": [
-            "scrape_first_vacancy_portal"
-        ],
-        "django": true,
-        "justMyCode": true,
-        "cwd": "${workspaceFolder}",
-        "python": "${workspaceFolder}/venv/bin/python",
-        "console": "integratedTerminal",
-        "env": {
-            "PYTHONPATH": "${workspaceFolder}"
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Django: Run Server",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "runserver"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Refetch: Dry Run (10 records)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "refetch_apartment_ads",
+                "--filter", "post_date__isnull=True",
+                "--deal-type", "rent",
+                "--limit", "10",
+                "--dry-run"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Refetch: Process 50 records",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "refetch_apartment_ads",
+                "--filter", "post_date__isnull=True",
+                "--deal-type", "rent",
+                "--limit", "50"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Refetch: Specific IDs",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "refetch_apartment_ads",
+                "--ids", "PUT_YOUR_AD_IDS_HERE",
+                "--deal-type", "rent"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Refetch: Custom Filter",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "refetch_apartment_ads",
+                "--filter", "house_type__isnull=True",
+                "--fields", "house_type,facilities",
+                "--deal-type", "rent",
+                "--limit", "20"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Scrape: Apartment Ads",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "scrape_apartment_ads",
+                "--max-pages", "5"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
         }
-    },
-    {
-        "name": "Scrape Vacancy Portal 1 (cv.lv API)",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${workspaceFolder}/manage.py",
-        "args": [
-            "shell",
-            "-c",
-            "from fetcher.scraper import VacancyScrapper; scraper = VacancyScrapper(portal_id=1); scraper.run()"
-        ],
-        "django": true,
-        "justMyCode": true,
-        "cwd": "${workspaceFolder}",
-        "python": "${workspaceFolder}/venv/bin/python",
-        "console": "integratedTerminal",
-        "env": {
-            "PYTHONPATH": "${workspaceFolder}"
-        }
-    },
-    {
-        "name": "Scrape Vacancy Portal 2 (likeit.lv)",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${workspaceFolder}/manage.py",
-        "args": [
-            "shell",
-            "-c",
-            "from fetcher.scraper import VacancyScrapper; scraper = VacancyScrapper(portal_id=2); scraper.run()"
-        ],
-        "django": true,
-        "justMyCode": true,
-        "cwd": "${workspaceFolder}",
-        "python": "${workspaceFolder}/venv/bin/python",
-        "console": "integratedTerminal",
-        "env": {
-            "PYTHONPATH": "${workspaceFolder}"
-        }
-    },
-    {
-        "name": "Scrape Vacancy Portal 3 (cv.lv IT category)",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${workspaceFolder}/manage.py",
-        "args": [
-            "shell",
-            "-c",
-            "from fetcher.scraper import VacancyScrapper; scraper = VacancyScrapper(portal_id=3); scraper.run()"
-        ],
-        "django": true,
-        "justMyCode": true,
-        "cwd": "${workspaceFolder}",
-        "python": "${workspaceFolder}/venv/bin/python",
-        "console": "integratedTerminal",
-        "env": {
-            "PYTHONPATH": "${workspaceFolder}"
-        }
-    },
-    {
-        "name": "Django Shell",
-        "type": "debugpy",
-        "request": "launch",
-        "program": "${workspaceFolder}/manage.py",
-        "args": [
-            "shell"
-        ],
-        "django": true,
-        "justMyCode": true,
-        "cwd": "${workspaceFolder}",
-        "python": "${workspaceFolder}/venv/bin/python",
-        "console": "integratedTerminal",
-        "env": {
-            "PYTHONPATH": "${workspaceFolder}"
-        }
-    },
-    {
-      "name": "Django: Scrape TV Programs (Force)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["scrape_tv_programs", "--force"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Scrape TV Programs",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["scrape_tv_programs"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Scrape Blogs (All Themes)",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["scrape_blogs"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Scrape Apartment Ads",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["scrape_apartment_ads"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}",
-        "PYTHONDONTWRITEBYTECODE": "1"
-      }
-    },
-    {
-      "name": "Scrape Housing Ads",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["scrape_housing_ads"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Sync Apartment Regions",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["sync_apartment_regions"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Sync Housing Regions",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["sync_housing_regions"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    },
-    {
-      "name": "Django: Run Server",
-      "type": "debugpy",
-      "request": "launch",
-      "program": "${workspaceFolder}/manage.py",
-      "args": ["runserver"],
-      "django": true,
-      "justMyCode": true,
-      "cwd": "${workspaceFolder}",
-      "python": "${workspaceFolder}/venv/bin/python",
-      "console": "integratedTerminal",
-      "env": {
-        "PYTHONPATH": "${workspaceFolder}"
-      }
-    }
-  ]
+    ]
 }
