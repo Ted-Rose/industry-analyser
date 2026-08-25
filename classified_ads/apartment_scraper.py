@@ -584,9 +584,23 @@ class ApartmentAdScraper(BaseScraper):
                 separator='\n', strip=True
             )
 
+        # Support both English "Date:" and Latvian "Datums:"
+        # ss.com serves pages in different languages based on the URL path
+        date_labels = ('Date:', 'Datums:')
+
         for td in soup.find_all('td', 'msg_footer'):
-            if 'Date' in td.text:
-                raw = td.text[6:].strip()
+            text = td.text.strip()
+
+            # Check if this footer contains a date label
+            date_label_found = None
+            for label in date_labels:
+                if label in text:
+                    date_label_found = label
+                    break
+
+            if date_label_found:
+                # Extract the date part after the label
+                raw = text.split(date_label_found, 1)[1].strip()
                 try:
                     naive = datetime.strptime(
                         raw, '%d.%m.%Y %H:%M'
