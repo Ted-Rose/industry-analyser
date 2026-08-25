@@ -1,14 +1,50 @@
 {
+  // VS Code launch configurations for Industry Analyser
+  // 
+  // Scrapers:
+  // - Scrape Vacancy Portal (cv.lv): Job vacancy scraper
+  // - Scrape TV Programs: TV program scraper
+  // - Scrape Blogs: Blog content scraper
+  // - Scrape Apartment Ads: Apartment rental ads scraper
+  // - Scrape Housing Ads: Housing sale ads scraper
+  //
+  // Utilities:
+  // - Django Shell: Interactive Python shell with Django context
+  // - Django: Run Server: Start development server
+  // - Sync Apartment/Housing Regions: Sync region data
+  //
+  // Note: To test vacancy scraper with limited keywords, use Django Shell:
+  //   from fetcher.models import Keyword
+  //   Keyword.objects.exclude(name__in=['python']).update(only_filter=True)
+  //   # Then run "Scrape Vacancy Portal (cv.lv)"
+  //   # Restore: Keyword.objects.all().update(only_filter=False)
+  
   "version": "0.2.0",
   "configurations": [
     {
-        "name": "Scrape 1st vacany portal",
+        "name": "Scrape Vacancy Portal (cv.lv)",
         "type": "debugpy",
         "request": "launch",
         "program": "${workspaceFolder}/manage.py",
         "args": [
-            "scrape_first_vacancy_portal",
-            "--force"
+            "scrape_first_vacancy_portal"
+        ],
+        "django": true,
+        "justMyCode": true,
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/venv/bin/python",
+        "console": "integratedTerminal",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        }
+    },
+    {
+        "name": "Django Shell",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/manage.py",
+        "args": [
+            "shell"
         ],
         "django": true,
         "justMyCode": true,
