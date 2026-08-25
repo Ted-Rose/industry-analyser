@@ -1,8 +1,12 @@
 {
   // VS Code launch configurations for Industry Analyser
   // 
-  // Scrapers:
-  // - Scrape Vacancy Portal (cv.lv): Job vacancy scraper
+  // Vacancy Scrapers (all 3 portals):
+  // - Scrape Vacancy Portal 1 (cv.lv API): cv.lv JSON API scraper
+  // - Scrape Vacancy Portal 2 (likeit.lv): likeit.lv HTML scraper
+  // - Scrape Vacancy Portal 3 (cv.lv IT category): cv.lv IT filter HTML scraper
+  //
+  // Other Scrapers:
   // - Scrape TV Programs: TV program scraper
   // - Scrape Blogs: Blog content scraper
   // - Scrape Apartment Ads: Apartment rental ads scraper
@@ -16,18 +20,58 @@
   // Note: To test vacancy scraper with limited keywords, use Django Shell:
   //   from fetcher.models import Keyword
   //   Keyword.objects.exclude(name__in=['python']).update(only_filter=True)
-  //   # Then run "Scrape Vacancy Portal (cv.lv)"
+  //   # Then run any "Scrape Vacancy Portal" configuration
   //   # Restore: Keyword.objects.all().update(only_filter=False)
   
   "version": "0.2.0",
   "configurations": [
     {
-        "name": "Scrape Vacancy Portal (cv.lv)",
+        "name": "Scrape Vacancy Portal 1 (cv.lv API)",
         "type": "debugpy",
         "request": "launch",
         "program": "${workspaceFolder}/manage.py",
         "args": [
-            "scrape_first_vacancy_portal"
+            "shell",
+            "-c",
+            "from fetcher.scraper import VacancyScrapper; scraper = VacancyScrapper(portal_id=1); scraper.run()"
+        ],
+        "django": true,
+        "justMyCode": true,
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/venv/bin/python",
+        "console": "integratedTerminal",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        }
+    },
+    {
+        "name": "Scrape Vacancy Portal 2 (likeit.lv)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/manage.py",
+        "args": [
+            "shell",
+            "-c",
+            "from fetcher.scraper import VacancyScrapper; scraper = VacancyScrapper(portal_id=2); scraper.run()"
+        ],
+        "django": true,
+        "justMyCode": true,
+        "cwd": "${workspaceFolder}",
+        "python": "${workspaceFolder}/venv/bin/python",
+        "console": "integratedTerminal",
+        "env": {
+            "PYTHONPATH": "${workspaceFolder}"
+        }
+    },
+    {
+        "name": "Scrape Vacancy Portal 3 (cv.lv IT category)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder}/manage.py",
+        "args": [
+            "shell",
+            "-c",
+            "from fetcher.scraper import VacancyScrapper; scraper = VacancyScrapper(portal_id=3); scraper.run()"
         ],
         "django": true,
         "justMyCode": true,
