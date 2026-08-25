@@ -32,21 +32,21 @@ SALE_KEYWORDS = [
 def is_sale_misclassified(comment, monthly_price_per_sqm):
     """
     Check if a rental ad is actually a for-sale listing (Strategy C+).
-    
+
     Two complementary signals:
     1. Price signal: monthly_price_per_sqm > 50 (sale price entered as rent)
     2. Keyword signal: Latvian/Russian sale vocabulary in comment
-    
+
     See: docs/misclassified_sale_ads_analysis.md
     """
     if monthly_price_per_sqm > PRICE_THRESHOLD:
         return True
-    
+
     comment_lower = comment.lower()
     for keyword in SALE_KEYWORDS:
         if keyword.lower() in comment_lower:
             return True
-    
+
     return False
 
 
@@ -252,7 +252,9 @@ class ApartmentAdScraper(BaseScraper):
                 if line.strip()
             ]
             street_source = address_lines[-1] if address_lines else ''
-            street_name, street_no = self._split_street(street_source)
+            street_name, street_no, apartment_no = (
+                self._split_street(street_source)
+            )
 
             ad_id = str(
                 str(row_id)
@@ -272,6 +274,7 @@ class ApartmentAdScraper(BaseScraper):
                 'comment': str(cells[2]),
                 'street_name': street_name,
                 'street_no': street_no,
+                'apartment_no': apartment_no,
                 'rooms': rooms,
                 'size': size,
                 'floor': floor,
@@ -299,11 +302,39 @@ class ApartmentAdScraper(BaseScraper):
         return None
 
     def _split_street(self, street_raw):
+        """
+        Parse street address into components.
+
+        Handles formats like:
+        - "Aldaunes iela 2 17" -> ("Aldaunes iela", "2", "17")
+        - "Miera 3 1" -> ("Miera", "3", "1")
+        - "Brivibas 123" -> ("Brivibas", "123", "")
+        - "Main Street" -> ("Main Street", "", "")
+
+        Returns:
+            tuple: (street_name, street_no, apartment_no)
+        """
         street_raw = str(street_raw).strip()
         parts = street_raw.split(' ')
+
+        if len(parts) == 1:
+            return street_raw, '', ''
+
+        apartment_no = ''
+        if parts[-1][:1].isdigit():
+            apartment_no = parts[-1]
+            parts = parts[:-1]
+
+        street_no = ''
         if len(parts) > 1 and parts[-1][:1].isdigit():
-            return ' '.join(parts[:-1]), parts[-1]
-        return street_raw, ''
+            street_no = parts[-1]
+            parts = parts[:-1]
+        elif apartment_no and not street_no:
+            street_no = apartment_no
+            apartment_no = ''
+
+        street_name = ' '.join(parts)
+        return street_name, street_no, apartment_no
 
     def _clean_size(self, size_str) -> float:
         """Convert size string to float, handling '-' and invalid values."""
@@ -410,6 +441,7 @@ class ApartmentAdScraper(BaseScraper):
             district=enriched_result['district'],
             street_name=enriched_result['street_name'],
             street_no=enriched_result.get('street_no', ''),
+            apartment_no=enriched_result.get('apartment_no', ''),
             rooms=enriched_result['rooms'],
             size=enriched_result['size'],
             floor=enriched_result['floor'],
@@ -427,7 +459,7 @@ class ApartmentAdScraper(BaseScraper):
         if enriched_result['deal_type'] == 'RENT':
             monthly_price_per_sqm = enriched_result['price_per_sqm']
             comment = enriched_result.get('comment', '')
-            
+
             return ApartmentForRent(
                 **common_kwargs,
                 monthly_price=enriched_result['total_price'],
@@ -458,7 +490,7 @@ class ApartmentAdScraper(BaseScraper):
                     'total_price_120m', 'price_per_sqm_120m',
                     'total_price', 'post_date', 'last_seen',
                     'seller', 'house_type', 'facilities',
-                    'is_sale_misclassified',
+                    'is_sale_misclassified', 'apartment_no',
                 ],
             )
             logger.info(f"Saved {len(rent_ads)} rent ads.")
@@ -475,6 +507,7 @@ class ApartmentAdScraper(BaseScraper):
                     'comment', 'link', 'price_per_sqm',
                     'total_price', 'post_date', 'last_seen',
                     'seller', 'house_type', 'facilities',
+                    'apartment_no',
                 ],
             )
             logger.info(f"Saved {len(sell_ads)} sale ads.")
@@ -507,6 +540,26 @@ class ApartmentAdScraper(BaseScraper):
         logger.info(
             f"Recorded {len(sightings)} sightings for {today}."
         )
+
+    def _parse_detail_for_refetch(self, response):
+        """
+        Parse detail page for refetch operation.
+        Returns only the fields that can be updated from the detail page.
+        """
+        detail = self._parse_detail_page(response)
+
+        phone = detail.get('phone', '')
+        contact_id = detail.get('contact_id', '')
+
+        if phone or contact_id:
+            seller, _ = Seller.objects.get_or_create(
+                phone=phone, contact_id=contact_id
+            )
+            detail['seller'] = seller
+        else:
+            detail['seller'] = None
+
+        return detail
 
     def _parse_detail_page(self, response) -> dict:
         result = {
@@ -578,7 +631,8 @@ class ApartmentAdScraper(BaseScraper):
                 street_text = ''.join(
                     target.find_all(string=True, recursive=False)
                 ).strip()
-                result['street_name'], result['street_no'] = (
+                (result['street_name'], result['street_no'],
+                 result['apartment_no']) = (
                     self._split_street(street_text)
                 )
             break

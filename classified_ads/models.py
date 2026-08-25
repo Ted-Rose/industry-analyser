@@ -63,6 +63,11 @@ class BaseApartmentAd(models.Model):
     district = models.CharField(max_length=255)
     street_name = models.CharField(max_length=255)
     street_no = models.CharField(max_length=50, blank=True)
+    apartment_no = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Apartment/unit number within the building'
+    )
     rooms = models.IntegerField()
     size = models.FloatField(help_text='Square metres')
     floor = models.IntegerField()
