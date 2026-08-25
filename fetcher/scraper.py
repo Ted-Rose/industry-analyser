@@ -8,6 +8,7 @@ import urllib3
 from .models import Keyword, Vacancy, Industry
 from typing import List
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from core_scraper.base import BaseScraper
 
@@ -22,6 +23,8 @@ class VacancyScrapper(BaseScraper):
         self.industries = Industry.objects
         # Cache keywords list for content matching optimization
         self.keywords_list = list(self.keywords.all())
+        # Set enrich_search_results based on portal type
+        self.enrich_search_results = self.config.get('type') != 'api'
 
     def load_config(self, portal_id):
         portals_json = os.environ.get('FETCHER_PORTALS_JSON')
@@ -47,15 +50,12 @@ class VacancyScrapper(BaseScraper):
         self,
         search_response: urllib3.response.HTTPResponse
     ) -> List:
-        if search_response.headers['Content-Type'] == 'application/json':
-            self.enrich_search_results = False
-
+        content_type = search_response.headers.get('Content-Type', '')
+        if 'application/json' in content_type:
             data = json.loads(search_response.data.decode('utf-8'))
             vacancies = data.get('vacancies', [])
             return vacancies
         else:
-            self.enrich_search_results = True
-
             soup = BeautifulSoup(search_response.data, 'html.parser')
             vacancy_soup = soup.find_all('div', class_="show-expander-content")
             return vacancy_soup
@@ -115,51 +115,55 @@ class VacancyScrapper(BaseScraper):
         for result in search_results:
             vacancy_portal_id = result.get('id')
             if vacancy_portal_id is None:
-                logger.warning(f"Skipping result with missing id: {result.get('positionTitle', 'Unknown')}")
+                logger.warning(
+                    f"Skipping result with missing id: "
+                    f"{result.get('positionTitle', 'Unknown')}"
+                )
                 continue
 
             url = self.config['vacancy_base_url'] +\
                 self.config['vacancy_base_href'] + str(vacancy_portal_id)
 
-            vacancy, created = Vacancy.objects.get_or_create(
+            # Parse datetime fields
+            first_seen = None
+            if result.get('publishDate'):
+                first_seen = parse_datetime(result.get('publishDate'))
+
+            application_deadline = None
+            if result.get('expirationDate'):
+                application_deadline = parse_datetime(
+                    result.get('expirationDate')
+                )
+
+            # Create unsaved Vacancy instance with metadata
+            vacancy = Vacancy(
                 vacancy_portal_id=vacancy_portal_id,
-                defaults={
-                    'title': result.get('positionTitle'),
-                    'company_name': result.get('employerName'),
-                    'salary_from': result.get('salaryFrom'),
-                    'salary_to': result.get('salaryTo'),
-                    'url': url,
-                    'first_seen': result.get('publishDate'),
-                    'last_seen': timezone.now(),
-                    'application_deadline': result.get('expirationDate'),
-                    'state': "CREATED",
-                }
+                title=result.get('positionTitle'),
+                company_name=result.get('employerName'),
+                salary_from=result.get('salaryFrom'),
+                salary_to=result.get('salaryTo'),
+                url=url,
+                first_seen=first_seen,
+                last_seen=timezone.now(),
+                application_deadline=application_deadline,
+                state="CREATED",
             )
 
-            if not created:
-                update_fields = ['last_seen']
-                vacancy.last_seen = timezone.now()
-                if not vacancy.title and result.get('positionTitle'):
-                    vacancy.title = result.get('positionTitle')
-                    update_fields.append('title')
-                if (
-                    not vacancy.company_name
-                    and result.get('employerName')
-                ):
-                    vacancy.company_name = result.get('employerName')
-                    update_fields.append('company_name')
-                vacancy.save(update_fields=update_fields)
+            # Store M2M data for later (after save)
+            vacancy._pending_industries = []
+            vacancy._pending_keywords = []
 
-            # Handle dependencies (e.g., industries)
+            # Collect industries
             portal_industries = result.get('categories')
             if portal_industries:
                 for portal_industry in portal_industries:
-                    industry = self.industries.filter(name=portal_industry).first()
+                    industry = self.industries.filter(
+                        name=portal_industry
+                    ).first()
                     if industry:
-                        vacancy.industries.add(industry)
+                        vacancy._pending_industries.append(industry)
 
-            # Handle dependencies (e.g., keywords)
-            # 1. Add keywords from portal's explicit keyword list
+            # Collect keywords from portal's explicit keyword list
             portal_keywords = result.get('keywords')
             if portal_keywords:
                 for portal_keyword in portal_keywords:
@@ -169,18 +173,16 @@ class VacancyScrapper(BaseScraper):
                         ).first()
                     )
                     if keyword:
-                        vacancy.keywords.add(keyword)
+                        vacancy._pending_keywords.append(keyword)
 
-            # 2. Add keywords by searching within content
+            # Collect keywords by searching within content
             searchable_content = (
                 self._extract_searchable_content(result)
             )
             content_keywords = (
                 self._find_keywords_in_content(searchable_content)
             )
-            for keyword in content_keywords:
-                # add() handles duplicates automatically
-                vacancy.keywords.add(keyword)
+            vacancy._pending_keywords.extend(content_keywords)
 
             logger.debug(
                 f"Vacancy {vacancy_portal_id}: "
@@ -193,27 +195,59 @@ class VacancyScrapper(BaseScraper):
 
     def create_or_update_resources(self, vacancies: List[Vacancy]):
         scraped_ids = {v.vacancy_portal_id for v in vacancies}
+        existing_vacancies = Vacancy.objects.filter(
+            vacancy_portal_id__in=scraped_ids
+        )
         existing_ids = set(
-            Vacancy.objects.filter(
-                vacancy_portal_id__in=scraped_ids
-            ).values_list('vacancy_portal_id', flat=True)
+            existing_vacancies.values_list('vacancy_portal_id', flat=True)
         )
 
         new_vacancies = []
-        ids_to_update = []
+        vacancies_to_update_m2m = []
 
         for vacancy in vacancies:
             if vacancy.vacancy_portal_id in existing_ids:
-                ids_to_update.append(vacancy.vacancy_portal_id)
+                # Update existing vacancy
+                existing = existing_vacancies.get(
+                    vacancy_portal_id=vacancy.vacancy_portal_id
+                )
+                existing.last_seen = timezone.now()
+                if not existing.title and vacancy.title:
+                    existing.title = vacancy.title
+                if not existing.company_name and vacancy.company_name:
+                    existing.company_name = vacancy.company_name
+                existing.save()
+                # Transfer pending M2M data to existing instance
+                existing._pending_industries = (
+                    vacancy._pending_industries
+                )
+                existing._pending_keywords = vacancy._pending_keywords
+                vacancies_to_update_m2m.append(existing)
             else:
                 new_vacancies.append(vacancy)
 
-        if ids_to_update:
-            updated_count = Vacancy.objects.filter(vacancy_portal_id__in=ids_to_update).update(last_seen=timezone.now())
-            logger.info(f"Updated {updated_count} existing vacancies.")
-
         if new_vacancies:
             Vacancy.objects.bulk_create(new_vacancies)
-            logger.info(f"Created {len(new_vacancies)} new vacancies. \n\n")
+            logger.info(
+                f"Created {len(new_vacancies)} new vacancies. \n\n"
+            )
+            # Add M2M relationships for new vacancies
+            for vacancy in new_vacancies:
+                for industry in vacancy._pending_industries:
+                    vacancy.industries.add(industry)
+                for keyword in vacancy._pending_keywords:
+                    vacancy.keywords.add(keyword)
+
+        if vacancies_to_update_m2m:
+            logger.info(
+                f"Updated {len(vacancies_to_update_m2m)} "
+                f"existing vacancies."
+            )
+            # Update M2M relationships for existing vacancies
+            for vacancy in vacancies_to_update_m2m:
+                for industry in vacancy._pending_industries:
+                    vacancy.industries.add(industry)
+                for keyword in vacancy._pending_keywords:
+                    vacancy.keywords.add(keyword)
 
         return
