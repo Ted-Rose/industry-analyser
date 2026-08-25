@@ -173,7 +173,8 @@
       "python": "${workspaceFolder}/venv/bin/python",
       "console": "integratedTerminal",
       "env": {
-        "PYTHONPATH": "${workspaceFolder}"
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONDONTWRITEBYTECODE": "1"
       }
     },
     {
