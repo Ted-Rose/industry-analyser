@@ -200,8 +200,8 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
 
         resources {
           limits = {
-            cpu    = "1"
-            memory = "512Mi"
+            cpu    = "0.8"
+            memory = "100Mi"
           }
         }
       }
@@ -269,8 +269,8 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
 
         resources {
           limits = {
-            cpu    = "1"
-            memory = "512Mi"
+            cpu    = "0.8"
+            memory = "100Mi"
           }
         }
       }
@@ -298,7 +298,7 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
     task_count = 1
     template {
       timeout         = "8000s"
-      max_retries     = 1
+      max_retries     = 0
       service_account = google_service_account.job_runtime.email
 
       containers {
@@ -336,8 +336,8 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
 
         resources {
           limits = {
-            cpu    = "1"
-            memory = "512Mi"
+            cpu    = "0.8"
+            memory = "100Mi"
           }
         }
       }
@@ -403,8 +403,8 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
 
         resources {
           limits = {
-            cpu    = "1"
-            memory = "512Mi"
+            cpu    = "0.8"
+            memory = "100Mi"
           }
         }
       }
@@ -470,8 +470,8 @@ resource "google_cloud_run_v2_job" "sync_regions" {
 
         resources {
           limits = {
-            cpu    = "1"
-            memory = "512Mi"
+            cpu    = "0.8"
+            memory = "100Mi"
           }
         }
       }
@@ -537,8 +537,8 @@ resource "google_cloud_run_v2_job" "sync_housing_regions" {
 
         resources {
           limits = {
-            cpu    = "1"
-            memory = "512Mi"
+            cpu    = "0.8"
+            memory = "100Mi"
           }
         }
       }
