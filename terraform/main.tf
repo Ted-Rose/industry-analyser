@@ -201,7 +201,7 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
         resources {
           limits = {
             cpu    = "0.8"
-            memory = "100Mi"
+            memory = "128Mi"
           }
         }
       }
@@ -270,7 +270,7 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
         resources {
           limits = {
             cpu    = "0.8"
-            memory = "100Mi"
+            memory = "128Mi"
           }
         }
       }
@@ -337,7 +337,7 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
         resources {
           limits = {
             cpu    = "0.8"
-            memory = "100Mi"
+            memory = "128Mi"
           }
         }
       }
@@ -404,7 +404,7 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
         resources {
           limits = {
             cpu    = "0.8"
-            memory = "100Mi"
+            memory = "128Mi"
           }
         }
       }
@@ -471,7 +471,7 @@ resource "google_cloud_run_v2_job" "sync_regions" {
         resources {
           limits = {
             cpu    = "0.8"
-            memory = "100Mi"
+            memory = "128Mi"
           }
         }
       }
@@ -538,7 +538,7 @@ resource "google_cloud_run_v2_job" "sync_housing_regions" {
         resources {
           limits = {
             cpu    = "0.8"
-            memory = "100Mi"
+            memory = "128Mi"
           }
         }
       }
