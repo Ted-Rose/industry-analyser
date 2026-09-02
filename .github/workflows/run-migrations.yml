@@ -69,32 +69,29 @@ jobs:
 
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:latest"
 
-          # Create or update a one-off migration job
+          # Delete existing job if it exists to ensure fresh configuration
           if gcloud run jobs describe run-migrations --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
-            gcloud run jobs update run-migrations \
-              --image="${IMAGE}" \
+            gcloud run jobs delete run-migrations \
               --region="${REGION}" \
               --project="${PROJECT_ID}" \
-              --command=python \
-              --args=manage.py,migrate \
-              --task-timeout=3600 \
-              --quiet
-          else
-            gcloud run jobs create run-migrations \
-              --image="${IMAGE}" \
-              --region="${REGION}" \
-              --project="${PROJECT_ID}" \
-              --command=python \
-              --args=manage.py,migrate \
-              --update-env-vars="SECRET_KEY=${ENV_SECRET_KEY}" \
-              --update-env-vars="DATABASE_URL=${ENV_DATABASE_URL}" \
-              --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
-              --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
-              --update-env-vars="DEBUG=False" \
-              --task-timeout=3600 \
-              --max-retries=0 \
               --quiet
           fi
+
+          # Create fresh migration job with current configuration
+          gcloud run jobs create run-migrations \
+            --image="${IMAGE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --command=python \
+            --args=manage.py,migrate \
+            --update-env-vars="SECRET_KEY=${ENV_SECRET_KEY}" \
+            --update-env-vars="DATABASE_URL=${ENV_DATABASE_URL}" \
+            --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
+            --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
+            --update-env-vars="DEBUG=False" \
+            --task-timeout=3600 \
+            --max-retries=0 \
+            --quiet
 
           # Execute and wait for completion
           gcloud run jobs execute run-migrations \
