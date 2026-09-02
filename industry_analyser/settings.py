@@ -44,7 +44,7 @@ def _normalize_db_ssl_pem_raw(raw: str) -> str:
 
 
 def _db_ssl_pem_from_env() -> str:
-    # For production, prioritize environment variables
+    # For production, prioritize environment variables (supports full cert chain)
     env_cert = _normalize_db_ssl_pem_raw(
         os.environ.get('DB_SSL_CERT') or os.environ.get('capem') or ''
     )
