@@ -304,39 +304,47 @@ class HousingAdScraper(BaseScraper):
         seller_phone = ''
         seller_contact_id = ''
 
-        # Find the main content table with ad details
-        detail_table = soup.find('table', {'id': 'page_main'})
-        if not detail_table:
-            # Fallback to searching all tables
-            detail_table = soup
+        # Extract post date from msg_footer
+        # Support both English "Date:" and Latvian "Datums:"
+        date_labels = ('Date:', 'Datums:')
+        for td in soup.find_all('td', 'msg_footer'):
+            text = td.text.strip()
 
-        for row in detail_table.find_all('tr'):
-            tds = row.find_all('td')
-            if len(tds) != 2:
-                continue
+            # Check if this footer contains a date label
+            date_label_found = None
+            for label in date_labels:
+                if label in text:
+                    date_label_found = label
+                    break
 
-            label = tds[0].text.strip()
-            value = tds[1].text.strip()
+            if date_label_found:
+                # Extract the date part after the label
+                raw = text.split(date_label_found, 1)[1].strip()
+                try:
+                    naive = timezone.datetime.strptime(
+                        raw, '%d.%m.%Y %H:%M'
+                    )
+                    post_date = timezone.make_aware(naive)
+                except (ValueError, TypeError):
+                    pass
+                break
 
-            # Skip if value is too long (likely not a simple field)
-            if len(value) > 100:
-                continue
+        # Extract phone number
+        prefix_span = soup.find(
+            'span', id=re.compile(r'^phone_td_')
+        )
+        if prefix_span:
+            seller_phone = prefix_span.get_text(strip=True)
 
-            if 'Date' in label or 'Datums' in label:
-                # Only try to parse if value looks like a date
-                if re.match(r'\d{1,2}\.\d{1,2}\.\d{4}', value):
-                    try:
-                        post_date = timezone.make_aware(
-                            timezone.datetime.strptime(
-                                value, '%d.%m.%Y'
-                            )
-                        )
-                    except (ValueError, TypeError):
-                        pass
-            elif 'Phone' in label or 'Tālrunis' in label:
-                seller_phone = value
-            elif 'Contact' in label or 'Kontakts' in label:
-                seller_contact_id = value
+        # Extract contact ID from mail link
+        mail_link = soup.find(
+            'a', href=re.compile(r'/mail/')
+        )
+        if mail_link:
+            href = mail_link.get('href', '')
+            seller_contact_id = (
+                href.split('/')[-1].replace('.html', '')
+            )
 
         partial_result['post_date'] = post_date
         partial_result['seller_phone'] = seller_phone
