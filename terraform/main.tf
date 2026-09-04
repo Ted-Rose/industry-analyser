@@ -138,7 +138,7 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
   template {
     task_count = 1
     template {
-      timeout         = "8000s"
+      timeout         = "24000s"
       max_retries     = 0
       service_account = google_service_account.job_runtime.email
 
@@ -297,7 +297,7 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
   template {
     task_count = 1
     template {
-      timeout         = "8000s"
+      timeout         = "24000s"
       max_retries     = 0
       service_account = google_service_account.job_runtime.email
 
@@ -364,7 +364,7 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
   template {
     task_count = 1
     template {
-      timeout         = "8000s"
+      timeout         = "24000s"
       max_retries     = 1
       service_account = google_service_account.job_runtime.email
 
@@ -576,8 +576,8 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_housing_re
 
 resource "google_cloud_scheduler_job" "trigger_sync_regions" {
   name             = "trigger-sync-regions"
-  description      = "Sync ss.com regions to DB weekly (Sunday 23:55 UTC)"
-  schedule         = "55 20 * * 0"
+  description      = "Sync ss.com regions to DB every 2 weeks (1st & 3rd Sunday 23:55 UTC)"
+  schedule         = "55 20 1-7,15-21 * 0"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"
@@ -600,8 +600,8 @@ resource "google_cloud_scheduler_job" "trigger_sync_regions" {
 
 resource "google_cloud_scheduler_job" "trigger_sync_housing_regions" {
   name             = "trigger-sync-housing-regions"
-  description      = "Sync ss.com housing regions to DB weekly (Sunday 23:55 UTC)"
-  schedule         = "55 20 * * 0"
+  description      = "Sync ss.com housing regions to DB every 2 weeks (1st & 3rd Sunday 23:55 UTC)"
+  schedule         = "55 20 1-7,15-21 * 0"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"
@@ -656,8 +656,8 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_housing_ads" {
 
 resource "google_cloud_scheduler_job" "trigger_scrape_vacancy" {
   name             = "trigger-scrape-vacancy"
-  description      = "Run scrape-vacancy job every 48h (23:55 UTC)"
-  schedule         = "55 20 */2 * *"
+  description      = "Run scrape-vacancy job every 72h (20:55 UTC)"
+  schedule         = "55 20 */3 * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"
@@ -704,8 +704,8 @@ resource "google_cloud_scheduler_job" "trigger_scrape_tv_programs" {
 
 resource "google_cloud_scheduler_job" "trigger_scrape_apartment_ads" {
   name             = "trigger-scrape-apartment-ads"
-  description      = "Run scrape-apartment-ads job daily (23:55 UTC)"
-  schedule         = "55 20 * * *"
+  description      = "Run scrape-apartment-ads job every 72h (20:55 UTC)"
+  schedule         = "55 20 */3 * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"
@@ -728,8 +728,8 @@ resource "google_cloud_scheduler_job" "trigger_scrape_apartment_ads" {
 
 resource "google_cloud_scheduler_job" "trigger_scrape_housing_ads" {
   name             = "trigger-scrape-housing-ads"
-  description      = "Run scrape-housing-ads job daily (23:55 UTC)"
-  schedule         = "55 20 * * *"
+  description      = "Run scrape-housing-ads job every 72h (20:55 UTC)"
+  schedule         = "55 20 */3 * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"
