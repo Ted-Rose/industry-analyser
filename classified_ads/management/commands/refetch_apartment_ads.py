@@ -5,6 +5,26 @@ from classified_ads.apartment_scraper import ApartmentAdScraper
 from classified_ads.models import ApartmentForRent, ApartmentForSale
 
 
+# Usage examples:
+# Debug command (refetch specific ad IDs):
+# python manage.py refetch_apartment_ads \
+#     --ids PUT_YOUR_AD_IDS_HERE \
+#     --deal-type rent
+#
+# Debug command (process 50 records with null post_date):
+# python manage.py refetch_apartment_ads \
+#     --filter post_date__isnull=True \
+#     --deal-type rent \
+#     --limit 50
+#
+# Debug command (custom filter with specific fields):
+# python manage.py refetch_apartment_ads \
+#     --filter house_type__isnull=True \
+#     --fields house_type,facilities \
+#     --deal-type rent \
+#     --limit 20
+
+
 class Command(BaseRefetchCommand):
     help = (
         'Refetch and update existing apartment ads from ss.com. '
