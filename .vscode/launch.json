@@ -14,67 +14,6 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Refetch: Dry Run (10 records)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "refetch_apartment_ads",
-                "--filter", "post_date__isnull=True",
-                "--deal-type", "rent",
-                "--limit", "10",
-                "--dry-run"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Refetch: Process 50 records",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "refetch_apartment_ads",
-                "--filter", "post_date__isnull=True",
-                "--deal-type", "rent",
-                "--limit", "50"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Refetch: Specific IDs",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "refetch_apartment_ads",
-                "--ids", "PUT_YOUR_AD_IDS_HERE",
-                "--deal-type", "rent"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Refetch: Custom Filter",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "refetch_apartment_ads",
-                "--filter", "house_type__isnull=True",
-                "--fields", "house_type,facilities",
-                "--deal-type", "rent",
-                "--limit", "20"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal"
-        },
-        {
             "name": "Scrape: Apartment Ads",
             "type": "debugpy",
             "request": "launch",
@@ -86,6 +25,34 @@
             "django": true,
             "justMyCode": false,
             "console": "integratedTerminal"
+        },
+        {
+            "name": "Scrape Vacancy Portal (cv.lv)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "scrape_first_vacancy_portal"
+            ],
+            "django": true,
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/venv/bin/python",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Fix Apartment Addresses",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/fix_apartment_addresses.py",
+            "args": [],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
         }
     ]
 }
