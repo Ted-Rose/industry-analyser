@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import List
 
 from django.utils import timezone
@@ -97,20 +97,22 @@ class ApartmentAdScraper(BaseScraper):
 
     def _get_last_scraped_region_id(self, today):
         """
-        Get the ID of the last region that was scraped today.
+        Get the ID of the last region that was scraped in the last 6 days.
         This helps us resume from the right place if interrupted.
         """
-        # Get the most recent sighting from today across both models
+        # Get the most recent sighting from the last 6 days across both
+        # models
+        six_days_ago = today - timedelta(days=6)
         last_rent = (
             ApartmentForRentSighting.objects
-            .filter(seen_on=today)
+            .filter(seen_on__gte=six_days_ago, seen_on__lte=today)
             .select_related('ad__region')
             .order_by('-id')
             .first()
         )
         last_sale = (
             ApartmentForSaleSighting.objects
-            .filter(seen_on=today)
+            .filter(seen_on__gte=six_days_ago, seen_on__lte=today)
             .select_related('ad__region')
             .order_by('-id')
             .first()
