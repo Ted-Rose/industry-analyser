@@ -1,0 +1,163 @@
+name: Cleanup GCP Artifact Registry
+
+on:
+  workflow_run:
+    workflows:
+      - "Deploy Django Web Service to Cloud Run"
+      - "Deploy scraper jobs (Artifact Registry + Cloud Run)"
+    types:
+      - completed
+    branches:
+      - master
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  REGION: europe-north1
+  REGISTRY_NAME: industry-analyser-app
+  SERVICE_NAME: industry-analyser
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success')
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Cleanup old images
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -e
+          
+          REGISTRY="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REGISTRY_NAME}/${SERVICE_NAME}"
+          
+          echo "🔍 Checking Artifact Registry: ${REGISTRY}"
+          echo ""
+          
+          # List all tags sorted by update time (newest first)
+          TAGS=$(gcloud artifacts docker tags list \
+            "${REGISTRY}" \
+            --format="value(tag,version)" \
+            --sort-by=~UPDATE_TIME \
+            --project="${PROJECT_ID}" 2>&1 || echo "")
+          
+          if [ -z "$TAGS" ]; then
+            echo "ℹ️  No tagged images found in registry"
+            exit 0
+          fi
+          
+          # Count total tags
+          TAG_COUNT=$(echo "$TAGS" | wc -l | tr -d ' ')
+          echo "Found ${TAG_COUNT} tagged image(s) in registry"
+          echo ""
+          
+          # Keep first tag (most recent), delete rest
+          TAGS_TO_DELETE=$(echo "$TAGS" | tail -n +2)
+          
+          if [ -z "$TAGS_TO_DELETE" ]; then
+            echo "✅ Only 1 tagged image exists. Nothing to clean up."
+            echo ""
+            echo "Current tagged images:"
+            gcloud artifacts docker tags list \
+              "${REGISTRY}" \
+              --format="table(tag,version,UPDATE_TIME)" \
+              --sort-by=~UPDATE_TIME \
+              --project="${PROJECT_ID}"
+            exit 0
+          fi
+          
+          DELETE_COUNT=$(echo "$TAGS_TO_DELETE" | wc -l | tr -d ' ')
+          echo "Deleting ${DELETE_COUNT} old tagged image(s)..."
+          echo ""
+          
+          # Track failures and deleted digests
+          FAILED=0
+          declare -a DELETED_DIGESTS
+          
+          # Delete old tags
+          while IFS=$'\t' read -r tag version; do
+            if [ -n "$tag" ]; then
+              TAG_PATH="${REGISTRY}:${tag}"
+              echo "Deleting tag: ${TAG_PATH}"
+              
+              if ! gcloud artifacts docker tags delete "${TAG_PATH}" \
+                --quiet --project="${PROJECT_ID}" 2>&1; then
+                echo "❌ ERROR: Failed to delete tag ${tag}"
+                FAILED=$((FAILED + 1))
+              else
+                echo "✅ Successfully deleted tag ${tag}"
+                DELETED_DIGESTS+=("$version")
+              fi
+              echo ""
+            fi
+          done <<< "$TAGS_TO_DELETE"
+          
+          # Delete untagged images (best effort - GCP may auto-clean)
+          if [ ${#DELETED_DIGESTS[@]} -gt 0 ]; then
+            echo "Deleting untagged images..."
+            echo ""
+            
+            for digest in "${DELETED_DIGESTS[@]}"; do
+              IMAGE_PATH="${REGISTRY}@${digest}"
+              echo "Deleting untagged image: ${digest:0:20}..."
+              
+              if gcloud artifacts docker images delete "${IMAGE_PATH}" \
+                --quiet --project="${PROJECT_ID}" 2>&1; then
+                echo "✅ Successfully deleted untagged image"
+              else
+                echo "⚠️  WARNING: Could not delete untagged image (may have been auto-cleaned by GCP)"
+              fi
+              echo ""
+            done
+          fi
+          
+          # Check final status
+          if [ $FAILED -gt 0 ]; then
+            echo "❌ Cleanup completed with ${FAILED} error(s)"
+            exit 1
+          fi
+          
+          echo "✅ Cleanup complete! All old images deleted successfully."
+          echo ""
+          
+          # Show remaining images
+          echo "Remaining tagged images:"
+          gcloud artifacts docker tags list \
+            "${REGISTRY}" \
+            --format="table(tag,version,UPDATE_TIME)" \
+            --sort-by=~UPDATE_TIME \
+            --project="${PROJECT_ID}"
+
+      - name: Cleanup Summary
+        if: always()
+        run: |
+          echo "## 🧹 Artifact Registry Cleanup Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry**: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${REGISTRY_NAME}/${SERVICE_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ **Status**: Cleanup completed successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Only the most recent tagged image is retained." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status**: Cleanup failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          fi
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
