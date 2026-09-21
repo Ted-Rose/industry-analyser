@@ -32,6 +32,7 @@ class Region(models.Model):
         related_name='sub_regions',
     )
     scrape_enabled = models.BooleanField(default=False)
+    order_id = models.CharField(max_length=50, default='1')
 
     class Meta:
         ordering = ['category', 'name']
