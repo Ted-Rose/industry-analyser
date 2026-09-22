@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from datetime import date, datetime, timedelta
 from typing import List
@@ -97,22 +98,44 @@ class ApartmentAdScraper(BaseScraper):
 
     def _get_last_scraped_region_id(self, today):
         """
-        Get the ID of the last region that was scraped in the last 6 days.
+        Get the ID of the last region that was scraped recently.
         This helps us resume from the right place if interrupted.
+
+        On local Ubuntu machines (non-GCP), queries last 1 day.
+        On Google Cloud Platform (Cloud Run), queries last 6 days.
         """
-        # Get the most recent sighting from the last 6 days across both
-        # models
-        six_days_ago = today - timedelta(days=6)
+        # Check if running on GCP by looking for environment variables
+        # Cloud Run sets K_SERVICE, GOOGLE_CLOUD_PROJECT, or K_REVISION
+        is_gcp = any([
+            os.getenv('K_SERVICE'),
+            os.getenv('K_REVISION'),
+            os.getenv('GOOGLE_CLOUD_PROJECT'),
+        ])
+
+        # Set lookback period based on environment
+        if not is_gcp:
+            days_ago = today - timedelta(days=1)
+            logger.info(
+                "Running on local machine - checking last 1 day"
+            )
+        else:
+            days_ago = today - timedelta(days=6)
+            logger.info(
+                "Running on GCP - checking last 6 days"
+            )
+
+        # Get the most recent sighting from the lookback period across
+        # both models
         last_rent = (
             ApartmentForRentSighting.objects
-            .filter(seen_on__gte=six_days_ago, seen_on__lte=today)
+            .filter(seen_on__gte=days_ago, seen_on__lte=today)
             .select_related('ad__region')
             .order_by('-id')
             .first()
         )
         last_sale = (
             ApartmentForSaleSighting.objects
-            .filter(seen_on__gte=six_days_ago, seen_on__lte=today)
+            .filter(seen_on__gte=days_ago, seen_on__lte=today)
             .select_related('ad__region')
             .order_by('-id')
             .first()
