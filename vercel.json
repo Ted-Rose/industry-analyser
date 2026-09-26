@@ -1,18 +1,3 @@
 {
-  "builds": [
-    {
-      "src": "industry_analyser/wsgi.py",
-      "use": "@vercel/python",
-      "config": {
-        "framework": "django"
-      }
-    }
-  ],
-  "routes": [
-    { "handle": "filesystem" },
-    {
-      "src": "/(.*)",
-      "dest": "industry_analyser/wsgi.py"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
