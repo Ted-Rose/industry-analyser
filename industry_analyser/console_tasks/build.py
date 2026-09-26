@@ -1,31 +1,27 @@
 import os
-import textwrap
+import sys
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
+from industry_analyser.ssl_pem import format_db_ssl_pem  # noqa: E402
 
 
 def create_ca_pem():
     print("Starting to create 'ca.pem'...")
-    capem_content = os.environ.get('capem')
-    if capem_content:
-        print("capem_content found")
-        lines = capem_content.replace("-----BEGIN CERTIFICATE----- ", "-----BEGIN CERTIFICATE-----\n")
-        lines = lines.replace(" -----END CERTIFICATE-----", "\n-----END CERTIFICATE-----")
-
-        base64_content = lines.split("\n", 1)[1].rsplit("\n", 1)[0]
-        formatted_content = textwrap.fill(base64_content, 64)
-
-        # Add the header and footer back with line breaks as required for pem files
-        pem_content = f"-----BEGIN CERTIFICATE-----\n{formatted_content}\n-----END CERTIFICATE-----"
-        file_path = os.path.join(BASE_DIR, 'ca.pem')
-
-        with open(file_path, 'w') as file:
-            file.write(pem_content)
-        print(f"'ca.pem' has been created at {file_path}.")
-    else:
-        print("Environment variable 'capem' is not set.")
+    capem_content = (
+        os.environ.get('DB_SSL_CERT') or os.environ.get('capem') or ''
+    )
+    if not capem_content:
+        print("Environment variable 'DB_SSL_CERT'/'capem' is not set.")
+        return
+    pem_content = format_db_ssl_pem(capem_content)
+    file_path = os.path.join(BASE_DIR, 'ca.pem')
+    with open(file_path, 'w') as file:
+        file.write(pem_content)
+    print(f"'ca.pem' has been created at {file_path}.")
 
 
 create_ca_pem()

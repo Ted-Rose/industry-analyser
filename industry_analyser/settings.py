@@ -12,10 +12,11 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
-import textwrap
 from urllib.parse import quote_plus
 
 import environ
+
+from .ssl_pem import format_db_ssl_pem, normalize_db_ssl_pem_raw
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,20 +33,9 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'), overwrite=False)
 _DB_SSL_CA_FILE = '/tmp/industry-analyser-postgres-ca.pem'
 
 
-def _normalize_db_ssl_pem_raw(raw: str) -> str:
-    if not raw:
-        return ''
-    s = raw.strip()
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
-        s = s[1:-1]
-    if '\\n' in s and s.count('\n') < 4:
-        s = s.replace('\\n', '\n')
-    return s.strip()
-
-
 def _db_ssl_pem_from_env() -> str:
     # For production, prioritize environment variables (supports full cert chain)
-    env_cert = _normalize_db_ssl_pem_raw(
+    env_cert = normalize_db_ssl_pem_raw(
         os.environ.get('DB_SSL_CERT') or os.environ.get('capem') or ''
     )
     if env_cert:
@@ -63,34 +53,10 @@ def _db_ssl_pem_from_env() -> str:
     return ''
 
 
-def _format_db_ssl_pem(capem_content):
-    stripped = capem_content.strip()
-    if '\n' in stripped:
-        return stripped if stripped.endswith('\n') else stripped + '\n'
-    lines = capem_content.replace(
-        '-----BEGIN CERTIFICATE----- ',
-        '-----BEGIN CERTIFICATE-----\n',
-    )
-    lines = lines.replace(
-        ' -----END CERTIFICATE-----',
-        '\n-----END CERTIFICATE-----',
-    )
-    parts = lines.split('\n')
-    if len(parts) >= 3:
-        base64_content = ''.join(parts[1:-1]).replace(' ', '')
-        formatted_content = textwrap.fill(base64_content, 64)
-        return (
-            f'-----BEGIN CERTIFICATE-----\n'
-            f'{formatted_content}\n'
-            f'-----END CERTIFICATE-----'
-        )
-    return capem_content
-
-
 def _apply_db_ssl_cert(db_config, db_ssl_cert_content, ca_pem_path):
     if not db_ssl_cert_content:
         return
-    pem_content = _format_db_ssl_pem(db_ssl_cert_content)
+    pem_content = format_db_ssl_pem(db_ssl_cert_content)
     with open(ca_pem_path, 'w') as f:
         f.write(pem_content)
     db_config.setdefault('OPTIONS', {})
