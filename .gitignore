@@ -8,7 +8,6 @@ fetcher/config.json
 fetcher/config_v2.json
 venv
 private_settings.json
-ca.pem
 logs/*
 db_backups/*
 !db_backups/local_db_backup.sh

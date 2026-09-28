@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import getpass
 from urllib.parse import quote_plus
 
 import environ
@@ -30,8 +31,7 @@ environ.Env.read_env(os.path.join(BASE_DIR, '.env'), overwrite=False)
 
 # CA PEM from env (DB_SSL_CERT or legacy capem), written to /tmp
 # Same pattern as Vercel/GCP.
-_DB_SSL_CA_FILE = '/tmp/industry-analyser-postgres-ca.pem'
-
+_DB_SSL_CA_FILE = '/tmp/industry-analyser-postgres-ca-{getpass.getuser()}.pem'
 
 def _db_ssl_pem_from_env() -> str:
     # For production, prioritize environment variables (supports full cert chain)
