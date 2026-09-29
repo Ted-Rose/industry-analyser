@@ -190,6 +190,7 @@ HARD_CODED_PASSWORD=admin123
 
 # API Keys (optional for basic functionality)
 GEMINI_API_KEY=your-gemini-api-key-here
+OPENROUTER_API_KEY=your-openrouter-api-key-here
 OMDB_KEY=your-omdb-key-here
 
 # Other Settings
@@ -208,6 +209,7 @@ HARD_CODED_PASSWORD=admin123
 
 # API Keys (optional)
 GEMINI_API_KEY=your-gemini-api-key-here
+OPENROUTER_API_KEY=your-openrouter-api-key-here
 OMDB_KEY=your-omdb-key-here
 
 # Other Settings
@@ -819,6 +821,7 @@ If you encounter issues:
 | `DEBUG` | No | `False` | Enable debug mode (set to `True` for development) |
 | `HARD_CODED_PASSWORD` | No | - | Admin password for quick access |
 | `GEMINI_API_KEY` | No | - | Google Gemini API key (for AI features) |
+| `OPENROUTER_API_KEY` | No | - | OpenRouter API key (for OpenAI-compatible AI providers) |
 | `OMDB_KEY` | No | - | OMDB API key (for movie data) |
 | `BASE_URL` | No | `http://127.0.0.1:8000` | Base URL for the application |
 | `ALLOWED_HOST_IP` | No | - | Additional allowed host (e.g., LAN IP) |

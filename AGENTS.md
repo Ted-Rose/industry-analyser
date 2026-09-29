@@ -55,6 +55,17 @@ Key domain patterns:
   (`cheap`/`expensive`) and a `max_api_requests` cap in
   `blogs/config.yaml`. Respect the cap; API calls cost money.
 
+## AI layer
+
+### PR-1: `ai_providers` data model + admin
+
+The `ai_providers` app holds the AI configuration tables
+(`ai_provider`, `ai_model`, `ai_job`, `ai_job_model`,
+`ai_prompt_template`, `ai_input`, `ai_request`). The database is the
+single source of truth for which provider/model each AI job uses —
+Django admin is the UI, no yaml files or hardcoded model lists.
+Runtime provider adapters and the job client land in later PRs.
+
 ## Commands
 
 ```bash
