@@ -230,6 +230,10 @@ class ApartmentAdScraper(BaseScraper):
                 if href:
                     link = 'https://www.ss.com' + href
                     break
+            # The same ad is linked under /msg/lv/ on some listing
+            # pages and /msg/en/ on others; pin to /en/ so the stored
+            # link stops flip-flopping between scrapes.
+            link = link.replace('/msg/lv/', '/msg/en/')
 
             sqm_price = self._clean_price(cells[8])
             total_price = self._clean_price(cells[9])
@@ -281,14 +285,11 @@ class ApartmentAdScraper(BaseScraper):
                 self._split_street(street_source)
             )
 
-            ad_id = str(
-                str(row_id)
-                + cells[3]
-                + cells[4]
-                + cells[5]
-                + cells[6]
-                + cells[7]
-            )
+            # The tr_ row id alone is ss.com's stable, globally-unique
+            # ad id. Appending listing-cell text minted a new ad_id on
+            # every address/size/language variant, which defeated
+            # unique dedup (see docs/ad_id_dedup_fix_plan.md).
+            ad_id = str(row_id)
 
             results.append({
                 'ad_id': ad_id,
@@ -424,7 +425,7 @@ class ApartmentAdScraper(BaseScraper):
         ) if rent_incoming else set()
 
         existing_sell_ids = set(
-            ApartmentForSale.objects.filter(
+            ApartmentForSale.all_objects.filter(
                 ad_id__in=sell_incoming
             ).values_list('ad_id', flat=True)
         ) if sell_incoming else set()
@@ -524,7 +525,7 @@ class ApartmentAdScraper(BaseScraper):
             )
 
         if sell_ads:
-            ApartmentForSale.objects.bulk_create(
+            ApartmentForSale.all_objects.bulk_create(
                 sell_ads,
                 update_conflicts=True,
                 unique_fields=['ad_id'],
@@ -553,7 +554,7 @@ class ApartmentAdScraper(BaseScraper):
                 ignore_conflicts=True,
             )
         else:
-            ads = ApartmentForSale.objects.filter(ad_id__in=ad_ids)
+            ads = ApartmentForSale.all_objects.filter(ad_id__in=ad_ids)
             sightings = [
                 ApartmentForSaleSighting(ad=ad, seen_on=today)
                 for ad in ads

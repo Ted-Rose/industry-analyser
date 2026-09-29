@@ -195,6 +195,10 @@ class HousingAdScraper(BaseScraper):
                 if href:
                     link = 'https://www.ss.com' + href
                     break
+            # The same ad is linked under /msg/lv/ on some listing
+            # pages and /msg/en/ on others; pin to /en/ so the stored
+            # link stops flip-flopping between scrapes.
+            link = link.replace('/msg/lv/', '/msg/en/')
 
             total_price = self._clean_price(cells[8])
 
@@ -217,13 +221,11 @@ class HousingAdScraper(BaseScraper):
 
             land_area_sqm = _parse_land_area(cells[7])
 
-            ad_id = str(
-                str(row_id)
-                + cells[3]
-                + cells[4]
-                + cells[5]
-                + cells[7]
-            )
+            # The tr_ row id alone is ss.com's stable, globally-unique
+            # ad id. Appending listing-cell text minted a new ad_id on
+            # every address/size/language variant, which defeated
+            # unique dedup (see docs/ad_id_dedup_fix_plan.md).
+            ad_id = str(row_id)
 
             results.append({
                 'ad_id': ad_id,
@@ -299,13 +301,13 @@ class HousingAdScraper(BaseScraper):
         }
 
         existing_rent_ids = set(
-            HouseForRent.objects.filter(
+            HouseForRent.all_objects.filter(
                 ad_id__in=rent_incoming
             ).values_list('ad_id', flat=True)
         ) if rent_incoming else set()
 
         existing_sell_ids = set(
-            HouseForSale.objects.filter(
+            HouseForSale.all_objects.filter(
                 ad_id__in=sell_incoming
             ).values_list('ad_id', flat=True)
         ) if sell_incoming else set()
@@ -455,16 +457,34 @@ class HousingAdScraper(BaseScraper):
         sell_ads = [r for r in resources if isinstance(r, HouseForSale)]
 
         if rent_ads:
-            HouseForRent.objects.bulk_create(
-                rent_ads, ignore_conflicts=True
+            HouseForRent.all_objects.bulk_create(
+                rent_ads,
+                update_conflicts=True,
+                unique_fields=['ad_id'],
+                update_fields=[
+                    'comment', 'link', 'price_per_sqm',
+                    'monthly_price', 'monthly_price_per_sqm',
+                    'total_price_120m', 'price_per_sqm_120m',
+                    'total_price', 'post_date', 'last_seen',
+                    'seller',
+                ],
             )
+            logger.info(f"Saved {len(rent_ads)} rent ads.")
             rent_ids = {ad.ad_id for ad in rent_ads}
             self._write_sightings(rent_ids, 'RENT')
 
         if sell_ads:
-            HouseForSale.objects.bulk_create(
-                sell_ads, ignore_conflicts=True
+            HouseForSale.all_objects.bulk_create(
+                sell_ads,
+                update_conflicts=True,
+                unique_fields=['ad_id'],
+                update_fields=[
+                    'comment', 'link', 'price_per_sqm',
+                    'total_price', 'post_date', 'last_seen',
+                    'seller',
+                ],
             )
+            logger.info(f"Saved {len(sell_ads)} sale ads.")
             sell_ids = {ad.ad_id for ad in sell_ads}
             self._write_sightings(sell_ids, 'SELL')
 
@@ -472,7 +492,7 @@ class HousingAdScraper(BaseScraper):
         today = date.today()
 
         if deal_type == 'RENT':
-            existing_ads = HouseForRent.objects.filter(
+            existing_ads = HouseForRent.all_objects.filter(
                 ad_id__in=ad_ids
             ).values_list('id', 'ad_id')
             ad_map = {ad_id: pk for pk, ad_id in existing_ads}
@@ -497,7 +517,7 @@ class HousingAdScraper(BaseScraper):
                 )
 
         elif deal_type == 'SELL':
-            existing_ads = HouseForSale.objects.filter(
+            existing_ads = HouseForSale.all_objects.filter(
                 ad_id__in=ad_ids
             ).values_list('id', 'ad_id')
             ad_map = {ad_id: pk for pk, ad_id in existing_ads}
