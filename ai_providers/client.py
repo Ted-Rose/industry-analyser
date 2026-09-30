@@ -119,6 +119,19 @@ class JobClient:
         """Attempts actually sent in this run (failures included)."""
         return self._request_count
 
+    def supports_json_mode(self, role):
+        """True when the role's first active assignment's model has
+        ``AIModel.supports_json_mode`` set.
+
+        Reflects the assignment snapshot taken at construction —
+        admin changes apply to the next JobClient, not mid-run.
+        Returns False for a role with no active assignment.
+        """
+        assignments = self._assignments.get(role) or []
+        return bool(
+            assignments and assignments[0].model.supports_json_mode
+        )
+
     def generate(self, prompt, role, options=None):
         """Send `prompt` via the first working assignment for `role`.
 

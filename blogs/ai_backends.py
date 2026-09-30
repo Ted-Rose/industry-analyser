@@ -1,10 +1,15 @@
-"""AnalyzerBackend backed by the ai_providers JobClient (PR-6).
+"""AnalyzerBackend backed by the ai_providers JobClient (PR-6, PR-9).
 
 Model lists, retries, fallbacks, request caps and AIRequest logging
 live in ``ai_providers.client.JobClient`` — the DB (AIJob/AIJobModel
 assignments) is the source of truth for which models each role uses.
 This adapter only translates between the ThemeAnalyzer backend
 protocol (``blogs/analyzer.py``) and the ai_providers types/errors.
+
+PR-9: prompts use the ``system_v1`` layout (instructions become the
+system message; the article arrives as a ``<input>`` block in the
+user message) and ``json_mode`` is enabled when the assigned model
+supports it.
 """
 
 import logging
@@ -44,11 +49,15 @@ class JobClientBackend:
             template_key=template_key,
             template_text=template_text,
             input_text=input_text,
-            layout='inline_v1',
+            layout='system_v1',
         )
         try:
             result = self.client.generate(
-                spec, role=role, options=GenerationOptions()
+                spec,
+                role=role,
+                options=GenerationOptions(
+                    json_mode=self.client.supports_json_mode(role)
+                ),
             )
         except AIRequestCapReached as e:
             raise MaxAPIRequestsReached(str(e)) from e

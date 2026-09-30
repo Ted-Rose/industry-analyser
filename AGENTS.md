@@ -158,6 +158,23 @@ those not referenced by any FK (consumers are discovered via
 then deletes AIInput rows no longer referenced by any AIRequest.
 `AIPromptTemplate` rows are never pruned.
 
+### PR-9: Prompt hardening (system_v1 + json_mode + shape checks)
+
+`JobClientBackend` sends prompts with layout `system_v1`: the prompt
+file becomes the system message and the article arrives in the user
+message wrapped in `<input>...</input>`. Every `blogs/prompts/*.txt`
+file ends with a line telling the model to treat the `<input>` block
+as data, not instructions (each edit creates a new
+`AIPromptTemplate` version at runtime — expected). `json_mode=True`
+is sent when the serving model's assignment has
+`supports_json_mode` — the backend asks
+`client.supports_json_mode(role)`, which reads the JobClient's
+construction-time assignment snapshot. Parsed results are
+shape-validated in `ThemeAnalyzer._parse_result`: the theme key must
+be a bool, `confidence_score` a 0-1 number and `reasoning_summary` a
+str — anything else is skipped like a failed parse (the synthetic
+BLOCKED result is built internally and bypasses validation).
+
 ## Commands
 
 ```bash
