@@ -39,13 +39,17 @@ class AnalyzerBackend(Protocol):
         ...
 
 
-def load_theme_prompt(theme_name):
-    """Read blogs/prompts/<theme_name>.txt; None when missing."""
-    prompt_path = os.path.join(
+def theme_prompt_path(theme_name):
+    """Absolute path of blogs/prompts/<theme_name>.txt."""
+    return os.path.join(
         settings.BASE_DIR, 'blogs', 'prompts', f'{theme_name}.txt'
     )
+
+
+def load_theme_prompt(theme_name):
+    """Read blogs/prompts/<theme_name>.txt; None when missing."""
     try:
-        with open(prompt_path, 'r') as file:
+        with open(theme_prompt_path(theme_name), 'r') as file:
             return file.read()
     except FileNotFoundError:
         return None
@@ -66,7 +70,8 @@ class ThemeAnalyzer:
         self.prompt_loader = prompt_loader
         self.logger = logger
 
-    def analyse(self, content, themes, use_cheap_tier=True):
+    def analyse(self, content, themes,
+                use_cheap_tier=True) -> dict | None:
         """Analyze content against themes.
 
         Returns a ``{theme_name: analysis_dict}`` mapping, or None
@@ -112,8 +117,8 @@ class ThemeAnalyzer:
             template_text = self.prompt_loader(theme.name)
             if template_text is None:
                 self.logger.error(
-                    "Prompt file not found for theme '%s'.",
-                    theme.name
+                    "Prompt file not found for theme '%s' at %s.",
+                    theme.name, theme_prompt_path(theme.name)
                 )
                 continue
 

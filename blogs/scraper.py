@@ -333,7 +333,9 @@ class BlogScraper(BaseScraper):
             # Extract the title, intro, and all gallery images
             title = article_container.find('h1')
             intro = article_container.find('div', class_='intro')
-            gallery_images = article_container.find_all('div', class_='gallery_img')
+            gallery_images = article_container.find_all(
+                'div', class_='gallery_img'
+            )
 
             if title:
                 container.append(title)
@@ -496,7 +498,7 @@ class BlogScraper(BaseScraper):
                 f"({self.max_api_requests})"
             )
             raise  # Re-raise to stop the scraper
-        
+
         if not analysis_json:
             logger.error("Analysis failed for page %s.", page.title)
             return None

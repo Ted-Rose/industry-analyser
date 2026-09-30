@@ -14,8 +14,6 @@ from google.genai import errors as genai_errors
 
 from .analyzer import AnalyzerResponse
 
-logger = logging.getLogger('blogs')
-
 MODELS_BY_ROLE = {
     'cheap': ['gemini-2.5-flash-lite'],
     'expensive': ['gemini-2.5-pro'],
@@ -69,10 +67,18 @@ class GeminiDirectBackend:
         content, exactly as the scraper did. Returns None when every
         model failed; raises MaxAPIRequestsReached at the cap.
         """
+        models = MODELS_BY_ROLE.get(role)
+        if not models:
+            self.logger.error(
+                "Unknown model role '%s' for '%s'; no models "
+                "configured.", role, template_key
+            )
+            return None
+
         full_prompt = template_text + "\n\n---\n\n" + input_text
         client = genai.Client(api_key=self.api_key)
 
-        for model_name in MODELS_BY_ROLE.get(role, []):
+        for model_name in models:
             for attempt in range(RETRIES_PER_MODEL):
                 self._check_cap()
                 self.logger.info(
