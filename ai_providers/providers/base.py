@@ -28,7 +28,8 @@ class BaseAIProvider(abc.ABC):
         """
 
     def list_models(self):
-        """Return a list of ModelInfo; implemented in PR-5."""
+        """Return ``list[ModelInfo]`` from the provider's free
+        catalog/listing endpoint (PR-5)."""
         raise NotImplementedError
 
     def _scrub_message(self, message) -> str:

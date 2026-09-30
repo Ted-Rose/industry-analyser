@@ -92,6 +92,22 @@ Commands: `python manage.py seed_ai_config [--dry-run]` seeds the
 [--prompt TEXT]` sends exactly one real (potentially paid) request —
 use sparingly.
 
+### PR-5: Model catalog sync
+
+`python manage.py sync_ai_models PROVIDER_SLUG [--enable-new]
+[--dry-run]` calls the provider's free model-listing endpoint via
+the adapter's `list_models()` and reconciles the `ai_model` table:
+unknown models are created with `auto_registered=True` (disabled
+unless `--enable-new`), existing rows get catalog-provided display
+name, prices and context length refreshed — nothing is ever
+disabled or deleted. `ai_providers.catalog.sync_provider_models(
+provider, enable_new, dry_run)` returns `{created, updated,
+skipped}` counts; the same sync backs the AIProvider admin action
+"Sync model catalog" (per-provider error isolation). Gemini keeps
+only models supporting `generateContent` and strips the `models/`
+name prefix; OpenRouter pricing strings (USD per token) are
+converted to USD per 1M tokens.
+
 ## Commands
 
 ```bash
