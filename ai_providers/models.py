@@ -1,6 +1,25 @@
+import hashlib
+import logging
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+
+from ai_providers.prompts import render_prompt
+
+logger = logging.getLogger('ai_providers')
+
+
+def rendered_prompt_sha256(system, user):
+    """sha256 of a rendered prompt (system + user).
+
+    This is the value stored in ``AIRequest.prompt_sha256``; keeping
+    it here lets both the client (write path) and
+    ``AIRequest.rendered_prompt()`` (verification path) share one
+    implementation.
+    """
+    payload = (system or '') + '\n' + (user or '')
+    return hashlib.sha256(payload.encode('utf-8')).hexdigest()
 
 
 class AIProvider(models.Model):
@@ -261,3 +280,36 @@ class AIRequest(models.Model):
             f'{self.job.slug} {self.role} {self.requested_model} '
             f'attempt {self.attempt} [{self.status}]'
         )
+
+    def rendered_prompt(self):
+        """Rebuild the exact prompt that was sent, from the parts.
+
+        Returns a ``types.RenderedPrompt``, or ``None`` when the
+        prompt cannot be reconstructed:
+
+        * ``input`` is null (e.g. the job has ``store_inputs=False``)
+          — hash and length are all we keep;
+        * a non-``raw`` layout has no ``prompt_template``;
+        * the rebuilt prompt fails the ``prompt_sha256`` integrity
+          check (parts drifted from what was actually sent).
+        """
+        if self.input_id is None:
+            return None
+        if self.prompt_template_id is not None:
+            template_text = self.prompt_template.text
+        elif self.prompt_layout == 'raw':
+            template_text = ''
+        else:
+            return None
+        rendered = render_prompt(
+            template_text, self.input.text, self.prompt_layout
+        )
+        actual = rendered_prompt_sha256(rendered.system, rendered.user)
+        if actual != self.prompt_sha256:
+            logger.warning(
+                'AIRequest %s prompt_sha256 mismatch: stored %s, '
+                'rebuilt %s.',
+                self.pk, self.prompt_sha256, actual,
+            )
+            return None
+        return rendered

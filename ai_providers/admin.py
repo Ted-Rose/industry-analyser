@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.db.models import Count
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .forms import (
     AIJobModelInlineForm,
@@ -125,6 +127,18 @@ class ReadOnlyAdminMixin:
         return False
 
 
+def _admin_obj_link(obj):
+    """Link to an object's admin page (change view renders read-only
+    for view-only users), or an em dash for null."""
+    if obj is None:
+        return '—'
+    url = reverse(
+        f'admin:{obj._meta.app_label}_{obj._meta.model_name}_change',
+        args=[obj.pk],
+    )
+    return format_html('<a href="{}">{}</a>', url, obj)
+
+
 @admin.register(AIRequest)
 class AIRequestAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = [
@@ -151,12 +165,66 @@ class AIRequestAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
         'requested_model__provider',
         'served_model',
     ]
+    # The two prompt FKs are excluded so the detail page shows the
+    # admin links below instead of disabled select widgets.
+    exclude = ['prompt_template', 'input']
+    readonly_fields = [
+        'created_at',
+        'job',
+        'role',
+        'requested_model',
+        'served_model',
+        'attempt',
+        'status',
+        'error_type',
+        'error_message',
+        'http_status',
+        'finish_reason',
+        'block_reason',
+        'input_tokens',
+        'output_tokens',
+        'cost_usd',
+        'latency_ms',
+        'prompt_template_link',
+        'input_link',
+        'prompt_layout',
+        'options',
+        'prompt_chars',
+        'prompt_sha256',
+        'response_text',
+        'rendered_prompt_display',
+    ]
 
     @admin.display(description='Tokens (in/out)')
     def tokens(self, obj):
         input_t = '—' if obj.input_tokens is None else obj.input_tokens
         output_t = '—' if obj.output_tokens is None else obj.output_tokens
         return f'{input_t} / {output_t}'
+
+    @admin.display(description='Prompt template')
+    def prompt_template_link(self, obj):
+        return _admin_obj_link(obj.prompt_template)
+
+    @admin.display(description='Input')
+    def input_link(self, obj):
+        return _admin_obj_link(obj.input)
+
+    @admin.display(description='Rendered prompt')
+    def rendered_prompt_display(self, obj):
+        """The exact prompt sent, rebuilt and hash-verified by
+        AIRequest.rendered_prompt()."""
+        rendered = obj.rendered_prompt()
+        if rendered is None:
+            return '—'
+        sections = []
+        if rendered.system is not None:
+            sections.append(f'--- system ---\n{rendered.system}')
+        sections.append(f'--- user ---\n{rendered.user}')
+        return format_html(
+            '<pre style="margin:0; white-space:pre-wrap; '
+            'font-family:monospace;">{}</pre>',
+            '\n\n'.join(sections),
+        )
 
 
 @admin.register(AIPromptTemplate)
