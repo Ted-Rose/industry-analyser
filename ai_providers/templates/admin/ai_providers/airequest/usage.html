@@ -1,0 +1,80 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a> &rsaquo;
+  <a href="{% url 'admin:app_list' app_label='ai_providers' %}">AI providers</a> &rsaquo;
+  <a href="{% url 'admin:ai_providers_airequest_changelist' %}">AI requests</a> &rsaquo;
+  {% translate 'Usage' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>{% translate 'AI request usage' %}</h1>
+
+<form method="get" style="margin-bottom: 1em;">
+  <label for="id_from">{% translate 'From' %}</label>
+  <input type="date" id="id_from" name="from"
+         value="{{ date_from|date:'Y-m-d' }}">
+  <label for="id_to">{% translate 'To' %}</label>
+  <input type="date" id="id_to" name="to"
+         value="{{ date_to|date:'Y-m-d' }}">
+  <button type="submit" class="button">{% translate 'Filter' %}</button>
+</form>
+
+<p>
+  <strong>{% translate 'Totals:' %}</strong>
+  {{ totals.request_count }} {% translate 'requests' %}
+  ({{ totals.error_count }} {% translate 'errors' %},
+  {{ totals.blocked_count }} {% translate 'blocked' %}) &middot;
+  {{ totals.input_tokens|default:'0' }} {% translate 'input tokens' %},
+  {{ totals.output_tokens|default:'0' }} {% translate 'output tokens' %}
+  &middot; ${{ totals.cost_usd|default:'0' }}
+  <br>
+  <strong>{% translate 'Input storage:' %}</strong>
+  {{ storage.input_count }} {% translate 'AIInput rows' %},
+  {{ storage.input_chars|default:'0' }} {% translate 'chars total' %}
+</p>
+
+<table style="width: auto; min-width: 60%;">
+  <thead>
+    <tr>
+      <th>{% translate 'Day (UTC)' %}</th>
+      <th>{% translate 'Job' %}</th>
+      <th>{% translate 'Served model' %}</th>
+      <th>{% translate 'Requests' %}</th>
+      <th>{% translate 'Errors' %}</th>
+      <th>{% translate 'Blocked' %}</th>
+      <th>{% translate 'Input tokens' %}</th>
+      <th>{% translate 'Output tokens' %}</th>
+      <th>{% translate 'Cost (USD)' %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="{% cycle 'row1' 'row2' %}">
+      <td>{{ row.day }}</td>
+      <td>{{ row.job__slug }}</td>
+      <td>
+        {% if row.served_model_id %}
+          {{ row.served_model__provider__slug }}:{{ row.served_model__name }}
+        {% else %}
+          &mdash;
+        {% endif %}
+      </td>
+      <td>{{ row.request_count }}</td>
+      <td>{{ row.error_count }}</td>
+      <td>{{ row.blocked_count }}</td>
+      <td>{{ row.input_tokens|default:'0' }}</td>
+      <td>{{ row.output_tokens|default:'0' }}</td>
+      <td>
+        {% if row.cost_usd is not None %}{{ row.cost_usd }}{% else %}&mdash;{% endif %}
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="9">{% translate 'No requests in this range.' %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
