@@ -1,23 +1,20 @@
 import os
-import json
-import re
-import time
 import yaml
 import logging
-from google import genai
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from django.conf import settings
 from django.db.models import Count, Q
 from core_scraper.base import BaseScraper
+from .ai_backends import (
+    APIRequestCounter,
+    GeminiDirectBackend,
+    MaxAPIRequestsReached,
+)
+from .analyzer import ThemeAnalyzer, load_theme_prompt
 from .models import Page, Theme, PageAnalysis
 
 logger = logging.getLogger('blogs')
-
-
-class MaxAPIRequestsReached(Exception):
-    """Raised when the maximum number of API requests is reached."""
-    pass
 
 
 class BlogScraper(BaseScraper):
@@ -36,14 +33,32 @@ class BlogScraper(BaseScraper):
         self.reanalyze = reanalyze
         self.max_pages = self.config.get('max_pages', 20)
 
-        # API request counter for cost control
-        self.api_request_count = 0
+        # API request counter for cost control (shared with the
+        # analyzer backend; counts every attempt sent)
         self.max_api_requests = self.config.get('max_api_requests', None)
+        self._request_counter = APIRequestCounter(
+            limit=self.max_api_requests
+        )
+        self._analyzer = ThemeAnalyzer(
+            backend=GeminiDirectBackend(
+                api_key=settings.GEMINI_API_KEY,
+                counter=self._request_counter,
+                logger=logger,
+            ),
+            prompt_loader=load_theme_prompt,
+            logger=logger,
+        )
 
         # Page counters
         self.pages_processed = 0  # Total pages (analyzed + skipped)
         self.pages_analyzed = 0   # Pages that went through AI analysis
         self.pages_skipped = 0    # Pages skipped (already in DB)
+
+    @property
+    def api_request_count(self):
+        """API attempts sent this run (shared with the backend;
+        run() logs it in the cap-reached summary)."""
+        return self._request_counter.count
 
     def run(self):
         """Override run to handle API request limit."""
@@ -289,247 +304,17 @@ class BlogScraper(BaseScraper):
 
     def analyse_content(self, article_content, themes_to_analyse):
         """
-        Two-tier AI analysis to reduce costs:
-        1. Try cheap models first for all themes
-        2. If any theme matches (True), stop and return results
-        3. If all themes return False, use expensive models
+        Two-tier AI analysis to reduce costs (cheap tier pre-screens,
+        expensive tier verifies when nothing matched). Delegates to
+        ThemeAnalyzer (blogs/analyzer.py); the Gemini model loop lives
+        in blogs/ai_backends.py.
         """
-        cheap_rough_models = [
-            "gemini-2.5-flash-lite",
-        ]
-        expensive_precise_models = [
-            "gemini-2.5-pro",
-        ]
-
-        # Step 1: Try cheap models first (if enabled for this URL)
-        cheap_results = None
         use_cheap = getattr(self, 'current_url_use_cheap_tier', True)
-
-        if use_cheap:
-            logger.info(
-                "Starting cheap model pre-screening for %d themes",
-                len(themes_to_analyse)
-            )
-            cheap_results = self._analyze_with_models(
-                article_content,
-                themes_to_analyse,
-                cheap_rough_models,
-                model_tier='cheap'
-            )
-
-            # Step 2: Check if any theme matched
-            if self._has_theme_match(cheap_results):
-                logger.info(
-                    "Theme match found with cheap model. "
-                    "Stopping analysis to save costs."
-                )
-                return cheap_results
-
-            logger.info(
-                "No theme match with cheap models. "
-                "Using expensive models for precise verification."
-            )
-        else:
-            logger.info(
-                "Skipping cheap tier (disabled for this URL). "
-                "Using expensive models directly."
-            )
-
-        # Step 3: Use expensive models
-        expensive_results = self._analyze_with_models(
+        return self._analyzer.analyse(
             article_content,
             themes_to_analyse,
-            expensive_precise_models,
-            model_tier='expensive'
+            use_cheap_tier=use_cheap,
         )
-
-        return expensive_results
-
-    def _has_theme_match(self, results):
-        """
-        Check if any theme matched (returned True).
-        """
-        if not results:
-            return False
-
-        for theme_name, analysis in results.items():
-            if analysis.get(theme_name) is True:
-                logger.info(
-                    f"Theme '{theme_name}' matched with "
-                    f"model {analysis.get('model')}"
-                )
-                return True
-
-        return False
-
-    def _analyze_with_models(
-        self, article_content, themes_to_analyse, model_list, model_tier
-    ):
-        """
-        Analyze content with specified model list.
-        Returns aggregated results with model_tier included.
-        """
-        aggregated_results = {}
-
-        for theme in themes_to_analyse:
-            # 1. Load the prompt dynamically based on the theme's name
-            try:
-                prompt_path = os.path.join(
-                    settings.BASE_DIR, 'blogs', 'prompts', f'{theme.name}.txt'
-                )
-                with open(prompt_path, 'r') as file:
-                    prompt_instructions = file.read()
-            except FileNotFoundError:
-                logger.error("Prompt file not found for theme '%s' at %s", theme.name, prompt_path)
-                continue  # Skip to the next theme
-
-            full_prompt = prompt_instructions + "\n\n---\n\n" + article_content
-
-            # 2. Make a separate API call for each theme
-            client = genai.Client(api_key=settings.GEMINI_API_KEY)
-            response = None
-            retries_per_model = 2
-            response_received = False
-
-            try:
-                for model_name in model_list:
-                    for attempt in range(retries_per_model):
-                        try:
-                            # Check if we've reached the API request limit
-                            if (
-                                self.max_api_requests is not None and
-                                self.api_request_count >= self.max_api_requests
-                            ):
-                                logger.warning(
-                                    "Reached max API requests limit "
-                                    f"({self.max_api_requests}). "
-                                    "Stopping scraper."
-                                )
-                                raise MaxAPIRequestsReached(
-                                    f"Reached limit of {self.max_api_requests} "
-                                    f"API requests"
-                                )
-
-                            logger.info(
-                                f"Attempting model {model_name} for theme "
-                                f"'{theme.name}' (Attempt {attempt + 1}) "
-                                f"[API calls: {self.api_request_count}/"
-                                f"{self.max_api_requests or 'unlimited'}]"
-                            )
-                            response = client.models.generate_content(
-                                model=model_name,
-                                contents=full_prompt,
-                            )
-
-                            # Increment counter after successful API call
-                            self.api_request_count += 1
-
-                            if response.prompt_feedback and response.prompt_feedback.block_reason:
-                                logger.warning(
-                                    "Gemini API call blocked for theme '%s' with reason: %s",
-                                    theme.name, response.prompt_feedback.block_reason
-                                )
-                                synthetic_analysis = {
-                                    theme.name: True,
-                                    'confidence_score': 1.0,
-                                    'reasoning_summary': f"Content analysis blocked by API safety filters. Reason: {response.prompt_feedback.block_reason}",
-                                    'model': model_name,
-                                    'model_tier': model_tier,
-                                    'blocked': True,
-                                }
-                                aggregated_results[theme.name] = synthetic_analysis
-                                return aggregated_results
-                            else:
-                                response_received = True
-                                used_model = model_name
-                                break  # Exit inner loop on success
-                        except MaxAPIRequestsReached:
-                            # Re-raise to stop scraper immediately
-                            raise
-                        except Exception as e:
-                            logger.warning(
-                                "Model %s failed for theme '%s'. "
-                                "Retrying. Error: %s",
-                                model_name, theme.name, e
-                            )
-                            time.sleep(2 ** attempt)
-                    if response_received:
-                        break  # Exit outer loop if we have a result
-            except MaxAPIRequestsReached:
-                # Re-raise to stop scraper immediately
-                raise
-            except Exception as e:
-                logger.error(
-                    "An unexpected error occurred with Gemini API for "
-                    "theme '%s': %s", theme.name, e
-                )
-                time.sleep(2 ** attempt)
-                continue  # Skip to the next theme
-
-            if not response_received or not response:
-                logger.error("Failed to get a valid response from Gemini API for theme '%s'.", theme.name)
-                continue  # Skip to the next theme
-
-            # 3. Aggregate the successful (non-blocked) results
-            try:
-                # Clean the response from the model
-                cleaned_json_str = (
-                    response.text.strip()
-                    .replace('```json', '')
-                    .replace('```', '')
-                    .strip()
-                )
-
-                # Fix common JSON issues from AI models
-                # Remove trailing commas before closing braces/brackets
-                cleaned_json_str = re.sub(
-                    r',\s*([}\]])', r'\1', cleaned_json_str
-                )
-
-                theme_analysis = json.loads(cleaned_json_str)
-                theme_analysis['model'] = used_model
-                theme_analysis['model_tier'] = model_tier
-                aggregated_results[theme.name] = theme_analysis
-
-                # Log the analysis result
-                match_result = theme_analysis.get(theme.name)
-                confidence = theme_analysis.get('confidence_score', 'N/A')
-                logger.info(
-                    f"Theme '{theme.name}' analysis: "
-                    f"{'MATCH' if match_result else 'NO MATCH'} "
-                    f"(confidence: {confidence}, model: {model_tier})"
-                )
-
-                # Stop immediately if any theme matched
-                # (content is bad, no need to check other themes)
-                if match_result is True:
-                    logger.info(
-                        f"Stopping analysis to save costs "
-                        f"(theme matched: {theme.name})"
-                    )
-                    return aggregated_results
-
-                # For cheap tier: after first theme, return results (even if no match)
-                if model_tier == 'cheap':
-                    logger.info(
-                        "Cheap tier: Only first theme is analyzed. "
-                        "Returning results after first theme."
-                    )
-                    return aggregated_results
-
-            except Exception as e:
-                logger.error(
-                    "Failed to decode JSON for theme '%s'. Error: %s. "
-                    "Response: %s",
-                    theme.name, str(e), response.text.strip()[:200]
-                )
-
-        # 4. Return the combined JSON for all successfully analyzed themes
-        if not aggregated_results:
-            logger.warning("No themes were successfully analyzed.")
-            return None
-
-        return aggregated_results
 
     def format_extra_info(self, extra_info, href):
         soup = BeautifulSoup(extra_info.data, 'html.parser')
@@ -548,7 +333,9 @@ class BlogScraper(BaseScraper):
             # Extract the title, intro, and all gallery images
             title = article_container.find('h1')
             intro = article_container.find('div', class_='intro')
-            gallery_images = article_container.find_all('div', class_='gallery_img')
+            gallery_images = article_container.find_all(
+                'div', class_='gallery_img'
+            )
 
             if title:
                 container.append(title)
@@ -711,7 +498,7 @@ class BlogScraper(BaseScraper):
                 f"({self.max_api_requests})"
             )
             raise  # Re-raise to stop the scraper
-        
+
         if not analysis_json:
             logger.error("Analysis failed for page %s.", page.title)
             return None

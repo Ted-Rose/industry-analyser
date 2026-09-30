@@ -9,7 +9,7 @@ The blog scraper uses AI analysis to evaluate blog posts against multiple themes
 ## Complete Call Stack
 
 ### 1. Entry Point: `BlogScraper.run()` 
-**Location:** `blogs/scraper.py` (lines 47-68)
+**Location:** `blogs/scraper.py` (lines 63-83)
 
 ```python
 def run(self):
@@ -32,7 +32,7 @@ def run(self):
 ---
 
 ### 2. `BaseScraper.scrape_portal(search_url)`
-**Location:** `core_scraper/base.py` (lines 63-72)
+**Location:** `core_scraper/base.py` (lines 66-80)
 
 ```python
 def scrape_portal(self, search_url):
@@ -57,7 +57,7 @@ def scrape_portal(self, search_url):
 ---
 
 ### 3. `BaseScraper.extract_resources(search_results)`
-**Location:** `core_scraper/base.py` (lines 80-102)
+**Location:** `core_scraper/base.py` (lines 88-107)
 
 ```python
 def extract_resources(self, search_results) -> List[Model]:
@@ -97,7 +97,7 @@ def extract_resources(self, search_results) -> List[Model]:
 ---
 
 ### 4. `BlogScraper.analyse_and_save_resource(http_response, url)`
-**Location:** `blogs/scraper.py` (lines 600-746)
+**Location:** `blogs/scraper.py` (lines 382-528)
 
 ```python
 def analyse_and_save_resource(self, http_response, url):
@@ -170,52 +170,73 @@ def analyse_and_save_resource(self, http_response, url):
 ---
 
 ### 5. `BlogScraper.analyse_content(content, themes_to_analyse)`
-**Location:** `blogs/scraper.py` (lines 460-598)
+**Location:** `blogs/scraper.py`
 
 ```python
-def analyse_content(self, content, themes_to_analyse):
-    """
-    Two-tier AI analysis system:
-    1. Cheap model (gemini-2.0-flash-lite) - Fast initial screening
-    2. Expensive model (gemini-2.5-pro) - Verification if all cheap analyses pass
-    """
-    # Check API request limit
-    if self.max_api_requests and self.api_request_count >= self.max_api_requests:
-        raise MaxAPIRequestsReached(...)
-
-    # Tier 1: Cheap model analysis
-    if self.current_url_use_cheap_tier:
-        cheap_results = self._analyze_with_models(
-            content, themes_to_analyse, self.cheap_models
-        )
-        self.api_request_count += 1
-        
-        if self._has_theme_match(cheap_results):
-            # Bad content detected, stop here (cost savings!)
-            return cheap_results
-
-    # Tier 2: Expensive model analysis (only if cheap tier passed)
-    expensive_results = self._analyze_with_models(
-        content, themes_to_analyse, self.expensive_models
+def analyse_content(self, article_content, themes_to_analyse):
+    """Delegates to ThemeAnalyzer (blogs/analyzer.py)."""
+    use_cheap = getattr(self, 'current_url_use_cheap_tier', True)
+    return self._analyzer.analyse(
+        article_content, themes_to_analyse, use_cheap_tier=use_cheap
     )
-    self.api_request_count += 1
-
-    return expensive_results
 ```
 
 **What it does:**
-- Implements two-tier AI analysis for cost optimization
-- **Tier 1 (Cheap):** Uses `gemini-2.0-flash-lite` for initial screening
-  - If ANY theme matches → stops immediately (content is bad)
-- **Tier 2 (Expensive):** Uses `gemini-2.5-pro` for verification
-  - Only runs if cheap tier found no matches
-- Increments `api_request_count` for cost tracking
-- Raises `MaxAPIRequestsReached` if limit exceeded
+- Thin wrapper around `ThemeAnalyzer.analyse()` (built in
+  `__init__` with a `GeminiDirectBackend` and the
+  `load_theme_prompt` prompt loader)
+- Implements two-tier AI analysis for cost optimization:
+  - **Tier 1 (Cheap):** `gemini-2.5-flash-lite` — after the first
+    theme yields a parsed result, returns; if it matched → stop
+    (content is bad)
+  - **Tier 2 (Expensive):** `gemini-2.5-pro` — runs over all themes,
+    stops at the first match; only runs when the cheap pass found no
+    match or `use_cheap_tier` is off for the URL
+- The per-theme loop (prompt load → backend call → JSON cleanup →
+  early exits) lives in `ThemeAnalyzer._analyse_role()`
+- The Gemini model lists, retries, request-cap check and prompt
+  assembly (`instructions + "\n\n---\n\n" + content`) live in
+  `GeminiDirectBackend.generate()` (`blogs/ai_backends.py`)
+- Raises `MaxAPIRequestsReached` (from `blogs/ai_backends.py`,
+  re-exported here) if the limit is exceeded
 
 **Cost Optimization:**
-- Bad content (80% of cases): 1 cheap API call
-- Good content (20% of cases): 1 cheap + 1 expensive = 2 API calls
-- Overall savings: ~60% cost reduction
+- Bad content: 1 cheap API call
+- Good content: 1 cheap + 1 expensive per theme until a match
+
+---
+
+### 6. `GeminiDirectBackend.generate(...)`
+**Location:** `blogs/ai_backends.py`
+
+```python
+def generate(self, template_key, template_text, input_text, role):
+    full_prompt = template_text + "\n\n---\n\n" + input_text
+    client = genai.Client(api_key=self.api_key)
+    for model_name in MODELS_BY_ROLE[role]:
+        for attempt in range(RETRIES_PER_MODEL):
+            self._check_cap()          # may raise MaxAPIRequestsReached
+            self.counter.count += 1    # every attempt sent counts
+            response = client.models.generate_content(...)
+            # prompt_feedback / candidate finish_reason blocks ->
+            #   AnalyzerResponse(blocked=True)
+            # empty text / errors -> retry, then next model
+    return AnalyzerResponse(text=..., model_name=...)  # or None
+```
+
+**What it does:**
+- Temporary `AnalyzerBackend` (PR-3); replaced by `JobClientBackend`
+  in PR-6
+- `MODELS_BY_ROLE` holds the model lists that used to be hardcoded
+  in `analyse_content` (`cheap`/`expensive`)
+- Shares an `APIRequestCounter` with the scraper so the cap counts
+  **every attempt sent** (including failed calls) and
+  `scraper.api_request_count` still works for the run summary
+- Detects both prompt-level blocks (`prompt_feedback.block_reason`)
+  and candidate-level safety finishes (`finish_reason` in
+  `{SAFETY, PROHIBITED_CONTENT, BLOCKLIST, SPII}`)
+- Non-retryable API errors (400/401/403/404) skip retries and move
+  to the next model
 
 ---
 
@@ -237,8 +258,14 @@ def analyse_content(self, content, themes_to_analyse):
 ### API Request Limiting
 
 - Configured via `max_api_requests` in `config.yaml`
-- Counter incremented in `analyse_content()` after each AI call
-- `MaxAPIRequestsReached` exception propagates up to `run()` for graceful shutdown
+- Held in a shared `APIRequestCounter` (`blogs/ai_backends.py`);
+  `GeminiDirectBackend` increments it for **every attempt sent**
+  (successful, blocked or failed)
+- `scraper.api_request_count` is a property over that counter, so
+  `run()` still logs the total in the cap-reached summary
+- `MaxAPIRequestsReached` (defined in `blogs/ai_backends.py`,
+  imported by `blogs/scraper.py`) propagates up to `run()` for
+  graceful shutdown
 
 ### Per-URL Tier Configuration
 
@@ -281,11 +308,21 @@ BlogScraper.run()
                                     │
                                     ├─> analyse_content(content, themes)
                                     │       │
-                                    │       ├─> Tier 1: Cheap model
-                                    │       │   └─> If match: STOP (save costs)
-                                    │       │
-                                    │       └─> Tier 2: Expensive model
-                                    │           └─> Final verification
+                                    │       └─> ThemeAnalyzer.analyse()
+                                    │           (blogs/analyzer.py)
+                                    │               │
+                                    │               ├─> Tier 1 'cheap':
+                                    │               │   prompt_loader ->
+                                    │               │   GeminiDirectBackend
+                                    │               │   .generate() ->
+                                    │               │   genai API
+                                    │               │   └─> return after 1st
+                                    │               │       parsed theme;
+                                    │               │       match -> STOP
+                                    │               │
+                                    │               └─> Tier 2 'expensive':
+                                    │                   all themes, STOP at
+                                    │                   first match
                                     │
                                     └─> FOR EACH theme result:
                                             │
@@ -301,6 +338,7 @@ BlogScraper.run()
 - **Resource Processing:** Each blog post is analyzed and saved immediately
 - **Database Writes:** Happen during analysis, not in batch
 - **Return Value:** Empty list (by design when `ai_analysis=True`)
-- **Cost Control:** Two-tier AI system + API request limiter
+- **Cost Control:** Two-tier AI system (`ThemeAnalyzer` +
+  `GeminiDirectBackend`) + shared `APIRequestCounter` limiter
 
 **The key insight:** Unlike traditional scrapers that collect resources and save them in batch, the blog scraper saves each resource immediately during the analysis phase. This is why `create_or_update_resources()` is not needed.
