@@ -69,6 +69,12 @@ DEBUG = env('DEBUG')
 BASE_URL = env('BASE_URL')
 HARD_CODED_PASSWORD = env('HARD_CODED_PASSWORD', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
+OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
+
+# Allowlist of settings that may hold AI provider API keys; an
+# AIProvider row can only reference one of these (never SECRET_KEY or
+# DATABASE_URL).
+AI_API_KEY_SETTINGS = ('GEMINI_API_KEY', 'OPENROUTER_API_KEY')
 
 ALLOWED_HOSTS = [
     '127.0.0.1',
@@ -100,6 +106,7 @@ INSTALLED_APPS = [
     'tv_programs',
     'blogs',
     'classified_ads',
+    'ai_providers',
 ]
 
 MIDDLEWARE = [
@@ -293,6 +300,11 @@ LOGGING = {
             'propagate': True,
         },
         'classified_ads': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'ai_providers': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,
