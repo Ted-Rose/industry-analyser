@@ -66,6 +66,32 @@ single source of truth for which provider/model each AI job uses —
 Django admin is the UI, no yaml files or hardcoded model lists.
 Runtime provider adapters and the job client land in later PRs.
 
+### PR-4: JobClient runtime, job specs, seeding
+
+`ai_providers.client.get_job_client(spec_or_slug,
+max_requests_per_run=N)` returns a `JobClient` that resolves the
+job's assignments, request caps and today's request count **once**
+(snapshot per run), then sends prompts with per-model retries,
+exponential backoff, throttling and provider fallback. Every attempt
+sent — success or failure — is logged as an `AIRequest` row and to
+the `ai_providers` logger; `client.request_count` is the attempts
+sent. Caps (`AIJob.max_requests_per_run`, `max_requests_per_day` plus
+the per-client argument) count attempts, not successes.
+
+Jobs are declared in `<app>/ai_jobs.py` as `AIJobSpec` instances — a
+module-level `JOB_SPECS` list and/or bare `AIJobSpec` attributes —
+and seeded via `ensure_job()` on first use (default assignments are
+created only once; admin edits are never overwritten). Prompts are
+stored normalized (`AIPromptTemplate` + `AIInput` + `prompt_layout`);
+`AIRequest.rendered_prompt()` rebuilds the exact prompt and verifies
+its sha256, and the AIRequest admin detail page shows it.
+
+Commands: `python manage.py seed_ai_config [--dry-run]` seeds the
+`gemini`/`openrouter` provider presets and every discovered job spec
+(idempotent); `python manage.py ai_smoke_test --job SLUG --role ROLE
+[--prompt TEXT]` sends exactly one real (potentially paid) request —
+use sparingly.
+
 ## Commands
 
 ```bash
