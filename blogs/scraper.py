@@ -52,7 +52,7 @@ class BlogScraper(BaseScraper):
                 "(max_requests_per_run, editable in admin)."
             )
         self.ai_client = get_job_client(
-            THEME_ANALYSIS,
+            job,
             max_requests_per_run=max_api_requests,
         )
         # Effective per-run cap for the run() summary: the lower of
