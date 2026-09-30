@@ -108,6 +108,23 @@ only models supporting `generateContent` and strips the `models/`
 name prefix; OpenRouter pricing strings (USD per token) are
 converted to USD per 1M tokens.
 
+### PR-8: Usage dashboard + retention
+
+`/admin/ai_providers/airequest/usage/` (linked via the "Usage" object
+tool on the AIRequest changelist) shows AIRequest aggregates grouped
+by UTC day x job x served model — counts, errors, blocked, tokens and
+cost — with a `?from=&to=` date filter (default: last 30 days), plus
+a storage line with the AIInput row count and total chars. The
+queries live in `ai_providers/usage.py`; the AIJob and AIModel admin
+lists also carry "requests today" and "cost 30d" annotated columns.
+
+`python manage.py prune_ai_requests --older-than-days N [--dry-run]
+[--batch-size N]` deletes old AIRequest rows in batches — but only
+those not referenced by any FK (consumers are discovered via
+`AIRequest._meta.related_objects`, e.g. `PageAnalysis.ai_request`),
+then deletes AIInput rows no longer referenced by any AIRequest.
+`AIPromptTemplate` rows are never pruned.
+
 ## Commands
 
 ```bash
