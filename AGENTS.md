@@ -130,6 +130,17 @@ it logs a deprecation warning and is ignored. `scrape_blogs
 --max-api-requests N` is a per-run override: the effective cap is the
 lower of the DB value and the CLI flag.
 
+### PR-7: Backfill `PageAnalysis.ai_model`
+
+`python manage.py backfill_page_analysis_ai_models [--dry-run]
+[--batch-size N]` (default 500) maps each distinct `model` string on
+`PageAnalysis` rows with `ai_model IS NULL` to an `AIModel` under the
+`gemini` provider (`auto_registered=True`), updating rows in batched
+UPDATEs. `content_analyzer` rows (the media-heavy heuristic — no AI
+call) keep a null FK, as does `ai_request` (no historic request data).
+A missing `gemini` provider row is created from `PROVIDER_PRESETS`.
+Idempotent — a re-run updates nothing.
+
 ### PR-8: Usage dashboard + retention
 
 `/admin/ai_providers/airequest/usage/` (linked via the "Usage" object

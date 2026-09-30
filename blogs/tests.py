@@ -5,6 +5,7 @@ Integration tests drive the real JobClient with a fake provider
 injected into PROVIDER_CLASSES — no network, no API keys.
 """
 
+import io
 import logging
 from types import SimpleNamespace
 from unittest import mock
@@ -19,8 +20,10 @@ from ai_providers.models import (
     AIInput,
     AIModel,
     AIPromptTemplate,
+    AIProvider,
     AIRequest,
 )
+from ai_providers.presets import PROVIDER_PRESETS
 from ai_providers.providers import PROVIDER_CLASSES
 from ai_providers.providers.base import BaseAIProvider
 from ai_providers.types import AIResponse, GenerationOptions, PromptSpec
@@ -32,7 +35,7 @@ from blogs.analyzer import (
     ThemeAnalyzer,
     load_theme_prompt,
 )
-from blogs.models import PageAnalysis, Theme
+from blogs.models import Page, PageAnalysis, Theme
 from blogs.scraper import BlogScraper
 
 logger = logging.getLogger('blogs')
@@ -749,4 +752,142 @@ class ScrapeBlogsCommandTests(SimpleTestCase):
             target_theme=None,
             reanalyze=False,
             max_api_requests=None,
+        )
+
+
+class BackfillPageAnalysisAiModelsTests(TestCase):
+    """backfill_page_analysis_ai_models maps legacy ``model`` strings
+    to AIModel rows under the gemini provider (PR-7)."""
+
+    COMMAND = 'backfill_page_analysis_ai_models'
+
+    def _analysis(self, model, ai_model=None):
+        """A PageAnalysis row; (page, theme) must be unique."""
+        n = PageAnalysis.objects.count()
+        theme = Theme.objects.create(name=f'theme-{n}')
+        page = Page.objects.create(title=f'page-{n}')
+        return PageAnalysis.objects.create(
+            page=page,
+            theme=theme,
+            confidence_score=0.5,
+            reasoning_summary='reasons',
+            theme_match=True,
+            model=model,
+            ai_model=ai_model,
+        )
+
+    def run_command(self, *args):
+        out = io.StringIO()
+        call_command(self.COMMAND, *args, stdout=out)
+        return out.getvalue()
+
+    def test_model_strings_map_to_gemini_ai_models(self):
+        self._analysis('gemini-2.5-flash-lite')
+        self._analysis('gemini-2.5-flash-lite')
+        self._analysis('gemini-2.5-pro')
+
+        self.run_command()
+
+        lite = AIModel.objects.get(name='gemini-2.5-flash-lite')
+        pro = AIModel.objects.get(name='gemini-2.5-pro')
+        self.assertEqual(lite.provider.slug, 'gemini')
+        self.assertTrue(lite.auto_registered)
+        self.assertTrue(pro.auto_registered)
+        rows = PageAnalysis.objects.order_by('pk')
+        self.assertEqual(rows[0].ai_model, lite)
+        self.assertEqual(rows[1].ai_model, lite)
+        self.assertEqual(rows[2].ai_model, pro)
+        self.assertIsNone(rows[0].ai_request_id)
+
+    def test_existing_gemini_provider_is_reused(self):
+        provider = AIProvider.objects.create(
+            slug='gemini', **PROVIDER_PRESETS['gemini']
+        )
+        seeded = AIModel.objects.create(
+            provider=provider, name='gemini-2.5-pro',
+        )
+        row = self._analysis('gemini-2.5-pro')
+
+        self.run_command()
+
+        row.refresh_from_db()
+        # get_or_create reuses the seeded row unchanged.
+        self.assertEqual(row.ai_model, seeded)
+        self.assertFalse(seeded.auto_registered)
+        self.assertEqual(AIProvider.objects.count(), 1)
+
+    def test_content_analyzer_rows_stay_null(self):
+        self._analysis('content_analyzer')
+        self._analysis('gemini-2.5-pro')
+
+        self.run_command()
+
+        self.assertIsNone(
+            PageAnalysis.objects.get(model='content_analyzer')
+            .ai_model_id
+        )
+        self.assertFalse(
+            AIModel.objects.filter(name='content_analyzer').exists()
+        )
+
+    def test_rows_with_ai_model_are_untouched(self):
+        provider = AIProvider.objects.create(
+            slug='gemini', **PROVIDER_PRESETS['gemini']
+        )
+        other = AIModel.objects.create(provider=provider, name='other')
+        row = self._analysis('gemini-2.5-pro', ai_model=other)
+
+        self.run_command()
+
+        row.refresh_from_db()
+        self.assertEqual(row.ai_model, other)
+        self.assertFalse(
+            AIModel.objects.filter(name='gemini-2.5-pro').exists()
+        )
+
+    def test_second_run_creates_and_updates_nothing(self):
+        self._analysis('gemini-2.5-pro')
+        self.run_command()
+
+        provider = AIProvider.objects.get(slug='gemini')
+        other = AIModel.objects.create(provider=provider, name='other')
+        row = PageAnalysis.objects.get()
+        row.ai_model = other  # re-pointed after the first run
+        row.save()
+        counts = (AIModel.objects.count(), AIProvider.objects.count())
+
+        out = self.run_command()
+
+        self.assertEqual(
+            (AIModel.objects.count(), AIProvider.objects.count()),
+            counts,
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.ai_model, other)  # not overwritten back
+        self.assertIn('0 row(s) updated', out)
+
+    def test_dry_run_writes_nothing(self):
+        self._analysis('gemini-2.5-pro')
+        self._analysis('content_analyzer')
+
+        out = self.run_command('--dry-run')
+
+        self.assertEqual(AIModel.objects.count(), 0)
+        self.assertEqual(AIProvider.objects.count(), 0)
+        self.assertIsNone(
+            PageAnalysis.objects.get(model='gemini-2.5-pro')
+            .ai_model_id
+        )
+        self.assertIn('gemini-2.5-pro', out)
+        self.assertIn('[dry-run]', out)
+
+    def test_batch_size_chunks_updates(self):
+        for _ in range(3):
+            self._analysis('gemini-2.5-pro')
+
+        self.run_command('--batch-size', '2')
+
+        ai_model = AIModel.objects.get(name='gemini-2.5-pro')
+        self.assertEqual(
+            PageAnalysis.objects.filter(ai_model=ai_model).count(), 3
         )
