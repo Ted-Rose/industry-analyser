@@ -6,11 +6,11 @@ from bs4 import BeautifulSoup
 from django.conf import settings
 from django.db.models import Count, Q
 from core_scraper.base import BaseScraper
-from .ai_backends import (
-    APIRequestCounter,
-    GeminiDirectBackend,
-    MaxAPIRequestsReached,
-)
+from ai_providers.client import get_job_client
+from ai_providers.jobs import ensure_job
+from ai_providers.models import AIJob
+from .ai_backends import JobClientBackend, MaxAPIRequestsReached
+from .ai_jobs import THEME_ANALYSIS
 from .analyzer import ThemeAnalyzer, load_theme_prompt
 from .models import Page, Theme, PageAnalysis
 
@@ -20,7 +20,8 @@ logger = logging.getLogger('blogs')
 class BlogScraper(BaseScraper):
     """A scraper for fetching blog posts."""
 
-    def __init__(self, target_theme=None, reanalyze=False):
+    def __init__(self, target_theme=None, reanalyze=False,
+                 max_api_requests=None):
         """Initializes the scraper and loads its configuration."""
         super().__init__()
         self.config = self.load_config()
@@ -33,16 +34,39 @@ class BlogScraper(BaseScraper):
         self.reanalyze = reanalyze
         self.max_pages = self.config.get('max_pages', 20)
 
-        # API request counter for cost control (shared with the
-        # analyzer backend; counts every attempt sent)
-        self.max_api_requests = self.config.get('max_api_requests', None)
-        self._request_counter = APIRequestCounter(
-            limit=self.max_api_requests
+        # AI job client: the AIJob row owns the request cap. On first
+        # creation only, the yaml 'max_api_requests' value seeds the
+        # row; once the row exists the yaml key is ignored.
+        yaml_cap = self.config.get('max_api_requests')
+        job_exists = AIJob.objects.filter(
+            slug=THEME_ANALYSIS.slug
+        ).exists()
+        job = ensure_job(
+            THEME_ANALYSIS,
+            initial={'max_requests_per_run': yaml_cap},
         )
+        if yaml_cap is not None and job_exists:
+            logger.warning(
+                "config.yaml key 'max_api_requests' is deprecated and "
+                "ignored: the request cap lives on the AIJob row "
+                "(max_requests_per_run, editable in admin)."
+            )
+        self.ai_client = get_job_client(
+            THEME_ANALYSIS,
+            max_requests_per_run=max_api_requests,
+        )
+        # Effective per-run cap for the run() summary: the lower of
+        # the AIJob row cap and the --max-api-requests CLI override.
+        caps = [
+            cap for cap in (
+                job.max_requests_per_run, max_api_requests
+            )
+            if cap is not None
+        ]
+        self.max_api_requests = min(caps) if caps else None
         self._analyzer = ThemeAnalyzer(
-            backend=GeminiDirectBackend(
-                api_key=settings.GEMINI_API_KEY,
-                counter=self._request_counter,
+            backend=JobClientBackend(
+                client=self.ai_client,
                 logger=logger,
             ),
             prompt_loader=load_theme_prompt,
@@ -56,9 +80,9 @@ class BlogScraper(BaseScraper):
 
     @property
     def api_request_count(self):
-        """API attempts sent this run (shared with the backend;
+        """AI attempts sent this run (JobClient.request_count;
         run() logs it in the cap-reached summary)."""
-        return self._request_counter.count
+        return self.ai_client.request_count
 
     def run(self):
         """Override run to handle API request limit."""
@@ -306,8 +330,9 @@ class BlogScraper(BaseScraper):
         """
         Two-tier AI analysis to reduce costs (cheap tier pre-screens,
         expensive tier verifies when nothing matched). Delegates to
-        ThemeAnalyzer (blogs/analyzer.py); the Gemini model loop lives
-        in blogs/ai_backends.py.
+        ThemeAnalyzer (blogs/analyzer.py); the backend is
+        JobClientBackend, which sends prompts through the ai_providers
+        JobClient.
         """
         use_cheap = getattr(self, 'current_url_use_cheap_tier', True)
         return self._analyzer.analyse(
@@ -515,7 +540,9 @@ class BlogScraper(BaseScraper):
                         'reasoning_summary': results.get('reasoning_summary'),
                         'theme_match': results.get(theme_name),
                         'model': results.get('model'),
-                        'model_tier': results.get('model_tier', 'expensive')
+                        'model_tier': results.get('model_tier', 'expensive'),
+                        'ai_model_id': results.get('ai_model_id'),
+                        'ai_request_id': results.get('ai_request_id')
                     }
                 )
             except Theme.DoesNotExist:

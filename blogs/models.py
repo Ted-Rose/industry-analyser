@@ -127,6 +127,23 @@ class PageAnalysis(models.Model):
         default='expensive',
         help_text="Tier of model used for analysis"
     )
+    ai_model = models.ForeignKey(
+        'ai_providers.AIModel',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='page_analyses',
+        help_text="Served AI model that produced this analysis "
+                  "(null for content_analyzer and legacy rows)"
+    )
+    ai_request = models.ForeignKey(
+        'ai_providers.AIRequest',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='page_analyses',
+        help_text="AIRequest row that produced this analysis"
+    )
 
     class Meta:
         unique_together = ('page', 'theme')

@@ -22,7 +22,18 @@ class Command(BaseCommand):
         parser.add_argument(
             '--reanalyze',
             action='store_true',
-            help='Re-analyze existing pages for the specified theme (use with --theme)'
+            help='Re-analyze existing pages for the specified theme '
+                 '(use with --theme)'
+        )
+        parser.add_argument(
+            '--max-api-requests',
+            type=int,
+            default=None,
+            help=(
+                'Cap AI requests sent this run. The effective cap is '
+                'the lower of this value and the AIJob row\'s '
+                'max_requests_per_run (editable in admin).'
+            )
         )
 
     def handle(self, *args, **options):
@@ -70,7 +81,8 @@ class Command(BaseCommand):
 
             scraper = BlogScraper(
                 target_theme=target_theme,
-                reanalyze=reanalyze
+                reanalyze=reanalyze,
+                max_api_requests=options.get('max_api_requests')
             )
             scraper.run()
             self.stdout.write(self.style.SUCCESS(
