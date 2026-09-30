@@ -4,6 +4,8 @@ Works for OpenRouter, Groq, Mistral, Cerebras, OpenAI, ... — any API
 exposing ``/chat/completions`` behind ``base_url``.
 """
 
+from decimal import Decimal, InvalidOperation
+
 from openai import (
     APIConnectionError,
     APIError,
@@ -30,13 +32,46 @@ from ai_providers.errors import (
     AITimeoutError,
 )
 from ai_providers.providers.base import BaseAIProvider
-from ai_providers.types import AIResponse
+from ai_providers.types import AIResponse, ModelInfo
 
 _MODERATION_CODES = frozenset({
     'content_policy_violation',
     'content_filter',
     'moderation',
 })
+
+
+def _catalog_field(model, key):
+    """Read a possibly vendor-specific field off an SDK ``Model``.
+
+    Works for attribute-style objects (the openai SDK keeps extra
+    JSON keys in ``model_extra`` and exposes them as attributes) and
+    for plain dicts, so responses that fail model construction still
+    yield what they carry.
+    """
+    if isinstance(model, dict):
+        return model.get(key)
+    return getattr(model, key, None)
+
+
+def _price_per_mtok(pricing, key):
+    """OpenRouter ``pricing`` values are USD-per-token strings;
+    convert to USD per 1M tokens. ``None`` when absent, invalid or
+    negative (OpenRouter uses ``-1`` for "no fixed price")."""
+    if not isinstance(pricing, dict):
+        return None
+    raw = pricing.get(key)
+    if raw in (None, ''):
+        return None
+    try:
+        per_token = Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
+    if per_token < 0:
+        return None
+    return (per_token * Decimal(1_000_000)).quantize(
+        Decimal('0.0001')
+    )
 
 
 def _body_indicates_moderation(body) -> bool:
@@ -73,8 +108,49 @@ class OpenAICompatibleProvider(BaseAIProvider):
 
     def generate(self, model, prompt, options):
         kwargs = self._build_kwargs(model, prompt, options)
+        response = self._request(
+            lambda: self._client.chat.completions.create(**kwargs),
+            model,
+        )
+        if isinstance(response, AIResponse):
+            return response  # 403 moderation refusal, already mapped
+        return self._to_response(model, response)
+
+    def list_models(self):
+        """Model catalog via ``client.models.list()`` (PR-5).
+
+        The SDK's ``Model`` is built with ``extra='allow'``, so
+        vendor-specific fields (OpenRouter ``pricing``,
+        ``context_length``, ``name``, ``supported_parameters``) land
+        in ``model_extra`` and are readable as attributes; plain
+        OpenAI endpoints return bare ids and yield a minimal
+        ``ModelInfo``.
+        """
+        page = self._request(lambda: self._client.models.list(), '')
+        if isinstance(page, AIResponse):
+            # A 403 moderation-style refusal on the listing endpoint
+            # (OpenRouter) — it cannot produce a catalog.
+            raise AIServerError(
+                self._scrub_message(
+                    page.block_reason or 'models list blocked'
+                )
+            )
+        infos = []
+        for model in page:
+            info = self._model_info(model)
+            if info is not None:
+                infos.append(info)
+        return infos
+
+    def _request(self, call, model):
+        """Run one SDK call, mapping vendor errors to errors.py.
+
+        Returns either the raw SDK response or, for a 403
+        moderation-style refusal, an ``AIResponse(status='blocked')``
+        (``model`` fills ``served_model`` on that path).
+        """
         try:
-            response = self._client.chat.completions.create(**kwargs)
+            return call()
         except RateLimitError as e:
             raise AIRateLimitError(
                 self._scrub_message(e),
@@ -145,7 +221,31 @@ class OpenAICompatibleProvider(BaseAIProvider):
             # when a 200 body fails pydantic validation — a
             # malformed/missing success body (plan 5.2 AIServerError).
             raise AIServerError(self._scrub_message(e)) from e
-        return self._to_response(model, response)
+
+    @staticmethod
+    def _model_info(model):
+        """SDK ``Model`` -> ``ModelInfo``, or None without an id."""
+        name = _catalog_field(model, 'id')
+        if not name:
+            return None
+        context_length = _catalog_field(model, 'context_length')
+        if context_length is not None:
+            try:
+                context_length = int(context_length)
+            except (TypeError, ValueError):
+                context_length = None
+        pricing = _catalog_field(model, 'pricing')
+        supported = _catalog_field(model, 'supported_parameters') or []
+        return ModelInfo(
+            name=name,
+            display_name=_catalog_field(model, 'name') or '',
+            context_length=context_length,
+            input_price_per_mtok=_price_per_mtok(pricing, 'prompt'),
+            output_price_per_mtok=_price_per_mtok(
+                pricing, 'completion'
+            ),
+            supports_json_mode='response_format' in supported,
+        )
 
     def _build_kwargs(self, model, prompt, options):
         messages = []

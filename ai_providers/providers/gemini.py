@@ -19,7 +19,7 @@ from ai_providers.errors import (
     AITimeoutError,
 )
 from ai_providers.providers.base import BaseAIProvider
-from ai_providers.types import AIResponse
+from ai_providers.types import AIResponse, ModelInfo
 
 _BLOCKED_FINISH_REASONS = frozenset({
     'SAFETY',
@@ -75,6 +75,51 @@ class GeminiProvider(BaseAIProvider):
             # Network/timeout failures propagate unwrapped by the SDK.
             raise AITimeoutError(self._scrub_message(e)) from e
         return self._to_response(model, response)
+
+    def list_models(self):
+        """Model catalog via ``client.models.list()`` (PR-5).
+
+        Keeps only models whose ``supported_actions`` include
+        'generateContent' (the Gemini API's
+        ``supportedGenerationMethods`` field), strips the 'models/'
+        resource prefix off ``name`` and maps ``input_token_limit``
+        to ``context_length``. The endpoint reports no prices.
+        """
+        try:
+            pager = self._client.models.list()
+            # The Pager fetches lazily while iterating, so the loop
+            # must stay inside the try for error mapping.
+            infos = []
+            for model in pager:
+                info = self._model_info(model)
+                if info is not None:
+                    infos.append(info)
+            return infos
+        except genai_errors.APIError as e:
+            raise self._map_api_error(e) from e
+        except (json.JSONDecodeError, pydantic.ValidationError,
+                genai_errors.UnknownApiResponseError) as e:
+            raise AIServerError(self._scrub_message(e)) from e
+        except httpx.HTTPError as e:
+            raise AITimeoutError(self._scrub_message(e)) from e
+
+    @staticmethod
+    def _model_info(model):
+        """SDK ``Model`` -> ``ModelInfo``, or None when the model
+        cannot generateContent or has no usable name."""
+        actions = getattr(model, 'supported_actions', None) or []
+        if 'generateContent' not in actions:
+            return None
+        name = getattr(model, 'name', '') or ''
+        if name.startswith('models/'):
+            name = name[len('models/'):]
+        if not name:
+            return None
+        return ModelInfo(
+            name=name,
+            display_name=getattr(model, 'display_name', '') or '',
+            context_length=getattr(model, 'input_token_limit', None),
+        )
 
     def _build_config(self, prompt, options):
         kwargs = {}

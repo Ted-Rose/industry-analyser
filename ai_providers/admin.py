@@ -1,8 +1,12 @@
-from django.contrib import admin
+import logging
+
+from django.conf import settings
+from django.contrib import admin, messages
 from django.db.models import Count
 from django.urls import reverse
 from django.utils.html import format_html
 
+from .catalog import sync_provider_models
 from .forms import (
     AIJobModelInlineForm,
     AIJobModelInlineFormSet,
@@ -18,6 +22,8 @@ from .models import (
     AIRequest,
 )
 
+logger = logging.getLogger('ai_providers')
+
 
 @admin.register(AIProvider)
 class AIProviderAdmin(admin.ModelAdmin):
@@ -30,10 +36,44 @@ class AIProviderAdmin(admin.ModelAdmin):
         'has_api_key',
         'base_url',
     ]
+    actions = ['sync_model_catalog']
 
     @admin.display(boolean=True, description='Has API key')
     def has_api_key(self, obj):
         return obj.has_api_key
+
+    @admin.action(description='Sync model catalog')
+    def sync_model_catalog(self, request, queryset):
+        """Pull each provider's free model-listing endpoint and
+        reconcile the ai_model table (PR-5). A failure on one
+        provider is reported but does not stop the others."""
+        for provider in queryset:
+            try:
+                counts = sync_provider_models(provider)
+            except Exception as e:  # noqa: BLE001 — isolate failures
+                key = getattr(settings, provider.api_key_setting, '')
+                message = str(e)
+                if key:
+                    message = message.replace(key, '<redacted>')
+                logger.warning(
+                    'Model catalog sync failed for %s: %s',
+                    provider.slug, message,
+                )
+                self.message_user(
+                    request,
+                    f'{provider.slug}: catalog sync failed: '
+                    f'{message}',
+                    level=messages.ERROR,
+                )
+                continue
+            self.message_user(
+                request,
+                f"{provider.slug}: model catalog synced — "
+                f"{counts['created']} created, "
+                f"{counts['updated']} updated, "
+                f"{counts['skipped']} skipped.",
+                level=messages.SUCCESS,
+            )
 
 
 @admin.register(AIModel)

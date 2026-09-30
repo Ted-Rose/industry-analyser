@@ -427,10 +427,6 @@ class GeminiProviderTest(SimpleTestCase):
         self.assertNotIn(API_KEY, str(ctx.exception))
         self.assertIn('<redacted>', str(ctx.exception))
 
-    def test_list_models_not_implemented(self):
-        with self.assertRaises(NotImplementedError):
-            self.provider.list_models()
-
 
 class OpenAICompatibleProviderTest(SimpleTestCase):
     def setUp(self):
@@ -659,7 +655,3 @@ class OpenAICompatibleProviderTest(SimpleTestCase):
         resp = self.generate()
         self.assertEqual(resp.status, 'blocked')
         self.assertNotIn(API_KEY, resp.block_reason)
-
-    def test_list_models_not_implemented(self):
-        with self.assertRaises(NotImplementedError):
-            self.provider.list_models()
