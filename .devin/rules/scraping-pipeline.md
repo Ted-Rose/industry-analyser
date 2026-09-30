@@ -22,6 +22,11 @@ When working on scrapers (`*/scraper.py`, `*scraper.py`,
 - New bulk-update/refetch operations should subclass
   `BaseRefetchCommand` (`core_scraper/management/commands/base_refetch.py`)
   to inherit `--ids`/`--filter`/`--fields`/`--dry-run`/`--batch-size`.
-- `blogs` Gemini calls are capped by `max_api_requests` in
-  `blogs/config.yaml` — honor `MaxAPIRequestsReached`, don't remove the
-  cap.
+- `blogs` AI calls go through `ai_providers`' `JobClient`
+  (`JobClientBackend` in `blogs/ai_backends.py`), not
+  `self.make_request()`: they are vendor SDK calls, not scraping HTTP,
+  and are exempt from the "no raw `requests`/urllib3" rule. The request
+  cap lives on the `AIJob` DB row (`max_requests_per_run`, editable in
+  admin); a `max_api_requests` key left in `blogs/config.yaml` is
+  deprecated — it only seeds the row on first creation and is ignored
+  afterwards. Honor `MaxAPIRequestsReached`, don't remove the cap.

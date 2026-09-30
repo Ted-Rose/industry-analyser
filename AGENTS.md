@@ -51,9 +51,10 @@ Key domain patterns:
   rows by re-fetching detail pages. Common args: `--ids`, `--filter`
   (`"field__lookup=value"`), `--fields`, `--dry-run`, `--limit`,
   `--batch-size`.
-- **AI cost control**: `blogs` uses two Gemini model tiers
-  (`cheap`/`expensive`) and a `max_api_requests` cap in
-  `blogs/config.yaml`. Respect the cap; API calls cost money.
+- **AI cost control**: `blogs` uses two AI model tiers
+  (`cheap`/`expensive`) assigned on the `blogs.theme_analysis` AIJob
+  row, capped by its `max_requests_per_run` (admin-editable).
+  Respect the cap; API calls cost money.
 
 ## AI layer
 
@@ -108,6 +109,27 @@ only models supporting `generateContent` and strips the `models/`
 name prefix; OpenRouter pricing strings (USD per token) are
 converted to USD per 1M tokens.
 
+### PR-6: Blogs on JobClient + PageAnalysis FKs
+
+`blogs` no longer calls the Gemini SDK directly. `BlogScraper` builds
+a `JobClient` for the `blogs.theme_analysis` spec declared in
+`blogs/ai_jobs.py` (`THEME_ANALYSIS`) and hands it to
+`JobClientBackend` (`blogs/ai_backends.py`), which adapts JobClient
+results to the `AnalyzerBackend` protocol: `AIRequestCapReached`
+re-raises as `MaxAPIRequestsReached`, `AIAllModelsFailedError` means
+"every model failed, skip the theme" (`None`), and the served
+`AIModel`/`AIRequest` ids ride along in `AnalyzerResponse.extra` so
+`analyse_and_save_resource` can stamp the new
+`PageAnalysis.ai_model`/`ai_request` FKs (null for `content_analyzer`
+rows and legacy rows until PR-7 backfills).
+
+The per-run cap now lives on the `AIJob` row
+(`max_requests_per_run`, editable in admin). `blogs/config.yaml`'s
+`max_api_requests` only seeds the row on first creation — afterwards
+it logs a deprecation warning and is ignored. `scrape_blogs
+--max-api-requests N` is a per-run override: the effective cap is the
+lower of the DB value and the CLI flag.
+
 ### PR-8: Usage dashboard + retention
 
 `/admin/ai_providers/airequest/usage/` (linked via the "Usage" object
@@ -143,7 +165,7 @@ python manage.py runserver
 python manage.py scrape_first_vacancy_portal [portal_id]   # positional arg, default 1
 python manage.py scrape_apartment_ads --max-pages 10
 python manage.py scrape_housing_ads
-python manage.py scrape_blogs [--theme NAME] [--reanalyze]
+python manage.py scrape_blogs [--theme NAME] [--reanalyze] [--max-api-requests N]
 python manage.py scrape_tv_programs [--force] [--dry-run]
 python manage.py sync_apartment_regions / sync_housing_regions
 python manage.py refetch_apartment_ads --filter "post_date__isnull=True" --dry-run
@@ -164,8 +186,9 @@ python manage.py reclassify_tv_programs
   `scripts/materialize_fetcher_config_and_scrape.py` materializes
   `config_v2.json` from `FETCHER_PORTALS_JSON` +
   `FETCHER_KEYWORDS_LIST_JSON` then runs the scraper.
-- `blogs/config.yaml` holds listing URLs, `max_api_requests`, and
-  per-URL `use_cheap_tier`.
+- `blogs/config.yaml` holds listing URLs and per-URL
+  `use_cheap_tier`; its legacy `max_api_requests` key only seeds the
+  `AIJob` row once (the live cap is `AIJob.max_requests_per_run`).
 
 ## Conventions
 

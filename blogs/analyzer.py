@@ -1,9 +1,10 @@
 """Theme analysis orchestration for the blogs scraper (plan 5.6).
 
 Pure orchestration — no vendor SDK code, no DB access. The backend
-(`GeminiDirectBackend` today, `JobClientBackend` in PR-6) owns the
-model lists, retries, request cap and prompt assembly; the analyzer
-passes instructions and content to it separately.
+(`JobClientBackend`, blogs/ai_backends.py) hands generation to the
+ai_providers JobClient, which owns the model assignments, retries,
+request caps and prompt rendering; the analyzer passes instructions
+and content to it separately.
 """
 
 import json

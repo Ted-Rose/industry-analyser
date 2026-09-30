@@ -145,7 +145,9 @@ def analyse_and_save_resource(self, http_response, url):
                 'reasoning_summary': results.get('reasoning_summary'),
                 'theme_match': results.get(theme_name),
                 'model': results.get('model'),
-                'model_tier': results.get('model_tier', 'expensive')
+                'model_tier': results.get('model_tier', 'expensive'),
+                'ai_model_id': results.get('ai_model_id'),
+                'ai_request_id': results.get('ai_request_id')
             }
         )
 
@@ -183,20 +185,24 @@ def analyse_content(self, article_content, themes_to_analyse):
 
 **What it does:**
 - Thin wrapper around `ThemeAnalyzer.analyse()` (built in
-  `__init__` with a `GeminiDirectBackend` and the
-  `load_theme_prompt` prompt loader)
+  `__init__` with a `JobClientBackend` wrapping the `JobClient` for
+  the `blogs.theme_analysis` AIJob, and the `load_theme_prompt`
+  prompt loader)
 - Implements two-tier AI analysis for cost optimization:
-  - **Tier 1 (Cheap):** `gemini-2.5-flash-lite` — after the first
-    theme yields a parsed result, returns; if it matched → stop
-    (content is bad)
-  - **Tier 2 (Expensive):** `gemini-2.5-pro` — runs over all themes,
-    stops at the first match; only runs when the cheap pass found no
-    match or `use_cheap_tier` is off for the URL
+  - **Tier 1 (Cheap):** the `cheap` role's assigned models (default
+    `gemini-2.5-flash-lite`) — after the first theme yields a parsed
+    result, returns; if it matched → stop (content is bad)
+  - **Tier 2 (Expensive):** the `expensive` role's assigned models
+    (default `gemini-2.5-pro`) — runs over all themes, stops at the
+    first match; only runs when the cheap pass found no match or
+    `use_cheap_tier` is off for the URL
 - The per-theme loop (prompt load → backend call → JSON cleanup →
   early exits) lives in `ThemeAnalyzer._analyse_role()`
-- The Gemini model lists, retries, request-cap check and prompt
-  assembly (`instructions + "\n\n---\n\n" + content`) live in
-  `GeminiDirectBackend.generate()` (`blogs/ai_backends.py`)
+- Model lists, retries, fallbacks, request caps and prompt assembly
+  (`inline_v1` layout — byte-identical to the old
+  `instructions + "\n\n---\n\n" + content`) live in
+  `JobClient.generate()` (`ai_providers/client.py`); model
+  assignments come from the `AIJob`/`AIJobModel` DB rows
 - Raises `MaxAPIRequestsReached` (from `blogs/ai_backends.py`,
   re-exported here) if the limit is exceeded
 
@@ -206,37 +212,42 @@ def analyse_content(self, article_content, themes_to_analyse):
 
 ---
 
-### 6. `GeminiDirectBackend.generate(...)`
+### 6. `JobClientBackend.generate(...)`
 **Location:** `blogs/ai_backends.py`
 
 ```python
 def generate(self, template_key, template_text, input_text, role):
-    full_prompt = template_text + "\n\n---\n\n" + input_text
-    client = genai.Client(api_key=self.api_key)
-    for model_name in MODELS_BY_ROLE[role]:
-        for attempt in range(RETRIES_PER_MODEL):
-            self._check_cap()          # may raise MaxAPIRequestsReached
-            self.counter.count += 1    # every attempt sent counts
-            response = client.models.generate_content(...)
-            # prompt_feedback / candidate finish_reason blocks ->
-            #   AnalyzerResponse(blocked=True)
-            # empty text / errors -> retry, then next model
-    return AnalyzerResponse(text=..., model_name=...)  # or None
+    spec = PromptSpec(template_key, template_text, input_text,
+                      layout='inline_v1')
+    try:
+        result = self.client.generate(
+            spec, role=role, options=GenerationOptions())
+    except AIRequestCapReached as e:
+        raise MaxAPIRequestsReached(str(e)) from e
+    except AIAllModelsFailedError:
+        return None                  # every model failed -> skip
+    return AnalyzerResponse(
+        text=result.text,
+        model_name=result.served_model.name,
+        blocked=result.status == 'blocked',
+        block_reason=result.block_reason,
+        extra={'ai_model_id': result.served_model.pk,
+               'ai_request_id': result.ai_request.pk},
+    )
 ```
 
 **What it does:**
-- Temporary `AnalyzerBackend` (PR-3); replaced by `JobClientBackend`
-  in PR-6
-- `MODELS_BY_ROLE` holds the model lists that used to be hardcoded
-  in `analyse_content` (`cheap`/`expensive`)
-- Shares an `APIRequestCounter` with the scraper so the cap counts
-  **every attempt sent** (including failed calls) and
-  `scraper.api_request_count` still works for the run summary
-- Detects both prompt-level blocks (`prompt_feedback.block_reason`)
-  and candidate-level safety finishes (`finish_reason` in
-  `{SAFETY, PROHIBITED_CONTENT, BLOCKLIST, SPII}`)
-- Non-retryable API errors (400/401/403/404) skip retries and move
-  to the next model
+- `AnalyzerBackend` (PR-6) that delegates to `JobClient.generate()`
+  (`ai_providers/client.py`) — the JobClient resolves the role's
+  ordered model assignments from the DB (`AIJobModel`), renders the
+  prompt (`inline_v1`), retries per model, falls back across
+  assignments/providers, enforces the run/day caps and logs every
+  attempt as an `AIRequest` row
+- Returns the served model's name plus `ai_model_id`/`ai_request_id`
+  in `extra`, which `analyse_and_save_resource` stamps onto the
+  `PageAnalysis` FK columns
+- `MaxAPIRequestsReached` is defined here and re-exported by
+  `blogs/scraper.py`
 
 ---
 
@@ -257,14 +268,18 @@ def generate(self, template_key, template_text, input_text, role):
 
 ### API Request Limiting
 
-- Configured via `max_api_requests` in `config.yaml`
-- Held in a shared `APIRequestCounter` (`blogs/ai_backends.py`);
-  `GeminiDirectBackend` increments it for **every attempt sent**
-  (successful, blocked or failed)
-- `scraper.api_request_count` is a property over that counter, so
-  `run()` still logs the total in the cap-reached summary
-- `MaxAPIRequestsReached` (defined in `blogs/ai_backends.py`,
-  imported by `blogs/scraper.py`) propagates up to `run()` for
+- The per-run cap lives on the `AIJob` row (`max_requests_per_run`,
+  editable in admin); `scrape_blogs --max-api-requests N` lowers it
+  further for one run (the effective cap is the lower of the two)
+- `blogs/config.yaml`'s `max_api_requests` seeds the AIJob row on
+  first creation only; afterwards it is ignored (deprecation warning)
+- `JobClient` counts **every attempt sent** (successful, blocked or
+  failed); `scraper.api_request_count` is a property over
+  `ai_client.request_count`, so `run()` still logs the total in the
+  cap-reached summary
+- `JobClient` raises `AIRequestCapReached`; `JobClientBackend` maps it
+  to `MaxAPIRequestsReached` (defined in `blogs/ai_backends.py`,
+  imported by `blogs/scraper.py`), which propagates up to `run()` for
   graceful shutdown
 
 ### Per-URL Tier Configuration
@@ -313,9 +328,10 @@ BlogScraper.run()
                                     │               │
                                     │               ├─> Tier 1 'cheap':
                                     │               │   prompt_loader ->
-                                    │               │   GeminiDirectBackend
+                                    │               │   JobClientBackend
                                     │               │   .generate() ->
-                                    │               │   genai API
+                                    │               │   JobClient ->
+                                    │               │   provider SDK
                                     │               │   └─> return after 1st
                                     │               │       parsed theme;
                                     │               │       match -> STOP
@@ -339,6 +355,7 @@ BlogScraper.run()
 - **Database Writes:** Happen during analysis, not in batch
 - **Return Value:** Empty list (by design when `ai_analysis=True`)
 - **Cost Control:** Two-tier AI system (`ThemeAnalyzer` +
-  `GeminiDirectBackend`) + shared `APIRequestCounter` limiter
+  `JobClientBackend` + `JobClient`) + the AIJob row's
+  `max_requests_per_run` cap (`--max-api-requests` lowers it per run)
 
 **The key insight:** Unlike traditional scrapers that collect resources and save them in batch, the blog scraper saves each resource immediately during the analysis phase. This is why `create_or_update_resources()` is not needed.
