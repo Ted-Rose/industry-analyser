@@ -2,10 +2,22 @@ import logging
 
 from django.conf import settings
 from django.contrib import admin, messages
-from django.db.models import Count
-from django.urls import reverse
+from django.db.models import (
+    Count,
+    DecimalField,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Sum,
+    Value,
+)
+from django.db.models.functions import Coalesce
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from django.utils.html import format_html
 
+from . import usage
 from .catalog import sync_provider_models
 from .forms import (
     AIJobModelInlineForm,
@@ -87,12 +99,64 @@ class AIModelAdmin(admin.ModelAdmin):
         'input_price_per_mtok',
         'output_price_per_mtok',
         'last_used_at',
+        'requests_today',
+        'cost_30d',
     ]
     list_editable = ['is_enabled']
     list_filter = ['provider', 'is_enabled', 'auto_registered']
     search_fields = ['name', 'display_name']
     readonly_fields = ['first_seen_at', 'last_used_at']
     list_select_related = ['provider']
+
+    def get_queryset(self, request):
+        """Annotate per-model usage; the request FKs use
+        ``related_name='+'``, so correlated subqueries are used
+        instead of a reverse-join annotate. "Involved in" counts a
+        request once whether the model was requested or served."""
+        today_start = usage.utc_day_start()
+        cutoff_30d = usage.utc_day_start(30)
+        involved = AIRequest.objects.filter(
+            Q(requested_model=OuterRef('pk'))
+            | Q(served_model=OuterRef('pk'))
+        )
+        # GROUP BY a constant collapses the filtered rows into one
+        # scalar aggregate for the outer model row.
+        requests_today_sq = (
+            involved.filter(created_at__gte=today_start)
+            .order_by()
+            .annotate(group=Value(1))
+            .values('group')
+            .annotate(total=Count('pk'))
+            .values('total')
+        )
+        cost_30d_sq = (
+            involved.filter(created_at__gte=cutoff_30d)
+            .order_by()
+            .annotate(group=Value(1))
+            .values('group')
+            .annotate(total=Sum('cost_usd'))
+            .values('total')
+        )
+        return super().get_queryset(request).annotate(
+            requests_today=Coalesce(
+                Subquery(
+                    requests_today_sq, output_field=IntegerField()
+                ),
+                0,
+            ),
+            cost_30d=Subquery(
+                cost_30d_sq, output_field=DecimalField()
+            ),
+        )
+
+    @admin.display(description='Requests today',
+                   ordering='requests_today')
+    def requests_today(self, obj):
+        return obj.requests_today
+
+    @admin.display(description='Cost (30d)', ordering='cost_30d')
+    def cost_30d(self, obj):
+        return '—' if obj.cost_30d is None else obj.cost_30d
 
     def get_search_results(self, request, queryset, search_term):
         """Autocomplete (used by the AIJob assignment inline) only
@@ -135,15 +199,39 @@ class AIJobAdmin(admin.ModelAdmin):
         'is_enabled',
         'max_requests_per_run',
         'max_requests_per_day',
+        'requests_today',
+        'cost_30d',
         'assignment_summary',
     ]
     readonly_fields = ['declared_roles', 'description']
     inlines = [AIJobModelInline]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related(
-            'assignments__model__provider'
+        today_start = usage.utc_day_start()
+        cutoff_30d = usage.utc_day_start(30)
+        return (
+            super().get_queryset(request)
+            .prefetch_related('assignments__model__provider')
+            .annotate(
+                requests_today=Count(
+                    'requests',
+                    filter=Q(requests__created_at__gte=today_start),
+                ),
+                cost_30d=Sum(
+                    'requests__cost_usd',
+                    filter=Q(requests__created_at__gte=cutoff_30d),
+                ),
+            )
         )
+
+    @admin.display(description='Requests today',
+                   ordering='requests_today')
+    def requests_today(self, obj):
+        return obj.requests_today
+
+    @admin.display(description='Cost (30d)', ordering='cost_30d')
+    def cost_30d(self, obj):
+        return '—' if obj.cost_30d is None else obj.cost_30d
 
     @admin.display(description='Assignments')
     def assignment_summary(self, obj):
@@ -181,6 +269,9 @@ def _admin_obj_link(obj):
 
 @admin.register(AIRequest)
 class AIRequestAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
+    change_list_template = (
+        'admin/ai_providers/airequest/change_list.html'
+    )
     list_display = [
         'created_at',
         'job',
@@ -234,6 +325,43 @@ class AIRequestAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
         'response_text',
         'rendered_prompt_display',
     ]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                'usage/',
+                self.admin_site.admin_view(self.usage_view),
+                name='ai_providers_airequest_usage',
+            ),
+        ]
+        return custom + urls
+
+    def usage_view(self, request):
+        """Day x job x served-model usage table with a date-range
+        filter (default: last 30 days, ?from=&to= ISO dates)."""
+        default_from, default_to = usage.default_date_range()
+        date_from = usage.parse_date(request.GET.get('from'))
+        date_to = usage.parse_date(request.GET.get('to'))
+        if date_from is None:
+            date_from = default_from
+        if date_to is None:
+            date_to = default_to
+        context = {
+            **self.admin_site.each_context(request),
+            'opts': self.model._meta,
+            'title': 'AI request usage',
+            'date_from': date_from,
+            'date_to': date_to,
+            'rows': usage.requests_by_day(date_from, date_to),
+            'totals': usage.usage_totals(date_from, date_to),
+            'storage': usage.input_storage_totals(),
+        }
+        return TemplateResponse(
+            request,
+            'admin/ai_providers/airequest/usage.html',
+            context,
+        )
 
     @admin.display(description='Tokens (in/out)')
     def tokens(self, obj):
