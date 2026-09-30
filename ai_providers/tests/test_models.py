@@ -1,4 +1,5 @@
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
@@ -6,6 +7,7 @@ from django.test import RequestFactory, TestCase, override_settings
 
 from ai_providers.admin import (
     AIInputAdmin,
+    AIJobModelInline,
     AIPromptTemplateAdmin,
     AIRequestAdmin,
 )
@@ -269,6 +271,66 @@ class ProtectTests(TestCase):
         job.delete()
         self.assertFalse(AIJobModel.objects.filter(job_id=job.id)
                          .exists())
+
+
+class AIJobModelInlineFormSetTests(TestCase):
+    """The parent FK is stamped on form.instance only after __init__,
+    so `role` choices for extra/empty inline forms must come from the
+    formset's own `instance` (the parent AIJob)."""
+
+    def setUp(self):
+        self.provider = make_provider()
+        self.model = make_model(self.provider)
+        self.job = make_job()
+        self.site = AdminSite()
+        self.request = RequestFactory().get('/admin/')
+        # A permitted user is required: the admin wraps inline forms in
+        # DeleteProtectedModelForm, whose has_changed() returns False
+        # (i.e. the extra form is ignored) when can_add is False.
+        self.request.user = get_user_model().objects.create_superuser(
+            username='admin', email='a@example.com', password='x'
+        )
+
+    def _formset_class(self):
+        inline = AIJobModelInline(AIJob, self.site)
+        return inline.get_formset(self.request, self.job)
+
+    def _role_choices(self):
+        return [('cheap', 'cheap'), ('expensive', 'expensive')]
+
+    def test_extra_form_role_choices_from_parent(self):
+        formset = self._formset_class()(instance=self.job)
+        self.assertEqual(
+            formset.forms[-1].fields['role'].choices,
+            self._role_choices(),
+        )
+
+    def test_empty_form_role_choices_from_parent(self):
+        formset = self._formset_class()(instance=self.job)
+        self.assertEqual(
+            formset.empty_form.fields['role'].choices,
+            self._role_choices(),
+        )
+
+    def test_new_assignment_validates_and_saves(self):
+        data = {
+            'assignments-TOTAL_FORMS': '1',
+            'assignments-INITIAL_FORMS': '0',
+            'assignments-MIN_NUM_FORMS': '0',
+            'assignments-MAX_NUM_FORMS': '1000',
+            'assignments-0-model': str(self.model.pk),
+            'assignments-0-role': 'expensive',
+            'assignments-0-priority': '0',
+            'assignments-0-is_active': 'on',
+        }
+        formset = self._formset_class()(data, instance=self.job)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertTrue(
+            AIJobModel.objects.filter(
+                job=self.job, role='expensive', model=self.model
+            ).exists()
+        )
 
 
 class ReadOnlyAdminTests(TestCase):

@@ -1,7 +1,11 @@
 from django.contrib import admin
 from django.db.models import Count
 
-from .forms import AIJobModelInlineForm, AIProviderAdminForm
+from .forms import (
+    AIJobModelInlineForm,
+    AIJobModelInlineFormSet,
+    AIProviderAdminForm,
+)
 from .models import (
     AIInput,
     AIJob,
@@ -24,7 +28,6 @@ class AIProviderAdmin(admin.ModelAdmin):
         'has_api_key',
         'base_url',
     ]
-    list_select_related = True
 
     @admin.display(boolean=True, description='Has API key')
     def has_api_key(self, obj):
@@ -64,6 +67,7 @@ class AIModelAdmin(admin.ModelAdmin):
 class AIJobModelInline(admin.TabularInline):
     model = AIJobModel
     form = AIJobModelInlineForm
+    formset = AIJobModelInlineFormSet
     autocomplete_fields = ['model']
     extra = 1
 
@@ -92,7 +96,6 @@ class AIJobAdmin(admin.ModelAdmin):
         'assignment_summary',
     ]
     readonly_fields = ['declared_roles', 'description']
-    list_select_related = True
     inlines = [AIJobModelInline]
 
     def get_queryset(self, request):
@@ -151,7 +154,9 @@ class AIRequestAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
 
     @admin.display(description='Tokens (in/out)')
     def tokens(self, obj):
-        return f'{obj.input_tokens} / {obj.output_tokens}'
+        input_t = '—' if obj.input_tokens is None else obj.input_tokens
+        output_t = '—' if obj.output_tokens is None else obj.output_tokens
+        return f'{input_t} / {output_t}'
 
 
 @admin.register(AIPromptTemplate)
@@ -164,7 +169,6 @@ class AIPromptTemplateAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     ]
     list_filter = ['key']
     search_fields = ['key']
-    list_select_related = True
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(
@@ -184,7 +188,6 @@ class AIPromptTemplateAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
 class AIInputAdmin(ReadOnlyAdminMixin, admin.ModelAdmin):
     list_display = ['short_sha256', 'chars', 'created_at']
     search_fields = ['sha256']
-    list_select_related = True
 
     @admin.display(description='SHA-256')
     def short_sha256(self, obj):

@@ -152,7 +152,7 @@ class AIJobModel(models.Model):
                 errors['role'] = (
                     f"'{self.role}' is not a declared role of job "
                     f"'{self.job.slug}' "
-                    f'(declared: {", ".join(declared)}).'
+                    f'(declared: {", ".join(map(str, declared))}).'
                 )
         if self.is_active and self.model_id:
             model = self.model
