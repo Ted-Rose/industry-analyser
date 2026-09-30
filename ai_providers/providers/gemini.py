@@ -1,6 +1,9 @@
 """Google Gemini adapter using the google-genai SDK (plan 5.3)."""
 
+import json
+
 import httpx
+import pydantic
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
@@ -62,6 +65,12 @@ class GeminiProvider(BaseAIProvider):
             )
         except genai_errors.APIError as e:
             raise self._map_api_error(e) from e
+        except (json.JSONDecodeError, pydantic.ValidationError,
+                genai_errors.UnknownApiResponseError) as e:
+            # A 200 body that is not JSON, or fails pydantic
+            # validation inside the SDK — a malformed/missing success
+            # body, not an error status (plan 5.2 AIServerError).
+            raise AIServerError(self._scrub_message(e)) from e
         except httpx.HTTPError as e:
             # Network/timeout failures propagate unwrapped by the SDK.
             raise AITimeoutError(self._scrub_message(e)) from e
@@ -145,8 +154,13 @@ class GeminiProvider(BaseAIProvider):
             return AIModelNotFoundError(message, http_status=code)
         if code == 400 or code == 422:
             return AIBadRequestError(message, http_status=code)
+        if code == 408:
+            # Request Timeout is transient (the SDK's own retry list
+            # includes it) — retryable, not a bad request.
+            return AITimeoutError(message, http_status=code)
         if code and code >= 500:
             return AIServerError(message, http_status=code)
         if code and code >= 400:
+            # Any other 4xx (e.g. 409) is a rejected request shape.
             return AIBadRequestError(message, http_status=code)
         return AIServerError(message, http_status=code or None)

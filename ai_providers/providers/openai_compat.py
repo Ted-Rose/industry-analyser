@@ -6,6 +6,7 @@ exposing ``/chat/completions`` behind ``base_url``.
 
 from openai import (
     APIConnectionError,
+    APIError,
     APIStatusError,
     APITimeoutError,
     AuthenticationError,
@@ -124,13 +125,26 @@ class OpenAICompatibleProvider(BaseAIProvider):
                 raise AIQuotaError(
                     self._scrub_message(e), http_status=status,
                 ) from e
+            if status == 408:
+                # Request Timeout is transient — retryable, not a
+                # bad request.
+                raise AITimeoutError(
+                    self._scrub_message(e), http_status=status,
+                ) from e
             if status and status >= 500:
                 raise AIServerError(
                     self._scrub_message(e), http_status=status,
                 ) from e
+            # Any other status-carrying error (e.g. 409) is treated
+            # as a rejected request shape — non-retryable.
             raise AIBadRequestError(
                 self._scrub_message(e), http_status=status,
             ) from e
+        except APIError as e:
+            # Non-status SDK errors, e.g. APIResponseValidationError
+            # when a 200 body fails pydantic validation — a
+            # malformed/missing success body (plan 5.2 AIServerError).
+            raise AIServerError(self._scrub_message(e)) from e
         return self._to_response(model, response)
 
     def _build_kwargs(self, model, prompt, options):
@@ -144,6 +158,9 @@ class OpenAICompatibleProvider(BaseAIProvider):
         if options.temperature is not None:
             kwargs['temperature'] = options.temperature
         if options.max_output_tokens is not None:
+            # 'max_tokens' is accepted by OpenRouter/Groq/Mistral;
+            # newer OpenAI models want 'max_completion_tokens'
+            # instead — revisit if a job targets OpenAI directly.
             kwargs['max_tokens'] = options.max_output_tokens
         return kwargs
 

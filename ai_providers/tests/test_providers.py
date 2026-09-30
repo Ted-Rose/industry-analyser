@@ -4,9 +4,13 @@ Every SDK client is mocked — no network, no API keys, no DB access
 (SimpleTestCase only).
 """
 
+import json
 from types import SimpleNamespace
 from unittest import mock
 
+# Two HTTP libs: google-genai speaks httpx, the openai 3.x SDK uses
+# httpx2. Neither is pinned in requirements.txt — both arrive
+# transitively via the SDKs they drive.
 import httpx
 import httpx2
 import openai
@@ -325,8 +329,11 @@ class GeminiProviderTest(SimpleTestCase):
         cases = [
             (400, errors.AIBadRequestError),
             (401, errors.AIAuthError),
+            (402, errors.AIQuotaError),
             (403, errors.AIAuthError),
             (404, errors.AIModelNotFoundError),
+            (408, errors.AITimeoutError),
+            (422, errors.AIBadRequestError),
             (429, errors.AIRateLimitError),
             (500, errors.AIServerError),
             (503, errors.AIServerError),
@@ -345,6 +352,42 @@ class GeminiProviderTest(SimpleTestCase):
                     self.generate()
                 self.assertEqual(ctx.exception.http_status, code)
                 # A single attempt: no SDK-level retry in generate().
+                self.assertEqual(
+                    self.client.models.generate_content.call_count, 1)
+                self.client.models.generate_content.reset_mock(
+                    side_effect=True)
+
+    def test_unknown_error_code_maps_to_server_error(self):
+        # Missing or unexpected codes fall through to AIServerError.
+        for code in (None, 302):
+            with self.subTest(code=code):
+                self.client.models.generate_content.side_effect = (
+                    genai_errors.APIError(
+                        code=code,
+                        response_json={
+                            'error': {'message': 'weird'},
+                        },
+                    )
+                )
+                with self.assertRaises(errors.AIServerError):
+                    self.generate()
+                self.client.models.generate_content.reset_mock(
+                    side_effect=True)
+
+    def test_malformed_body_maps_to_server_error(self):
+        # A 200 body that is not JSON or fails response validation
+        # escapes google-genai 1.67.0 as a raw ValueError-family
+        # error — it must still map into the taxonomy.
+        sdk_errors = [
+            json.JSONDecodeError('Expecting value', 'doc', 0),
+            genai_errors.UnknownApiResponseError('not json'),
+        ]
+        for sdk_error in sdk_errors:
+            with self.subTest(sdk=type(sdk_error).__name__):
+                self.client.models.generate_content.side_effect = (
+                    sdk_error)
+                with self.assertRaises(errors.AIServerError):
+                    self.generate()
                 self.assertEqual(
                     self.client.models.generate_content.call_count, 1)
                 self.client.models.generate_content.reset_mock(
@@ -536,6 +579,8 @@ class OpenAICompatibleProviderTest(SimpleTestCase):
              errors.AIAuthError),
             (status_error(openai.APIStatusError, 402),
              errors.AIQuotaError),
+            (status_error(openai.APIStatusError, 408),
+             errors.AITimeoutError),
             (status_error(openai.NotFoundError, 404),
              errors.AIModelNotFoundError),
             (status_error(openai.BadRequestError, 400),
@@ -548,6 +593,27 @@ class OpenAICompatibleProviderTest(SimpleTestCase):
                               sdk=type(sdk_error).__name__):
                 self.create_call().side_effect = sdk_error
                 with self.assertRaises(cls):
+                    self.generate()
+                self.assertEqual(self.create_call().call_count, 1)
+                self.create_call().reset_mock(side_effect=True)
+
+    def test_validation_error_maps_to_server_error(self):
+        # A 200 body that fails pydantic validation raises
+        # APIResponseValidationError — an openai.APIError but NOT an
+        # APIStatusError (openai 3.17.0), so the status catch-all
+        # alone does not cover it.
+        sdk_errors = [
+            openai.APIResponseValidationError(
+                response=openai_http_response(200), body=None,
+            ),
+            openai.APIError(
+                'boom', request=openai_request(), body=None,
+            ),
+        ]
+        for sdk_error in sdk_errors:
+            with self.subTest(sdk=type(sdk_error).__name__):
+                self.create_call().side_effect = sdk_error
+                with self.assertRaises(errors.AIServerError):
                     self.generate()
                 self.assertEqual(self.create_call().call_count, 1)
                 self.create_call().reset_mock(side_effect=True)
