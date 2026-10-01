@@ -6,6 +6,8 @@ from unittest import skipIf
 from django.test import TestCase
 from django.utils import timezone
 
+from scrape_jobs.models import ScrapeJobRunItem
+from scrape_jobs.runner import ScrapeJobRunner
 from tv_programs.classification import EXCLUDED_LOCAL_SHOWS, classify
 from tv_programs.models import Channel, Program
 from tv_programs.scraper import TVProgramScraper
@@ -72,6 +74,58 @@ class ExclusionListTest(TestCase):
     def test_plan_titles_merged(self):
         self.assertIn("Kas notiek Latvijā?", EXCLUDED_LOCAL_SHOWS)
         self.assertIn("Panorāma", EXCLUDED_LOCAL_SHOWS)
+
+
+class GetSearchUrlsRunnerTests(TestCase):
+    """scrape_jobs runner wiring: one item per channel x date cell,
+    oldest days first; items are checkpointed as the urls yield."""
+
+    CONFIG = {"days_in_past": 1, "days_in_future": 1}
+
+    def test_items_are_channel_x_date_oldest_first(self):
+        runner = ScrapeJobRunner(
+            slug="tv_programs.guide",
+            cycle_key="2026-01-01",
+            fresh=True,
+        )
+        scraper = TVProgramScraper(config=self.CONFIG, runner=runner)
+
+        urls = list(scraper.get_search_urls())
+
+        # 2 days x 3 channels; the oldest day's channels come first.
+        self.assertEqual(len(urls), 6)
+        yesterday = (timezone.now() - datetime.timedelta(days=1))
+        today = timezone.now()
+        self.assertIn(
+            f"date={yesterday.strftime('%Y-%m-%d')}", urls[0]
+        )
+        self.assertIn("channel=filmzone_hd", urls[0])
+        self.assertIn(f"date={today.strftime('%Y-%m-%d')}", urls[3])
+        # Scraper context follows the item being yielded.
+        self.assertEqual(scraper.current_channel.name, "ltv1_hd")
+        self.assertEqual(
+            ScrapeJobRunItem.objects.filter(
+                run=runner.run, status=ScrapeJobRunItem.DONE
+            ).count(),
+            6,
+        )
+
+    def test_dry_run_writes_no_channel_rows(self):
+        runner = ScrapeJobRunner(
+            slug="tv_programs.guide",
+            cycle_key="2026-01-02",
+            dry_run=True,
+        )
+        scraper = TVProgramScraper(
+            config=self.CONFIG, runner=runner, dry_run=True
+        )
+
+        urls = list(scraper.get_search_urls())
+
+        self.assertEqual(len(urls), 6)
+        self.assertEqual(Channel.objects.count(), 0)
+        self.assertEqual(scraper.current_channel.name, "ltv1_hd")
+        self.assertIsNone(scraper.current_channel.pk)
 
 
 class ReclassifyCommandDataTests(TestCase):

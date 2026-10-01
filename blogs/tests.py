@@ -923,24 +923,57 @@ class PageAnalysisAISaveTests(TestCase):
 class ScrapeBlogsCommandTests(SimpleTestCase):
     """The --max-api-requests CLI override reaches BlogScraper."""
 
-    @mock.patch('blogs.management.commands.scrape_blogs.BlogScraper')
-    def test_max_api_requests_passed_to_scraper(self, scraper_cls):
+    SCRAPER = 'blogs.management.commands.scrape_blogs.BlogScraper'
+    RUNNER = 'blogs.management.commands.scrape_blogs.ScrapeJobRunner'
+
+    @mock.patch(SCRAPER)
+    @mock.patch(RUNNER)
+    def test_max_api_requests_passed_to_scraper(
+            self, runner_cls, scraper_cls):
         call_command('scrape_blogs', '--max-api-requests', '3')
 
         scraper_cls.assert_called_once_with(
             target_theme=None,
             reanalyze=False,
             max_api_requests=3,
+            runner=runner_cls.return_value,
+            dry_run=False,
         )
 
-    @mock.patch('blogs.management.commands.scrape_blogs.BlogScraper')
-    def test_max_api_requests_defaults_to_none(self, scraper_cls):
+    @mock.patch(SCRAPER)
+    @mock.patch(RUNNER)
+    def test_max_api_requests_defaults_to_none(
+            self, runner_cls, scraper_cls):
         call_command('scrape_blogs')
 
         scraper_cls.assert_called_once_with(
             target_theme=None,
             reanalyze=False,
             max_api_requests=None,
+            runner=runner_cls.return_value,
+            dry_run=False,
+        )
+
+    @mock.patch(SCRAPER)
+    @mock.patch(RUNNER)
+    def test_dry_run_forwarded_to_runner_and_scraper(
+            self, runner_cls, scraper_cls):
+        call_command('scrape_blogs', '--dry-run')
+
+        runner_cls.assert_called_once_with(
+            slug='blogs.blog_posts',
+            description=mock.ANY,
+            cycle_key=None,
+            fresh=False,
+            resume_from=None,
+            dry_run=True,
+        )
+        scraper_cls.assert_called_once_with(
+            target_theme=None,
+            reanalyze=False,
+            max_api_requests=None,
+            runner=runner_cls.return_value,
+            dry_run=True,
         )
 
 

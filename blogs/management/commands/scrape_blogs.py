@@ -3,6 +3,9 @@ from blogs.scraper import BlogScraper
 from blogs.models import Theme
 from django.db.models import Q
 import logging
+import traceback
+
+from scrape_jobs.runner import ScrapeJobRunner
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,31 @@ class Command(BaseCommand):
                 'max_requests_per_run (editable in admin).'
             )
         )
+        parser.add_argument(
+            '--cycle',
+            type=str,
+            default=None,
+            help='Resume-cycle key; default today (UTC)'
+        )
+        parser.add_argument(
+            '--fresh',
+            action='store_true',
+            help="Ignore this cycle's completed items — full pass"
+        )
+        parser.add_argument(
+            '--resume-from',
+            dest='resume_from',
+            type=str,
+            default=None,
+            help='Debug: start at the item with this key'
+        )
+        parser.add_argument(
+            '--dry-run',
+            dest='dry_run',
+            action='store_true',
+            help='Fetch listings and pages but write nothing and '
+                 'make no AI calls'
+        )
 
     def handle(self, *args, **options):
         """
@@ -62,6 +90,7 @@ class Command(BaseCommand):
             ))
             return
 
+        runner = None
         try:
             # Validate theme if specified
             target_theme = None
@@ -79,16 +108,33 @@ class Command(BaseCommand):
                     ))
                     return
 
+            # Built only after theme validation so the early-return
+            # path never leaves a dangling RUNNING row.
+            runner = ScrapeJobRunner(
+                slug='blogs.blog_posts',
+                description=(
+                    'Blog posts scrape + theme analysis (spoki.lv)'
+                ),
+                cycle_key=options['cycle'],
+                fresh=options['fresh'],
+                resume_from=options['resume_from'],
+                dry_run=options['dry_run'],
+            )
             scraper = BlogScraper(
                 target_theme=target_theme,
                 reanalyze=reanalyze,
-                max_api_requests=options.get('max_api_requests')
+                max_api_requests=options.get('max_api_requests'),
+                runner=runner,
+                dry_run=options['dry_run'],
             )
             scraper.run()
+            runner.finish()
             self.stdout.write(self.style.SUCCESS(
                 'Blog scraper finished successfully.'
             ))
         except Exception as e:
+            if runner is not None:
+                runner.finish('FAILED', traceback.format_exc())
             logger.error(
                 f"An error occurred during scraping: {e}",
                 exc_info=True
