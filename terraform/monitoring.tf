@@ -322,6 +322,54 @@ resource "google_monitoring_alert_policy" "sync_regions_failure" {
   ]
 }
 
+# Alert policy for individual scrape-item failures
+# (stateful_scrape_jobs_plan.md section 5.4). ScrapeJobRunner logs a
+# SCRAPE_ITEM_FAILED marker at ERROR for each failed item; this
+# log-based policy mails on it via the existing email channel while
+# the run itself continues (run ends PARTIAL, not FAILED).
+resource "google_monitoring_alert_policy" "scrape_item_failure" {
+  count = length(google_monitoring_notification_channel.email) > 0 ? 1 : 0
+
+  display_name = "Scrape job item failure"
+  combiner     = "OR"
+
+  documentation {
+    content   = <<-EOT
+      A scrape-job work item failed inside a Cloud Run job execution.
+
+      ScrapeJobRunner logs "SCRAPE_ITEM_FAILED job=<slug>
+      item=<key> err=<error>" at ERROR; the run continues with the
+      next item and finishes PARTIAL. Check the run's
+      ScrapeJobRunItem rows in Django admin for details.
+    EOT
+    mime_type = "text/markdown"
+  }
+
+  conditions {
+    display_name = "SCRAPE_ITEM_FAILED log entry"
+    condition_matched_log {
+      filter = join(" AND ", [
+        "resource.type=\"cloud_run_job\"",
+        "severity>=ERROR",
+        "textPayload:\"SCRAPE_ITEM_FAILED\""
+      ])
+    }
+  }
+
+  notification_channels = [
+    google_monitoring_notification_channel.email[0].id
+  ]
+
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+    auto_close = "86400s"
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
 # Alert policy for sync-housing-regions job failures
 resource "google_monitoring_alert_policy" "sync_housing_regions_failure" {
   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0

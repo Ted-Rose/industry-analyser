@@ -12,6 +12,8 @@ from urllib3.exceptions import MaxRetryError
 
 logger = logging.getLogger('core_scraper')
 
+_UNSET = object()
+
 
 class BaseScraper(abc.ABC):
     """
@@ -51,16 +53,47 @@ class BaseScraper(abc.ABC):
         logger.debug(f"Initialized {self.__class__.__name__}")
 
     def run(self):
-        for search_url in self.get_search_urls():
-            print("\n\n")  # Line break for better console output readability
-            logger.info(f"Searching URL: {search_url}")
-            new_or_updated_resources = self.scrape_portal(search_url)
-            if new_or_updated_resources:
-                self.create_or_update_resources(new_or_updated_resources)
-                logger.info(f"Created or \
-                  updated {len(new_or_updated_resources)} resources")
+        # The URL generator is driven explicitly so that a
+        # scrape_portal() failure can be thrown back INTO it at its
+        # suspended yield — a get_search_urls() that wraps an item's
+        # inner yields in try/except (the ScrapeJobRunner
+        # checkpointing pattern) records the item as failed and
+        # resumes with the next item's first URL. Generators without
+        # such a handler re-raise through throw() and the run aborts
+        # exactly as a plain for-loop would.
+        urls = iter(self.get_search_urls())
+        throw = getattr(urls, 'throw', None)
+        pending_url = _UNSET
+        while True:
+            if pending_url is _UNSET:
+                try:
+                    search_url = next(urls)
+                except StopIteration:
+                    break
             else:
-                logger.info("No new or updated resources found")
+                search_url, pending_url = pending_url, _UNSET
+            print("\n\n")  # Console readability between URLs
+            logger.info(f"Searching URL: {search_url}")
+            try:
+                new_or_updated_resources = (
+                    self.scrape_portal(search_url)
+                )
+                if new_or_updated_resources:
+                    self.create_or_update_resources(
+                        new_or_updated_resources
+                    )
+                    logger.info(f"Created or \
+                      updated {len(new_or_updated_resources)} resources")
+                else:
+                    logger.info("No new or updated resources found")
+            except Exception as e:
+                if throw is None:
+                    raise
+                try:
+                    pending_url = throw(e)
+                except StopIteration:
+                    break
+                continue
         return
 
     def scrape_portal(self, search_url):
