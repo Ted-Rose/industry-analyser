@@ -6,9 +6,14 @@ from fetcher.scraper import VacancyScrapper
 class Command(BaseCommand):
     help = "Runs the vacancy scraper for a given job portal."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            'portal_id', nargs='?', type=int, default=1
+        )
+
     def handle(self, *args, **options):
         try:
-            portal_id = int(args[0]) if args else 1
+            portal_id = options['portal_id']
             scraper = VacancyScrapper(portal_id=portal_id)
             scraper.run()
             self.stdout.write(
