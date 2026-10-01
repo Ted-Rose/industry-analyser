@@ -44,6 +44,21 @@
             }
         },
         {
+            "name": "Scrape: Blogs",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "scrape_blogs",
+                "--max-api-requests", "20"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/venv/bin/python"
+        },
+        {
             "name": "Fix Apartment Addresses",
             "type": "debugpy",
             "request": "launch",

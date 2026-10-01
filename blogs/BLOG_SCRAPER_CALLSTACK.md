@@ -199,9 +199,9 @@ def analyse_content(self, article_content, themes_to_analyse):
 - The per-theme loop (prompt load → backend call → JSON cleanup →
   early exits) lives in `ThemeAnalyzer._analyse_role()`
 - Model lists, retries, fallbacks, request caps and prompt assembly
-  (`inline_v1` layout — byte-identical to the old
-  `instructions + "\n\n---\n\n" + content`) live in
-  `JobClient.generate()` (`ai_providers/client.py`); model
+  (`system_v1` layout — instructions become the system message, the
+  article goes in the user message inside `<input>...</input>`)
+  live in `JobClient.generate()` (`ai_providers/client.py`); model
   assignments come from the `AIJob`/`AIJobModel` DB rows
 - Raises `MaxAPIRequestsReached` (from `blogs/ai_backends.py`,
   re-exported here) if the limit is exceeded
@@ -218,10 +218,12 @@ def analyse_content(self, article_content, themes_to_analyse):
 ```python
 def generate(self, template_key, template_text, input_text, role):
     spec = PromptSpec(template_key, template_text, input_text,
-                      layout='inline_v1')
+                      layout='system_v1')
     try:
         result = self.client.generate(
-            spec, role=role, options=GenerationOptions())
+            spec, role=role,
+            options=GenerationOptions(
+                json_mode=self.client.supports_json_mode(role)))
     except AIRequestCapReached as e:
         raise MaxAPIRequestsReached(str(e)) from e
     except AIAllModelsFailedError:
@@ -240,7 +242,7 @@ def generate(self, template_key, template_text, input_text, role):
 - `AnalyzerBackend` (PR-6) that delegates to `JobClient.generate()`
   (`ai_providers/client.py`) — the JobClient resolves the role's
   ordered model assignments from the DB (`AIJobModel`), renders the
-  prompt (`inline_v1`), retries per model, falls back across
+  prompt (`system_v1`), retries per model, falls back across
   assignments/providers, enforces the run/day caps and logs every
   attempt as an `AIRequest` row
 - Returns the served model's name plus `ai_model_id`/`ai_request_id`

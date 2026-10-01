@@ -60,7 +60,7 @@ class GeminiProvider(BaseAIProvider):
         try:
             response = self._client.models.generate_content(
                 model=model,
-                contents=prompt.user,
+                contents=self._build_contents(prompt),
                 config=config,
             )
         except genai_errors.APIError as e:
@@ -120,6 +120,22 @@ class GeminiProvider(BaseAIProvider):
             display_name=getattr(model, 'display_name', '') or '',
             context_length=getattr(model, 'input_token_limit', None),
         )
+
+    @staticmethod
+    def _build_contents(prompt):
+        """``contents`` for generate_content: bare text, or image
+        parts followed by the user text when the prompt carries
+        images (multimodal)."""
+        if not prompt.images:
+            return prompt.user
+        parts = [
+            genai_types.Part.from_bytes(
+                data=image.data, mime_type=image.mime_type
+            )
+            for image in prompt.images
+        ]
+        parts.append(prompt.user)
+        return parts
 
     def _build_config(self, prompt, options):
         kwargs = {}

@@ -1,4 +1,6 @@
-"""Tests for ThemeAnalyzer (PR-3) and the JobClient wiring (PR-6).
+"""Tests for ThemeAnalyzer (PR-3), the JobClient wiring (PR-6) and
+PR-9 prompt hardening (system_v1 layout, per-model json_mode,
+result-shape validation).
 
 Backend-mapping tests use a stub client (SimpleTestCase — no DB).
 Integration tests drive the real JobClient with a fake provider
@@ -161,13 +163,16 @@ class ThemeAnalyzerTests(SimpleTestCase):
     def test_no_cheap_match_runs_expensive_and_discards_cheap(self):
         backend = FakeBackend({
             ('cheap', 'blogs.theme.violence'): response(
-                '{"violence": false}', model_name='cheap-1'
+                '{"violence": false, "confidence_score": 0.2,'
+                ' "reasoning_summary": "ok"}', model_name='cheap-1'
             ),
             ('expensive', 'blogs.theme.violence'): response(
-                '{"violence": false}', model_name='exp-1'
+                '{"violence": false, "confidence_score": 0.2,'
+                ' "reasoning_summary": "ok"}', model_name='exp-1'
             ),
             ('expensive', 'blogs.theme.sexual'): response(
-                '{"sexual": true}', model_name='exp-1'
+                '{"sexual": true, "confidence_score": 0.9,'
+                ' "reasoning_summary": "bad"}', model_name='exp-1'
             ),
         })
         result = self.analyzer(backend).analyse(
@@ -185,7 +190,8 @@ class ThemeAnalyzerTests(SimpleTestCase):
     def test_use_cheap_tier_false_runs_expensive_only(self):
         backend = FakeBackend({
             ('expensive', 'blogs.theme.violence'): response(
-                '{"violence": true}', model_name='exp-1'
+                '{"violence": true, "confidence_score": 0.9,'
+                ' "reasoning_summary": "bad"}', model_name='exp-1'
             ),
         })
         result = self.analyzer(backend).analyse(
@@ -255,7 +261,8 @@ class ThemeAnalyzerTests(SimpleTestCase):
     def test_result_stamped_with_model_tier_and_extra(self):
         backend = FakeBackend({
             ('expensive', 'blogs.theme.violence'): response(
-                '{"violence": true}', model_name='exp-1',
+                '{"violence": true, "confidence_score": 0.9,'
+                ' "reasoning_summary": "bad"}', model_name='exp-1',
                 extra={'ai_request_id': 42},
             ),
         })
@@ -279,7 +286,8 @@ class ThemeAnalyzerTests(SimpleTestCase):
     def test_backend_receives_instructions_and_content_separately(self):
         backend = FakeBackend({
             ('cheap', 'blogs.theme.violence'): response(
-                '{"violence": true}'
+                '{"violence": true, "confidence_score": 0.9,'
+                ' "reasoning_summary": "bad"}'
             ),
         })
         self.analyzer(backend).analyse(
@@ -302,6 +310,84 @@ class ThemeAnalyzerTests(SimpleTestCase):
             self.analyzer(backend).analyse(
                 'content', self.themes, use_cheap_tier=True
             )
+
+    # PR-9 — the parsed result must have a valid shape: the theme
+    # key a bool, confidence_score a 0-1 int/float and
+    # reasoning_summary a str. Invalid results are skipped exactly
+    # like failed parses; the synthetic BLOCKED result bypasses the
+    # check (it is never parsed).
+    def test_valid_result_shape_is_accepted(self):
+        backend = FakeBackend({
+            ('expensive', 'blogs.theme.violence'): response(
+                '{"violence": true, "confidence_score": 1,'
+                ' "reasoning_summary": "bad"}'
+            ),
+        })
+        result = self.analyzer(backend).analyse(
+            'content', self.themes, use_cheap_tier=False
+        )
+        # An int confidence at the upper bound is valid.
+        self.assertTrue(result['violence']['violence'])
+        self.assertEqual(result['violence']['confidence_score'], 1)
+
+    def test_wrong_type_fields_are_skipped(self):
+        backend = FakeBackend({
+            ('cheap', 'blogs.theme.violence'): response(
+                '{"violence": "yes", "confidence_score": 0.9,'
+                ' "reasoning_summary": "x"}'
+            ),  # theme key is not a bool
+            ('cheap', 'blogs.theme.sexual'): response(
+                '{"sexual": false, "confidence_score": 0.4,'
+                ' "reasoning_summary": 42}'
+            ),  # reasoning_summary is not a str
+        })
+        result = self.analyzer(backend).analyse(
+            'content', self.themes, use_cheap_tier=True
+        )
+        self.assertIsNone(result)
+        self.assertEqual(roles_called(backend), [
+            'cheap', 'cheap',           # both skipped (invalid)
+            'expensive', 'expensive',
+        ])
+
+    def test_out_of_range_confidence_is_skipped(self):
+        backend = FakeBackend({
+            ('cheap', 'blogs.theme.violence'): response(
+                '{"violence": true, "confidence_score": 1.5,'
+                ' "reasoning_summary": "x"}'
+            ),
+        })
+        result = self.analyzer(backend).analyse(
+            'content', self.themes, use_cheap_tier=True
+        )
+        self.assertIsNone(result)
+        self.assertEqual(roles_called(backend), [
+            'cheap',                    # skipped -> sexual next
+            'cheap',
+            'expensive', 'expensive',
+        ])
+
+    def test_missing_fields_result_is_skipped(self):
+        backend = FakeBackend({
+            ('cheap', 'blogs.theme.violence'): response(
+                '{"violence": true}'
+            ),  # no confidence_score / reasoning_summary
+        })
+        result = self.analyzer(backend).analyse(
+            'content', self.themes, use_cheap_tier=True
+        )
+        self.assertIsNone(result)
+
+    def test_non_dict_result_is_skipped(self):
+        backend = FakeBackend({
+            ('cheap', 'blogs.theme.violence'): response(
+                '["violence", true]'
+            ),
+        })
+        result = self.analyzer(backend).analyse(
+            'content', self.themes, use_cheap_tier=True
+        )
+        self.assertIsNone(result)
 
 
 class LoadThemePromptTests(SimpleTestCase):
@@ -362,7 +448,8 @@ class BlogScraperAnalyseContentTests(SimpleTestCase):
     def test_url_flag_controls_tier_end_to_end(self):
         backend = FakeBackend({
             ('expensive', 'blogs.theme.violence'): response(
-                '{"violence": true}', model_name='exp-1'
+                '{"violence": true, "confidence_score": 0.9,'
+                ' "reasoning_summary": "bad"}', model_name='exp-1'
             ),
         })
         scraper = self._scraper(backend)
@@ -384,13 +471,20 @@ class StubClient:
     """JobClient stand-in for JobClientBackend mapping tests.
 
     ``outcome`` is an AIResult-shaped object to return or an
-    Exception to raise from generate().
+    Exception to raise from generate(). ``json_mode_capable`` drives
+    the ``supports_json_mode()`` accessor (PR-9).
     """
 
-    def __init__(self, outcome):
+    def __init__(self, outcome, json_mode_capable=False):
         self.outcome = outcome
         self.calls = []
         self.request_count = 0
+        self._json_mode_capable = json_mode_capable
+        self.json_mode_queries = []
+
+    def supports_json_mode(self, role):
+        self.json_mode_queries.append(role)
+        return self._json_mode_capable
 
     def generate(self, spec, role, options):
         self.calls.append(
@@ -434,7 +528,7 @@ class JobClientBackendTests(SimpleTestCase):
             resp.extra, {'ai_model_id': 11, 'ai_request_id': 22}
         )
 
-    def test_builds_prompt_spec_inline_v1_with_role_and_options(self):
+    def test_builds_prompt_spec_system_v1_with_role_and_options(self):
         client = StubClient(ai_result())
         backend = JobClientBackend(client, logger)
 
@@ -445,10 +539,30 @@ class JobClientBackendTests(SimpleTestCase):
             template_key='key.t',
             template_text='INSTR',
             input_text='INPUT',
-            layout='inline_v1',
+            layout='system_v1',
         ))
         self.assertEqual(call['role'], 'expensive')
         self.assertEqual(call['options'], GenerationOptions())
+
+    # PR-9 — GenerationOptions.json_mode follows the serving model's
+    # supports_json_mode flag, learned via the client accessor.
+    def test_json_mode_on_when_model_supports_it(self):
+        client = StubClient(ai_result(), json_mode_capable=True)
+        backend = JobClientBackend(client, logger)
+
+        backend.generate('key.t', 'i', 'c', 'cheap')
+
+        self.assertEqual(client.json_mode_queries, ['cheap'])
+        self.assertTrue(client.calls[0]['options'].json_mode)
+
+    def test_json_mode_off_when_model_lacks_support(self):
+        client = StubClient(ai_result(), json_mode_capable=False)
+        backend = JobClientBackend(client, logger)
+
+        backend.generate('key.t', 'i', 'c', 'expensive')
+
+        self.assertEqual(client.json_mode_queries, ['expensive'])
+        self.assertFalse(client.calls[0]['options'].json_mode)
 
     def test_cap_reached_maps_to_max_api_requests_reached(self):
         client = StubClient(errors.AIRequestCapReached('cap'))
@@ -591,11 +705,86 @@ class JobClientIntegrationTests(TestCase):
             {f'blogs.theme.{name}' for name in self.THEMES},
         )
         for request in AIRequest.objects.all():
-            self.assertEqual(request.prompt_layout, 'inline_v1')
+            self.assertEqual(request.prompt_layout, 'system_v1')
             self.assertEqual(request.role, 'expensive')
             self.assertIsNotNone(request.input_id)
             self.assertIsNotNone(request.prompt_template_id)
-            self.assertIsNotNone(request.rendered_prompt())
+            rendered = request.rendered_prompt()
+            self.assertIsNotNone(rendered)
+            # system_v1: instructions -> system, input -> <input>.
+            self.assertTrue(
+                rendered.system.startswith('instructions for')
+            )
+            self.assertIn('<input>', rendered.user)
+            self.assertIn('article body', rendered.user)
+
+    def test_supports_json_mode_reflects_assignment_snapshot(self):
+        """JobClient.supports_json_mode reads the active
+        assignments' model flags from the construction-time snapshot
+        (PR-9; PR-16: any capable assignment, not only the first)."""
+        cheap = self.job.assignments.get(role='cheap')
+        client = self.job_client()
+        self.assertFalse(client.supports_json_mode('cheap'))
+        self.assertFalse(client.supports_json_mode('unknown-role'))
+
+        cheap.model.supports_json_mode = True
+        cheap.model.save()
+
+        # The existing client keeps its construction-time snapshot…
+        self.assertFalse(client.supports_json_mode('cheap'))
+        # …a new client sees the updated flag.
+        self.assertTrue(self.job_client().supports_json_mode('cheap'))
+
+    def test_json_mode_flows_to_provider_and_request_row(self):
+        """A model with supports_json_mode gets json_mode=True in
+        GenerationOptions, recorded on the AIRequest row (PR-9)."""
+        expensive = self.job.assignments.get(role='expensive')
+        expensive.model.supports_json_mode = True
+        expensive.model.save()
+        FakeGeminiProvider.script = {
+            'gemini-2.5-pro': [
+                AIResponse(
+                    text=(
+                        '{"violence": false, "confidence_score": 0.1,'
+                        ' "reasoning_summary": "fine"}'
+                    ),
+                    served_model='gemini-2.5-pro',
+                ),
+            ],
+        }
+
+        result = self.analyzer().analyse(
+            'article body', [theme('violence')], use_cheap_tier=False
+        )
+
+        self.assertEqual(set(result), {'violence'})
+        call = FakeGeminiProvider.calls[0]
+        self.assertTrue(call['options'].json_mode)
+        request = AIRequest.objects.get()
+        self.assertTrue(request.options['json_mode'])
+
+    def test_json_mode_off_by_default(self):
+        """Models without supports_json_mode send json_mode=False."""
+        FakeGeminiProvider.script = {
+            'gemini-2.5-pro': [
+                AIResponse(
+                    text=(
+                        '{"violence": false, "confidence_score": 0.1,'
+                        ' "reasoning_summary": "fine"}'
+                    ),
+                    served_model='gemini-2.5-pro',
+                ),
+            ],
+        }
+
+        self.analyzer().analyse(
+            'article body', [theme('violence')], use_cheap_tier=False
+        )
+
+        self.assertFalse(
+            FakeGeminiProvider.calls[0]['options'].json_mode
+        )
+        self.assertFalse(AIRequest.objects.get().options['json_mode'])
 
     def test_cli_override_wins_when_lower(self):
         # The AIJob row caps at 10/run; the CLI override (1) is lower

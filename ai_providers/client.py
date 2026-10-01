@@ -119,6 +119,23 @@ class JobClient:
         """Attempts actually sent in this run (failures included)."""
         return self._request_count
 
+    def supports_json_mode(self, role):
+        """True when any of the role's active assignments' models
+        has ``AIModel.supports_json_mode`` set.
+
+        Reflects the assignment snapshot taken at construction —
+        admin changes apply to the next JobClient, not mid-run.
+        Returns False for a role with no active assignment.
+        ``generate()`` still gates ``json_mode`` per assignment, so
+        a True here never pushes the option onto a model that does
+        not support it.
+        """
+        assignments = self._assignments.get(role) or []
+        return any(
+            assignment.model.supports_json_mode
+            for assignment in assignments
+        )
+
     def generate(self, prompt, role, options=None):
         """Send `prompt` via the first working assignment for `role`.
 
@@ -140,11 +157,22 @@ class JobClient:
                 f'{self.job.pk}/change/.'
             )
         rendered = render_prompt(
-            spec.template_text, spec.input_text, spec.layout
+            spec.template_text, spec.input_text, spec.layout,
+            images=spec.images,
         )
         prompt_chars = len(rendered.user or '') + len(
             rendered.system or ''
         )
+        # Image bytes are never stored — digests land on
+        # AIRequest.options['images'] for provenance.
+        images_meta = [
+            {
+                'sha256': hashlib.sha256(image.data).hexdigest(),
+                'mime_type': image.mime_type,
+                'bytes': len(image.data),
+            }
+            for image in spec.images
+        ] or None
         prompt_sha256 = rendered_prompt_sha256(
             rendered.system, rendered.user
         )
@@ -154,6 +182,16 @@ class JobClient:
             provider = assignment.model.provider
             if provider.id in self._dead_providers:
                 continue
+            # json_mode is sent only to models whose assignment flags
+            # them capable — a fallback without supports_json_mode
+            # must not receive response_format/response_mime_type.
+            effective_options = dataclasses.replace(
+                options,
+                json_mode=bool(
+                    options.json_mode
+                    and assignment.model.supports_json_mode
+                ),
+            )
             for attempt in range(1, provider.max_retries + 2):
                 self._check_caps()
                 try:
@@ -171,7 +209,8 @@ class JobClient:
                 started = time.monotonic()
                 try:
                     response = adapter.generate(
-                        assignment.model.name, rendered, options
+                        assignment.model.name, rendered,
+                        effective_options,
                     )
                 except errors.AIError as e:
                     latency_ms = int(
@@ -187,7 +226,8 @@ class JobClient:
                         template=template,
                         ai_input=ai_input,
                         layout=spec.layout,
-                        options=options,
+                        options=effective_options,
+                        images_meta=images_meta,
                         prompt_chars=prompt_chars,
                         prompt_sha256=prompt_sha256,
                     )
@@ -217,7 +257,8 @@ class JobClient:
                         template=template,
                         ai_input=ai_input,
                         layout=spec.layout,
-                        options=options,
+                        options=effective_options,
+                        images_meta=images_meta,
                         prompt_chars=prompt_chars,
                         prompt_sha256=prompt_sha256,
                     )
@@ -237,7 +278,8 @@ class JobClient:
                     template=template,
                     ai_input=ai_input,
                     layout=spec.layout,
-                    options=options,
+                    options=effective_options,
+                    images_meta=images_meta,
                     prompt_chars=prompt_chars,
                     prompt_sha256=prompt_sha256,
                     served=served,
@@ -424,10 +466,13 @@ class JobClient:
     def _write_request(self, *, assignment, attempt, status, response,
                        error, latency_ms, template, ai_input, layout,
                        options, prompt_chars, prompt_sha256,
-                       served=None):
+                       images_meta=None, served=None):
         """Persist one AIRequest row for the attempt just sent."""
         provider = assignment.model.provider
         api_key = getattr(settings, provider.api_key_setting, '')
+        options_dict = dataclasses.asdict(options)
+        if images_meta:
+            options_dict['images'] = images_meta
         row = AIRequest(
             job=self.job,
             role=assignment.role,
@@ -439,7 +484,7 @@ class JobClient:
             prompt_template=template,
             input=ai_input,
             prompt_layout=layout,
-            options=dataclasses.asdict(options),
+            options=options_dict,
             prompt_chars=prompt_chars,
             prompt_sha256=prompt_sha256,
         )

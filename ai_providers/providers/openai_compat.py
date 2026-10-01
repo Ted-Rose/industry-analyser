@@ -4,6 +4,7 @@ Works for OpenRouter, Groq, Mistral, Cerebras, OpenAI, ... — any API
 exposing ``/chat/completions`` behind ``base_url``.
 """
 
+import base64
 from decimal import Decimal, InvalidOperation
 
 from openai import (
@@ -251,7 +252,9 @@ class OpenAICompatibleProvider(BaseAIProvider):
         messages = []
         if prompt.system is not None:
             messages.append({'role': 'system', 'content': prompt.system})
-        messages.append({'role': 'user', 'content': prompt.user})
+        messages.append(
+            {'role': 'user', 'content': self._user_content(prompt)}
+        )
         kwargs = {'model': model, 'messages': messages}
         if options.json_mode:
             kwargs['response_format'] = {'type': 'json_object'}
@@ -263,6 +266,26 @@ class OpenAICompatibleProvider(BaseAIProvider):
             # instead — revisit if a job targets OpenAI directly.
             kwargs['max_tokens'] = options.max_output_tokens
         return kwargs
+
+    @staticmethod
+    def _user_content(prompt):
+        """User message content: bare text, or the OpenAI vision
+        part-list (image_url data-URIs + text) for multimodal
+        prompts."""
+        if not prompt.images:
+            return prompt.user
+        content = [
+            {
+                'type': 'image_url',
+                'image_url': {
+                    'url': 'data:' + image.mime_type + ';base64,'
+                           + base64.b64encode(image.data).decode('ascii'),
+                },
+            }
+            for image in prompt.images
+        ]
+        content.append({'type': 'text', 'text': prompt.user})
+        return content
 
     def _to_response(self, model, response):
         # Some providers return HTTP 200 with an 'error' object in

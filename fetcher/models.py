@@ -21,10 +21,57 @@ class Vacancy(models.Model):
         help_text="The ID of the vacancy on the job portal",
     )
     application_deadline = models.DateTimeField(null=True)
+    detail_fetched_at = models.DateTimeField(
+        null=True,
+        help_text="When the public vacancy detail page was last "
+                  "fetched (null for API-only rows)",
+    )
     state = models.CharField(max_length=50)
 
     def __str__(self):
         return self.title
+
+
+class VacancyFile(models.Model):
+    """Text extracted from a vacancy's attached file (image/PDF ad).
+
+    One row per files-service file_id — each file is OCR'd once and
+    the text is reused for keyword matching on later scrapes.
+    """
+    vacancy = models.ForeignKey(
+        'Vacancy', on_delete=models.CASCADE, related_name='files'
+    )
+    file_id = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="files-service file UUID",
+    )
+    content_type = models.CharField(max_length=100)
+    sha256 = models.CharField(max_length=64)
+    extracted_text = models.TextField(null=True)
+    ai_model = models.ForeignKey(
+        'ai_providers.AIModel',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='vacancy_files',
+        help_text="Served AI model that produced extracted_text",
+    )
+    ai_request = models.ForeignKey(
+        'ai_providers.AIRequest',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='vacancy_files',
+        help_text="AIRequest row that produced extracted_text",
+    )
+    fetched_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'fetcher_vacancy_file'
+
+    def __str__(self):
+        return self.file_id
 
 
 class Industry(models.Model):

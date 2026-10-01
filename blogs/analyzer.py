@@ -187,11 +187,11 @@ class ThemeAnalyzer:
         return aggregated_results
 
     def _parse_result(self, theme, response, role):
-        """Clean and parse the model's JSON text.
+        """Clean, parse and shape-validate the model's JSON text.
 
-        Returns None on any failure (missing/empty text, bad JSON,
-        non-dict payload) — the theme is then skipped; parsing must
-        never crash the run.
+        Returns None on any failure (missing/empty text, bad JSON or
+        an invalid result shape — PR-9) — the theme is then skipped;
+        parsing must never crash the run.
         """
         try:
             cleaned_json_str = (
@@ -208,9 +208,6 @@ class ThemeAnalyzer:
             )
 
             theme_analysis = json.loads(cleaned_json_str)
-            theme_analysis.update(response.extra)
-            theme_analysis['model'] = response.model_name
-            theme_analysis['model_tier'] = role
         except Exception as e:
             self.logger.error(
                 "Failed to decode JSON for theme '%s'. Error: %s. "
@@ -218,7 +215,42 @@ class ThemeAnalyzer:
                 theme.name, str(e), (response.text or '')[:200]
             )
             return None
+
+        if not self._valid_result_shape(theme.name, theme_analysis):
+            self.logger.warning(
+                "Analysis for theme '%s' failed result-shape "
+                "validation (expected the theme key as a bool, "
+                "'confidence_score' as a 0-1 number and "
+                "'reasoning_summary' as a string) — skipping it. "
+                "Response: %s",
+                theme.name, (response.text or '')[:200]
+            )
+            return None
+
+        theme_analysis.update(response.extra or {})
+        theme_analysis['model'] = response.model_name
+        theme_analysis['model_tier'] = role
         return theme_analysis
+
+    @staticmethod
+    def _valid_result_shape(theme_name, analysis):
+        """PR-9 shape check on the parsed result.
+
+        The theme key must be a bool, ``confidence_score`` an int or
+        float in [0, 1] and ``reasoning_summary`` a str; extra keys
+        (e.g. ``suitability_issue``) are allowed. The synthetic
+        BLOCKED result bypasses this — it is built in
+        ``_analyse_role`` and never goes through the parse path.
+        """
+        if not isinstance(analysis, dict):
+            return False
+        confidence = analysis.get('confidence_score')
+        return (
+            type(analysis.get(theme_name)) is bool
+            and type(confidence) in (int, float)
+            and 0 <= confidence <= 1
+            and isinstance(analysis.get('reasoning_summary'), str)
+        )
 
     def _has_theme_match(self, results):
         """Check if any theme matched (returned True)."""
