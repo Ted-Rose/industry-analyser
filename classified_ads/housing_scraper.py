@@ -1,7 +1,6 @@
 import logging
-import os
 import re
-from datetime import date, timedelta
+from datetime import date
 from typing import List
 
 from django.utils import timezone
@@ -52,72 +51,16 @@ def _parse_land_area(raw: str):
 
 class HousingAdScraper(BaseScraper):
 
-    def __init__(self, max_pages=100):
+    def __init__(self, max_pages=100, runner=None, dry_run=False):
         super().__init__()
         self.max_pages = max_pages
+        self.runner = runner
+        self.dry_run = dry_run
         self.enrich_search_results = True
         self.validate_result = False
         self.excluded_resources = []
         self._current_region = None
         self._current_deal_type = None
-
-    def _get_last_scraped_region_id(self, today):
-        """
-        Get the ID of the last region that was scraped recently.
-        This helps us resume from the right place if interrupted.
-
-        On local Ubuntu machines (non-GCP), queries last 1 day.
-        On Google Cloud Platform (Cloud Run), queries last 6 days.
-        """
-        # Check if running on GCP by looking for environment variables
-        # Cloud Run sets K_SERVICE, GOOGLE_CLOUD_PROJECT, or K_REVISION
-        is_gcp = any([
-            os.getenv('K_SERVICE'),
-            os.getenv('K_REVISION'),
-            os.getenv('GOOGLE_CLOUD_PROJECT'),
-        ])
-
-        # Set lookback period based on environment
-        if not is_gcp:
-            days_ago = today - timedelta(days=1)
-            logger.info(
-                "Running on local machine - checking last 1 day"
-            )
-        else:
-            days_ago = today - timedelta(days=6)
-            logger.info(
-                "Running on GCP - checking last 6 days"
-            )
-
-        # Get the most recent sighting from the lookback period across
-        # both models
-        last_rent = (
-            HouseForRentSighting.objects
-            .filter(seen_on__gte=days_ago, seen_on__lte=today)
-            .select_related('ad__region')
-            .order_by('-id')
-            .first()
-        )
-        last_sale = (
-            HouseForSaleSighting.objects
-            .filter(seen_on__gte=days_ago, seen_on__lte=today)
-            .select_related('ad__region')
-            .order_by('-id')
-            .first()
-        )
-
-        # Return the region ID from the most recent sighting
-        if last_rent and last_sale:
-            # Compare which is more recent and return that region
-            rent_region_id = last_rent.ad.region_id
-            sale_region_id = last_sale.ad.region_id
-            # Return the max ID (later in the ordered list)
-            return max(rent_region_id, sale_region_id)
-        elif last_rent:
-            return last_rent.ad.region_id
-        elif last_sale:
-            return last_sale.ad.region_id
-        return None
 
     def get_search_urls(self):
         # Fetch regions in consistent order (using model's Meta.ordering)
@@ -129,51 +72,71 @@ class HousingAdScraper(BaseScraper):
             )
             return
 
-        today = date.today()
+        housing_regions = [
+            region for region in regions
+            if '/homes-summer-residences/' in region.url
+        ]
 
-        # Find the last region that was scraped today
-        last_scraped_region_id = self._get_last_scraped_region_id(today)
+        if self.runner is None:
+            # No checkpointing wired up — a plain full pass over every
+            # enabled housing region.
+            for region in housing_regions:
+                self._current_region = region
+                logger.info(f"Scraping region: {region.name}")
+                yield from self._region_search_urls(region)
+            return
 
-        # Determine where to start scraping
-        start_scraping = last_scraped_region_id is None
-
-        for region in regions:
-            if '/homes-summer-residences/' not in region.url:
-                continue
-
-            # If we haven't started yet, skip until we reach the last
-            # scraped region
-            if not start_scraping:
-                if region.id == last_scraped_region_id:
-                    # Re-scrape this region (might have been interrupted)
-                    start_scraping = True
-                    logger.info(
-                        f"Resuming from region '{region.name}' "
-                        f"(last scraped today)"
-                    )
-                else:
-                    logger.info(
-                        f"Skipping region '{region.name}' - "
-                        f"already completed today"
-                    )
-                    continue
-
+        entries = [
+            (
+                str(region.id),
+                region.name,
+                self._region_priority(region),
+                region,
+            )
+            for region in housing_regions
+        ]
+        items = self.runner.sync_items(entries)
+        for item in self.runner.pending_items(items):
+            region = item.obj
             self._current_region = region
             logger.info(f"Scraping region: {region.name}")
+            try:
+                yield from self._region_search_urls(region)
+            except Exception as e:
+                # run() throws scrape_portal() failures back in here —
+                # record the item and continue with the next region.
+                self.runner.item_failed(item, e)
+                continue
+            self.runner.item_done(item)
 
-            for suffix, deal_type in HOUSING_DEAL_SUFFIXES.items():
-                self._current_deal_type = deal_type
+    @staticmethod
+    def _region_priority(region):
+        try:
+            return int(region.order_id)
+        except (ValueError, TypeError):
+            return 0
 
-                for page in range(1, self.max_pages + 1):
-                    if page == 1:
-                        yield region.url + suffix
-                    else:
-                        yield (
-                            region.url + suffix
-                            + 'page' + str(page) + '.html'
-                        )
-                    if not self.last_search_had_results:
-                        break
+    def _region_search_urls(self, region):
+        """Yield one region's listing URLs (deal types x pages).
+
+        Max pages is a random, high number. Once first empty
+        result page is returned stop scraping current deal
+        type for the region.
+        """
+        for suffix, deal_type in HOUSING_DEAL_SUFFIXES.items():
+            self._current_deal_type = deal_type
+            for page in range(1, self.max_pages + 1):
+                if page == 1:
+                    yield region.url + suffix
+                else:
+                    yield (
+                        region.url + suffix
+                        + 'page' + str(page) + '.html'
+                    )
+                if self.runner is not None:
+                    self.runner.touch()
+                if not self.last_search_had_results:
+                    break
 
     def parse_results(self, response) -> List[dict]:
         if response is None:
@@ -456,6 +419,13 @@ class HousingAdScraper(BaseScraper):
         rent_ads = [r for r in resources if isinstance(r, HouseForRent)]
         sell_ads = [r for r in resources if isinstance(r, HouseForSale)]
 
+        if self.dry_run:
+            logger.info(
+                '[dry-run] Would save %d rent ad(s) and %d sale ad(s).',
+                len(rent_ads), len(sell_ads),
+            )
+            return
+
         if rent_ads:
             HouseForRent.all_objects.bulk_create(
                 rent_ads,
@@ -490,6 +460,12 @@ class HousingAdScraper(BaseScraper):
 
     def _write_sightings(self, ad_ids, deal_type):
         today = date.today()
+        if self.dry_run:
+            logger.info(
+                '[dry-run] Would record %d %s sighting(s) for %s.',
+                len(ad_ids), deal_type, today,
+            )
+            return
 
         if deal_type == 'RENT':
             existing_ads = HouseForRent.all_objects.filter(
