@@ -51,11 +51,14 @@ jobs:
           echo ""
           
           # List all tags sorted by update time (newest first)
+          # No 2>&1: gcloud's "Listing items under..." banner goes to
+          # stderr and would be captured as a bogus first row, making
+          # KEPT_DIGEST garbage and every real tag a deletion target.
           TAGS=$(gcloud artifacts docker tags list \
             "${REGISTRY}" \
             --format="value(tag,version)" \
             --sort-by=~UPDATE_TIME \
-            --project="${PROJECT_ID}" 2>&1 || echo "")
+            --project="${PROJECT_ID}" 2>/dev/null || echo "")
           
           if [ -z "$TAGS" ]; then
             echo "ℹ️  No tagged images found in registry"
@@ -119,6 +122,9 @@ jobs:
           
           # Delete untagged images (best effort - GCP may auto-clean)
           if [ ${#DELETED_DIGESTS[@]} -gt 0 ]; then
+            # Several deleted tags may share a digest — delete once
+            mapfile -t DELETED_DIGESTS < <(
+              printf '%s\n' "${DELETED_DIGESTS[@]}" | sort -u)
             echo "Deleting untagged images..."
             echo ""
             
