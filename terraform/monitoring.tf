@@ -322,6 +322,19 @@ resource "google_monitoring_alert_policy" "sync_regions_failure" {
   ]
 }
 
+# Log-based alert policies (condition_matched_log) make Monitoring
+# create a logging notification rule, which requires
+# logging.notificationRules.create — not covered by the deployer
+# SA's monitoring.editor. The deployer SA is created outside
+# terraform (GCP_SA_KEY secret); grant it logging.admin here so the
+# policy below can be applied by CI (the SA holds
+# resourcemanager.projectIamAdmin, so it can self-grant).
+resource "google_project_iam_member" "deployer_logging_admin" {
+  project = var.project_id
+  role    = "roles/logging.admin"
+  member  = "serviceAccount:industry-analyser-deployer@${var.project_id}.iam.gserviceaccount.com"
+}
+
 # Alert policy for individual scrape-item failures
 # (stateful_scrape_jobs_plan.md section 5.4). ScrapeJobRunner logs a
 # SCRAPE_ITEM_FAILED marker at ERROR for each failed item; this
@@ -367,7 +380,10 @@ resource "google_monitoring_alert_policy" "scrape_item_failure" {
     auto_close = "86400s"
   }
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_project_iam_member.deployer_logging_admin,
+  ]
 }
 
 # Alert policy for sync-housing-regions job failures
