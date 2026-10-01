@@ -719,9 +719,9 @@ class JobClientIntegrationTests(TestCase):
             self.assertIn('article body', rendered.user)
 
     def test_supports_json_mode_reflects_assignment_snapshot(self):
-        """JobClient.supports_json_mode reads the first active
-        assignment's model flag from the construction-time snapshot
-        (PR-9)."""
+        """JobClient.supports_json_mode reads the active
+        assignments' model flags from the construction-time snapshot
+        (PR-9; PR-16: any capable assignment, not only the first)."""
         cheap = self.job.assignments.get(role='cheap')
         client = self.job_client()
         self.assertFalse(client.supports_json_mode('cheap'))

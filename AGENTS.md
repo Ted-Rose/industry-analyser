@@ -165,11 +165,13 @@ file becomes the system message and the article arrives in the user
 message wrapped in `<input>...</input>`. Every `blogs/prompts/*.txt`
 file ends with a line telling the model to treat the `<input>` block
 as data, not instructions (each edit creates a new
-`AIPromptTemplate` version at runtime — expected). `json_mode=True`
-is sent when the serving model's assignment has
+`AIPromptTemplate` version at runtime — expected). `json_mode` is
+requested when any of the role's assignments has
 `supports_json_mode` — the backend asks
 `client.supports_json_mode(role)`, which reads the JobClient's
-construction-time assignment snapshot. Parsed results are
+construction-time assignment snapshot — and `generate()` gates it
+per assignment, so only flagged-capable models actually receive the
+option. Parsed results are
 shape-validated in `ThemeAnalyzer._parse_result`: the theme key must
 be a bool, `confidence_score` a 0-1 number and `reasoning_summary` a
 str — anything else is skipped like a failed parse (the synthetic

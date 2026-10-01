@@ -358,6 +358,57 @@ class GenerateTests(JobClientTestCase):
         with self.assertRaises(errors.AIJobDisabledError):
             self.job_client()
 
+    def test_json_mode_gated_per_assignment(self):
+        """options.json_mode reaches only models flagged
+        supports_json_mode — a fallback without the flag is called
+        with json_mode=False (PR-16 review)."""
+        self.model.supports_json_mode = True
+        self.model.save()
+        model2 = make_model(self.provider, name='m2')
+        assign(self.job, model2, 'cheap', priority=1)
+        FakeGemini.script = {
+            'm1': [errors.AIBadRequestError('bad')],
+        }
+        result = self.job_client().generate(
+            prompt(), 'cheap', GenerationOptions(json_mode=True)
+        )
+        self.assertEqual(result.served_model, model2)
+        calls = FakeGemini.calls
+        self.assertTrue(calls[0]['options'].json_mode)
+        self.assertFalse(calls[1]['options'].json_mode)
+        requests = AIRequest.objects.order_by('id')
+        self.assertTrue(requests[0].options['json_mode'])
+        self.assertFalse(requests[1].options['json_mode'])
+
+    def test_json_mode_enabled_on_capable_fallback(self):
+        """The inverse: the caller requests json_mode, the first
+        model lacks the flag, a capable fallback still gets
+        json_mode=True."""
+        model2 = make_model(
+            self.provider, name='m2', supports_json_mode=True
+        )
+        assign(self.job, model2, 'cheap', priority=1)
+        FakeGemini.script = {
+            'm1': [errors.AIBadRequestError('bad')],
+        }
+        result = self.job_client().generate(
+            prompt(), 'cheap', GenerationOptions(json_mode=True)
+        )
+        self.assertEqual(result.served_model, model2)
+        calls = FakeGemini.calls
+        self.assertFalse(calls[0]['options'].json_mode)
+        self.assertTrue(calls[1]['options'].json_mode)
+
+    def test_supports_json_mode_any_capable_assignment(self):
+        """supports_json_mode(role) is True when any assignment's
+        model supports it, not just the first."""
+        self.assertFalse(self.job_client().supports_json_mode('cheap'))
+        model2 = make_model(
+            self.provider, name='m2', supports_json_mode=True
+        )
+        assign(self.job, model2, 'cheap', priority=1)
+        self.assertTrue(self.job_client().supports_json_mode('cheap'))
+
     def test_snapshot_isolation_from_admin_changes(self):
         client = self.job_client()
         # Admin change after construction has no effect this run.

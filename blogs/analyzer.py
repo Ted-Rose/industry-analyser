@@ -227,7 +227,7 @@ class ThemeAnalyzer:
             )
             return None
 
-        theme_analysis.update(response.extra)
+        theme_analysis.update(response.extra or {})
         theme_analysis['model'] = response.model_name
         theme_analysis['model_tier'] = role
         return theme_analysis

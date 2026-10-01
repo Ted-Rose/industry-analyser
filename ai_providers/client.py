@@ -120,16 +120,20 @@ class JobClient:
         return self._request_count
 
     def supports_json_mode(self, role):
-        """True when the role's first active assignment's model has
-        ``AIModel.supports_json_mode`` set.
+        """True when any of the role's active assignments' models
+        has ``AIModel.supports_json_mode`` set.
 
         Reflects the assignment snapshot taken at construction —
         admin changes apply to the next JobClient, not mid-run.
         Returns False for a role with no active assignment.
+        ``generate()`` still gates ``json_mode`` per assignment, so
+        a True here never pushes the option onto a model that does
+        not support it.
         """
         assignments = self._assignments.get(role) or []
-        return bool(
-            assignments and assignments[0].model.supports_json_mode
+        return any(
+            assignment.model.supports_json_mode
+            for assignment in assignments
         )
 
     def generate(self, prompt, role, options=None):
@@ -167,6 +171,16 @@ class JobClient:
             provider = assignment.model.provider
             if provider.id in self._dead_providers:
                 continue
+            # json_mode is sent only to models whose assignment flags
+            # them capable — a fallback without supports_json_mode
+            # must not receive response_format/response_mime_type.
+            effective_options = dataclasses.replace(
+                options,
+                json_mode=bool(
+                    options.json_mode
+                    and assignment.model.supports_json_mode
+                ),
+            )
             for attempt in range(1, provider.max_retries + 2):
                 self._check_caps()
                 try:
@@ -184,7 +198,8 @@ class JobClient:
                 started = time.monotonic()
                 try:
                     response = adapter.generate(
-                        assignment.model.name, rendered, options
+                        assignment.model.name, rendered,
+                        effective_options,
                     )
                 except errors.AIError as e:
                     latency_ms = int(
@@ -200,7 +215,7 @@ class JobClient:
                         template=template,
                         ai_input=ai_input,
                         layout=spec.layout,
-                        options=options,
+                        options=effective_options,
                         prompt_chars=prompt_chars,
                         prompt_sha256=prompt_sha256,
                     )
@@ -230,7 +245,7 @@ class JobClient:
                         template=template,
                         ai_input=ai_input,
                         layout=spec.layout,
-                        options=options,
+                        options=effective_options,
                         prompt_chars=prompt_chars,
                         prompt_sha256=prompt_sha256,
                     )
@@ -250,7 +265,7 @@ class JobClient:
                     template=template,
                     ai_input=ai_input,
                     layout=spec.layout,
-                    options=options,
+                    options=effective_options,
                     prompt_chars=prompt_chars,
                     prompt_sha256=prompt_sha256,
                     served=served,

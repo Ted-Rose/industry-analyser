@@ -14,7 +14,7 @@ New Age & Esoteric Beliefs: Does the text promote concepts like crystal healing,
 
 Occult & Supernatural: Are there references to casting spells, witchcraft, contacting spirits, or occult rituals?
 
-If the text addresses EITHER Mysticism OR Institutional Religion, the value for is_spiritual_theme should be true. If the text addresses neither (e.g., it is about cooking, politics, science, etc.), it should be false.
+If the text addresses EITHER Mysticism OR Institutional Religion, the value for spiritual should be true. If the text addresses neither (e.g., it is about cooking, politics, science, etc.), it should be false.
 
 Your output must be a single, JSON-formatted object with the following keys:
 
