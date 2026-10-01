@@ -8,6 +8,8 @@ is a new layout name. The golden-output tests in test_providers.py pin
 each layout's exact output.
 """
 
+import dataclasses
+
 from ai_providers.types import RenderedPrompt
 
 
@@ -36,8 +38,13 @@ PROMPT_LAYOUTS = {
 }
 
 
-def render_prompt(template_text, input_text, layout='inline_v1'):
-    """Assemble a RenderedPrompt for the named immutable layout."""
+def render_prompt(template_text, input_text, layout='inline_v1',
+                  images=()):
+    """Assemble a RenderedPrompt for the named immutable layout.
+
+    ``images`` (ImagePart sequence) is attached to the result
+    untouched — layouts only govern the text parts.
+    """
     try:
         renderer = PROMPT_LAYOUTS[layout]
     except KeyError:
@@ -45,4 +52,7 @@ def render_prompt(template_text, input_text, layout='inline_v1'):
         raise ValueError(
             f'Unknown prompt layout {layout!r}; expected one of: {known}'
         ) from None
-    return renderer(template_text, input_text)
+    rendered = renderer(template_text, input_text)
+    if images:
+        rendered = dataclasses.replace(rendered, images=tuple(images))
+    return rendered

@@ -12,17 +12,26 @@ class GenerationOptions:
 
 
 @dataclass(frozen=True)
+class ImagePart:
+    """Binary prompt content (image/PDF) for multimodal models."""
+    data: bytes
+    mime_type: str           # e.g. 'image/png', 'application/pdf'
+
+
+@dataclass(frozen=True)
 class PromptSpec:
     template_key: str        # e.g. 'blogs.theme.violence'
     template_text: str       # trusted instructions
     input_text: str          # untrusted content (article, ad, ...)
     layout: str = 'inline_v1'
+    images: tuple[ImagePart, ...] = ()
 
 
 @dataclass(frozen=True)
 class RenderedPrompt:        # what adapters receive
     user: str
     system: str | None = None
+    images: tuple[ImagePart, ...] = ()
 
 
 @dataclass

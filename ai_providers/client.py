@@ -157,11 +157,22 @@ class JobClient:
                 f'{self.job.pk}/change/.'
             )
         rendered = render_prompt(
-            spec.template_text, spec.input_text, spec.layout
+            spec.template_text, spec.input_text, spec.layout,
+            images=spec.images,
         )
         prompt_chars = len(rendered.user or '') + len(
             rendered.system or ''
         )
+        # Image bytes are never stored — digests land on
+        # AIRequest.options['images'] for provenance.
+        images_meta = [
+            {
+                'sha256': hashlib.sha256(image.data).hexdigest(),
+                'mime_type': image.mime_type,
+                'bytes': len(image.data),
+            }
+            for image in spec.images
+        ] or None
         prompt_sha256 = rendered_prompt_sha256(
             rendered.system, rendered.user
         )
@@ -216,6 +227,7 @@ class JobClient:
                         ai_input=ai_input,
                         layout=spec.layout,
                         options=effective_options,
+                        images_meta=images_meta,
                         prompt_chars=prompt_chars,
                         prompt_sha256=prompt_sha256,
                     )
@@ -246,6 +258,7 @@ class JobClient:
                         ai_input=ai_input,
                         layout=spec.layout,
                         options=effective_options,
+                        images_meta=images_meta,
                         prompt_chars=prompt_chars,
                         prompt_sha256=prompt_sha256,
                     )
@@ -266,6 +279,7 @@ class JobClient:
                     ai_input=ai_input,
                     layout=spec.layout,
                     options=effective_options,
+                    images_meta=images_meta,
                     prompt_chars=prompt_chars,
                     prompt_sha256=prompt_sha256,
                     served=served,
@@ -452,10 +466,13 @@ class JobClient:
     def _write_request(self, *, assignment, attempt, status, response,
                        error, latency_ms, template, ai_input, layout,
                        options, prompt_chars, prompt_sha256,
-                       served=None):
+                       images_meta=None, served=None):
         """Persist one AIRequest row for the attempt just sent."""
         provider = assignment.model.provider
         api_key = getattr(settings, provider.api_key_setting, '')
+        options_dict = dataclasses.asdict(options)
+        if images_meta:
+            options_dict['images'] = images_meta
         row = AIRequest(
             job=self.job,
             role=assignment.role,
@@ -467,7 +484,7 @@ class JobClient:
             prompt_template=template,
             input=ai_input,
             prompt_layout=layout,
-            options=dataclasses.asdict(options),
+            options=options_dict,
             prompt_chars=prompt_chars,
             prompt_sha256=prompt_sha256,
         )
