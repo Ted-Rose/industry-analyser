@@ -70,16 +70,26 @@ jobs:
           echo "Found ${TAG_COUNT} tagged image(s) in registry"
           echo ""
           
-          # Keep every tag on the newest digest — a single push tags
-          # the same image as latest/master/<sha>, so deleting tags
-          # without checking the digest removes the live image.
-          # Only tags on older digests are removed.
-          KEPT_DIGEST=$(echo "$TAGS" | head -n 1 | cut -f2)
-          TAGS_TO_DELETE=$(echo "$TAGS" | awk -v keep="$KEPT_DIGEST" \
-            '$2 != keep')
+          # Keep every tag on the digests 'latest' and 'web-latest'
+          # point at — both deploys push those plus per-sha tags on the
+          # same image, and jobs/services may still reference the sha
+          # tags. UPDATE_TIME ordering is not reliable for "newest", so
+          # anchor on the moving tags instead of sort order.
+          KEPT_DIGESTS=$(echo "$TAGS" | awk \
+            '$1 == "latest" || $1 == "web-latest" {print $2}')
+          
+          if [ -z "$KEPT_DIGESTS" ]; then
+            echo "ℹ️  No latest/web-latest tag found — nothing to clean"
+            exit 0
+          fi
+          
+          TAGS_TO_DELETE=$(echo "$TAGS" | awk -v keeps="$KEPT_DIGESTS" '
+            BEGIN { n = split(keeps, a, "\n")
+                    for (i = 1; i <= n; i++) keep[a[i]] = 1 }
+            !($2 in keep)')
           
           if [ -z "$TAGS_TO_DELETE" ]; then
-            echo "✅ Only 1 tagged image exists. Nothing to clean up."
+            echo "✅ No tags on older digests. Nothing to clean up."
             echo ""
             echo "Current tagged images:"
             gcloud artifacts docker tags list \
@@ -110,11 +120,7 @@ jobs:
                 FAILED=$((FAILED + 1))
               else
                 echo "✅ Successfully deleted tag ${tag}"
-                # Newest push shares one digest across its tags —
-                # deleting it would kill the kept tag's image too
-                if [ "$version" != "$KEPT_DIGEST" ]; then
-                  DELETED_DIGESTS+=("$version")
-                fi
+                DELETED_DIGESTS+=("$version")
               fi
               echo ""
             fi
