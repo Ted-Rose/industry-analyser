@@ -3,7 +3,9 @@ name: Run database migrations
 on:
   workflow_run:
     workflows:
-      - "Deploy scraper jobs (Artifact Registry + Cloud Run)"
+      # '+' is a glob metachar in on.workflow_run.workflows matching;
+      # it must be escaped or the pattern never matches the upstream name
+      - 'Deploy scraper jobs (Artifact Registry \+ Cloud Run)'
     types:
       - completed
     branches:
