@@ -109,6 +109,7 @@ INSTALLED_APPS = [
     'blogs',
     'classified_ads',
     'ai_providers',
+    'scrape_jobs',
 ]
 
 MIDDLEWARE = [
@@ -307,6 +308,11 @@ LOGGING = {
             'propagate': True,
         },
         'ai_providers': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'scrape_jobs': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,

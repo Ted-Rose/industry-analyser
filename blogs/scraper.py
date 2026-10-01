@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from django.conf import settings
 from django.db.models import Count, Q
-from core_scraper.base import BaseScraper
+from core_scraper.base import BaseScraper, _UNSET
 from ai_providers.client import get_job_client
 from ai_providers.jobs import ensure_job
 from ai_providers.models import AIJob
@@ -20,10 +20,17 @@ logger = logging.getLogger('blogs')
 class BlogScraper(BaseScraper):
     """A scraper for fetching blog posts."""
 
+    # Class-level defaults so instances built via __new__ (tests
+    # bypassing __init__) are safe to drive.
+    runner = None
+    dry_run = False
+
     def __init__(self, target_theme=None, reanalyze=False,
-                 max_api_requests=None):
+                 max_api_requests=None, runner=None, dry_run=False):
         """Initializes the scraper and loads its configuration."""
         super().__init__()
+        self.runner = runner
+        self.dry_run = dry_run
         self.config = self.load_config()
         self.enrich_search_results = True
         self.validate_result = False
@@ -85,11 +92,35 @@ class BlogScraper(BaseScraper):
         return self.ai_client.request_count
 
     def run(self):
-        """Override run to handle API request limit."""
+        """Override run to handle the API request limit.
+
+        Drives get_search_urls() as an explicit iterator like
+        BaseScraper.run() so a scrape_portal() failure is thrown back
+        into the generator at its suspended yield — the per-item
+        try/except there records it on the runner and resumes with
+        the next listing. MaxAPIRequestsReached stays fatal.
+        """
         try:
-            for search_url in self.get_search_urls():
-                # TODO: Blog scrapper will return empty list - fix logic gap
-                self.scrape_portal(search_url)
+            urls = iter(self.get_search_urls())
+            pending_url = _UNSET
+            while True:
+                if pending_url is _UNSET:
+                    try:
+                        search_url = next(urls)
+                    except StopIteration:
+                        break
+                else:
+                    search_url, pending_url = pending_url, _UNSET
+                try:
+                    # TODO: Blog scrapper will return empty list -
+                    # fix logic gap
+                    self.scrape_portal(search_url)
+                except Exception as e:
+                    try:
+                        pending_url = urls.throw(e)
+                    except StopIteration:
+                        break
+                    continue
         except MaxAPIRequestsReached:
             # TODO: Investigate if can taken to base scraper
             logger.warning(
@@ -102,6 +133,12 @@ class BlogScraper(BaseScraper):
                 f"  - Skipped: {self.pages_skipped}\n"
                 "="*60
             )
+            # The cap-stop leaves items unprocessed — the run must
+            # end PARTIAL so they stay pending for the next run in
+            # this cycle.
+            runner = getattr(self, 'runner', None)
+            if runner is not None:
+                runner.mark_partial()
         return
 
     def load_config(self):
@@ -119,10 +156,28 @@ class BlogScraper(BaseScraper):
         - Simple: ["url1", "url2"]
         - Advanced: [{"url": "url1", "use_cheap_tier": true}, ...]
         Stops after max_pages per URL or when no next link is found.
+
+        With a ScrapeJobRunner attached, each listing URL is one
+        checkpointed item: a failure thrown back into this generator
+        marks the item failed and iteration moves to the next
+        listing; MaxAPIRequestsReached stays fatal (run() catches it
+        and marks the run PARTIAL).
         """
+        runner = getattr(self, 'runner', None)
         listing_urls = self.config['blog_listing_urls']
 
-        for listing_url_config in listing_urls:
+        if runner is None:
+            configs = list(listing_urls)
+        else:
+            entries = [
+                (cfg['url'], cfg['url'], -position, cfg)
+                for position, cfg in enumerate(listing_urls)
+            ]
+            configs = runner.pending_items(runner.sync_items(entries))
+
+        for entry in configs:
+            item = entry if runner is not None else None
+            listing_url_config = entry if item is None else item.obj
             listing_url = listing_url_config['url']
             self.current_url_use_cheap_tier = listing_url_config.get(
                 'use_cheap_tier', True
@@ -134,32 +189,46 @@ class BlogScraper(BaseScraper):
             current_url = listing_url
             pages_scraped = 0
 
-            while current_url and pages_scraped < self.max_pages:
-                logger.info(
-                    f"Scraping page {pages_scraped + 1}/"
-                    f"{self.max_pages}: {current_url}"
-                )
-                yield current_url
-
-                response = self.make_request(current_url)
-                if not response:
-                    break
-
-                next_url = self.extract_next_page_url(response)
-                if not next_url:
+            try:
+                while current_url and pages_scraped < self.max_pages:
                     logger.info(
-                        f"No more pages for {listing_url}"
+                        f"Scraping page {pages_scraped + 1}/"
+                        f"{self.max_pages}: {current_url}"
                     )
-                    break
+                    yield current_url
+                    if runner is not None:
+                        runner.touch()
 
-                current_url = next_url
-                pages_scraped += 1
+                    response = self.make_request(current_url)
+                    if not response:
+                        break
+
+                    next_url = self.extract_next_page_url(response)
+                    if not next_url:
+                        logger.info(
+                            f"No more pages for {listing_url}"
+                        )
+                        break
+
+                    current_url = next_url
+                    pages_scraped += 1
+            except MaxAPIRequestsReached:
+                # The AI spend cap aborts the whole run — never just
+                # a failed item.
+                raise
+            except Exception as e:
+                if runner is None:
+                    raise
+                runner.item_failed(item, e)
+                continue
 
             if pages_scraped >= self.max_pages:
                 logger.info(
                     f"Reached max pages limit ({self.max_pages}) "
                     f"for {listing_url}"
                 )
+            if runner is not None:
+                runner.item_done(item)
 
     def extract_next_page_url(self, response):
         """
@@ -408,6 +477,15 @@ class BlogScraper(BaseScraper):
 
     def analyse_and_save_resource(self, http_response, url):
         """Analyzes a page against missing themes and saves the results."""
+        if self.dry_run:
+            # Fetch + extract only: no Page/PageAnalysis writes and
+            # no AI calls.
+            page_data = self.extract_resource(url, http_response)
+            logger.info(
+                "[dry-run] extracted page %s: %s",
+                url, page_data.get('title')
+            )
+            return None
         page_data = self.extract_resource(url, http_response)
 
         # 1. Get or create the Page

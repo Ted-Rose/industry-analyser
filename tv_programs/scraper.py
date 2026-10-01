@@ -19,7 +19,11 @@ class TVProgramScraper(BaseScraper):
     classification (no IMDb; see TV_CONTENT_IDENTIFICATION_PLAN.md).
     """
 
-    def __init__(self, config=None):
+    # Class-level defaults so instances built without __init__ are safe.
+    runner = None
+    dry_run = False
+
+    def __init__(self, config=None, runner=None, dry_run=False):
         self.validate_result = True
         self.enrich_search_results = True
         self.channels = {
@@ -29,6 +33,8 @@ class TVProgramScraper(BaseScraper):
         }
         self.current_channel = None
         self.current_start_time = None
+        self.runner = runner
+        self.dry_run = dry_run
         super().__init__(config)
         # BaseScraper appends here when enrich_result returns a falsy value
         self.excluded_resources = []
@@ -41,19 +47,57 @@ class TVProgramScraper(BaseScraper):
             "&date={date_string}&channel={channel_id}"
         )
 
-        for _day in day_range:
-            date = start_date + timedelta(days=_day)
+        runner = getattr(self, 'runner', None)
+        if runner is None:
+            for _day in day_range:
+                date = start_date + timedelta(days=_day)
+                for channel_name in self.channels:
+                    yield self._channel_day_url(
+                        base_url, channel_name, date
+                    )
+            return
+
+        # Runner path: each channel x date cell is one checkpointed
+        # item; oldest dates get the highest priority.
+        entries = []
+        for day_index in day_range:
+            date = start_date + timedelta(days=day_index)
+            date_str = date.strftime("%Y-%m-%d")
             for channel_name in self.channels:
-                self.current_channel, _ = Channel.objects.get_or_create(
-                    name=channel_name
-                )
-                self.current_start_time = date
-                url = base_url.format(
-                    date_string=date.strftime("%Y-%m-%d"),
-                    channel_id=channel_name,
-                )
-                yield url
-        return
+                entries.append((
+                    f"{channel_name}:{date_str}",
+                    f"{channel_name} {date_str}",
+                    -day_index,
+                    (channel_name, date),
+                ))
+        items = runner.sync_items(entries)
+        for item in runner.pending_items(items):
+            channel_name, date = item.obj
+            try:
+                yield self._channel_day_url(base_url, channel_name, date)
+                runner.touch()
+            except Exception as e:
+                runner.item_failed(item, e)
+                continue
+            runner.item_done(item)
+
+    def _channel_day_url(self, base_url, channel_name, date):
+        """Set current_channel/current_start_time for a channel x date
+        cell and build its listing URL."""
+        if self.dry_run:
+            self.current_channel = (
+                Channel.objects.filter(name=channel_name).first()
+                or Channel(name=channel_name)
+            )
+        else:
+            self.current_channel, _ = Channel.objects.get_or_create(
+                name=channel_name
+            )
+        self.current_start_time = date
+        return base_url.format(
+            date_string=date.strftime("%Y-%m-%d"),
+            channel_id=channel_name,
+        )
 
     def get_days(self):
         days_in_past = self.config.get("days_in_past", 7)
@@ -241,6 +285,12 @@ class TVProgramScraper(BaseScraper):
     def create_or_update_resources(self, resources: list[Program]):
         """Bulk creates program resources."""
         if not resources:
+            return
+        if self.dry_run:
+            logger.info(
+                "[dry-run] would bulk-create %d program(s)",
+                len(resources),
+            )
             return
         # TODO: This won't update existing resources, only create new ones
         Program.objects.bulk_create(resources)

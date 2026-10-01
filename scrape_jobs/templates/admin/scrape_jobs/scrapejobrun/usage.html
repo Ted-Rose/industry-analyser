@@ -1,0 +1,79 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a> &rsaquo;
+  <a href="{% url 'admin:app_list' app_label='scrape_jobs' %}">Scrape jobs</a> &rsaquo;
+  <a href="{% url 'admin:scrape_jobs_scrapejobrun_changelist' %}">Scrape job runs</a> &rsaquo;
+  {% translate 'Usage' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>{% translate 'Scrape run usage' %}</h1>
+
+<form method="get" style="margin-bottom: 1em;">
+  <label for="id_from">{% translate 'From' %}</label>
+  <input type="date" id="id_from" name="from"
+         value="{{ date_from|date:'Y-m-d' }}">
+  <label for="id_to">{% translate 'To' %}</label>
+  <input type="date" id="id_to" name="to"
+         value="{{ date_to|date:'Y-m-d' }}">
+  <button type="submit" class="button">{% translate 'Filter' %}</button>
+</form>
+
+<p>
+  <strong>{% translate 'Totals:' %}</strong>
+  {{ totals.run_count }} {% translate 'runs' %}
+  ({{ totals.success_count }} {% translate 'success' %},
+  {{ totals.partial_count }} {% translate 'partial' %},
+  {{ totals.failed_count }} {% translate 'failed' %},
+  {{ totals.abandoned_count }} {% translate 'abandoned' %})
+  {% if totals.avg_duration %}
+    &middot; {% translate 'avg duration' %} {{ totals.avg_duration }}
+  {% endif %}
+  <br>
+  <strong>{% translate 'Items:' %}</strong>
+  {{ items.items_done }} {% translate 'done' %},
+  {{ items.items_failed }} {% translate 'failed' %},
+  {{ items.items_skipped }} {% translate 'skipped' %}
+</p>
+
+<table style="width: auto; min-width: 60%;">
+  <thead>
+    <tr>
+      <th>{% translate 'Day (UTC)' %}</th>
+      <th>{% translate 'Job' %}</th>
+      <th>{% translate 'Runs' %}</th>
+      <th>{% translate 'Success' %}</th>
+      <th>{% translate 'Partial' %}</th>
+      <th>{% translate 'Failed' %}</th>
+      <th>{% translate 'Abandoned' %}</th>
+      <th>{% translate 'Avg duration' %}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr class="{% cycle 'row1' 'row2' %}">
+      <td>{{ row.day }}</td>
+      <td>{{ row.job__slug }}</td>
+      <td>{{ row.run_count }}</td>
+      <td>{{ row.success_count }}</td>
+      <td>{{ row.partial_count }}</td>
+      <td>{{ row.failed_count }}</td>
+      <td>{{ row.abandoned_count }}</td>
+      <td>
+        {% if row.avg_duration is not None %}
+          {{ row.avg_duration }}
+        {% else %}
+          &mdash;
+        {% endif %}
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="8">{% translate 'No runs in this range.' %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
