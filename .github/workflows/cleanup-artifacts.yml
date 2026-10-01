@@ -65,8 +65,13 @@ jobs:
           echo "Found ${TAG_COUNT} tagged image(s) in registry"
           echo ""
           
-          # Keep first tag (most recent), delete rest
-          TAGS_TO_DELETE=$(echo "$TAGS" | tail -n +2)
+          # Keep every tag on the newest digest — a single push tags
+          # the same image as latest/master/<sha>, so deleting tags
+          # without checking the digest removes the live image.
+          # Only tags on older digests are removed.
+          KEPT_DIGEST=$(echo "$TAGS" | head -n 1 | cut -f2)
+          TAGS_TO_DELETE=$(echo "$TAGS" | awk -v keep="$KEPT_DIGEST" \
+            '$2 != keep')
           
           if [ -z "$TAGS_TO_DELETE" ]; then
             echo "✅ Only 1 tagged image exists. Nothing to clean up."
@@ -100,7 +105,11 @@ jobs:
                 FAILED=$((FAILED + 1))
               else
                 echo "✅ Successfully deleted tag ${tag}"
-                DELETED_DIGESTS+=("$version")
+                # Newest push shares one digest across its tags —
+                # deleting it would kill the kept tag's image too
+                if [ "$version" != "$KEPT_DIGEST" ]; then
+                  DELETED_DIGESTS+=("$version")
+                fi
               fi
               echo ""
             fi
