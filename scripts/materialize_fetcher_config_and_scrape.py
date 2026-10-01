@@ -20,10 +20,21 @@ def main() -> int:
             "portals": json.loads(portals),
         }
         OUT.write_text(json.dumps(cfg, indent=4), encoding="utf-8")
-    return subprocess.call(
-        [sys.executable, str(BASE / "manage.py"), "scrape_first_vacancy_portal"],
-        cwd=str(BASE),
-    )
+        portal_ids = sorted(json.loads(portals), key=int)
+    else:
+        portal_ids = ["1"]
+    rc = 0
+    for portal_id in portal_ids:
+        rc |= subprocess.call(
+            [
+                sys.executable,
+                str(BASE / "manage.py"),
+                "scrape_first_vacancy_portal",
+                str(portal_id),
+            ],
+            cwd=str(BASE),
+        )
+    return rc
 
 
 if __name__ == "__main__":

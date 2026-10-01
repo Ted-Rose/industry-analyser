@@ -177,6 +177,31 @@ be a bool, `confidence_score` a 0-1 number and `reasoning_summary` a
 str — anything else is skipped like a failed parse (the synthetic
 BLOCKED result is built internally and bypasses validation).
 
+### PR-10: cv.lv public portal (nextjs) + image-vacancy OCR
+
+`VacancyScrapper` supports a second portal config `type: 'nextjs'`
+(portal `"2"` in `config_v2.json` / `FETCHER_PORTALS_JSON`): the
+public `cv.lv/lv/search` pages are Next.js SSR and embed the same
+vacancy objects as the API inside `<script id="__NEXT_DATA__">` —
+`parse_results` reads `props.pageProps.searchResults.vacancies` and
+offset-paginates via `search_params`/`page_size` in config until
+`total` is covered. `enrich_result` fetches `/lv/vacancy/{id}` for
+new or renewed ads only (`renewedDate` > `Vacancy.detail_fetched_at`),
+merges `details.standardDetails` text into keyword matching, and
+transcribes `details.fileDetails` images/PDFs (fetched from
+`/api/v1/files-service/{fileId}`) through the
+`fetcher.vacancy_image_ocr` AIJobSpec (`fetcher/ai_jobs.py`, role
+`ocr`, prompt `fetcher/prompts/vacancy_ocr.txt`). Extracted text is
+cached once per file on `VacancyFile` (`file_id` unique) — bytes
+are never stored — and feeds the same `_find_keywords_in_content`
+pass; it is not surfaced in the UI.
+
+Multimodal prompts ride the normal JobClient path: `PromptSpec` /
+`RenderedPrompt` carry `images: tuple[ImagePart]`; Gemini sends
+inline `Part.from_bytes` parts, OpenAI-compatible sends `image_url`
+data-URIs, and `AIRequest.options['images']` records each image's
+sha256/mime/bytes for provenance.
+
 ## Commands
 
 ```bash
