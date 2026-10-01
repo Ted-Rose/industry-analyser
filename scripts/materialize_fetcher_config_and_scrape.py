@@ -23,6 +23,12 @@ def main() -> int:
         portal_ids = sorted(json.loads(portals), key=int)
     else:
         portal_ids = ["1"]
+    only = sys.argv[1] if len(sys.argv) > 1 else None
+    if only is not None:
+        portal_ids = [p for p in portal_ids if p == only]
+        if not portal_ids:
+            print(f"portal {only} not configured", file=sys.stderr)
+            return 2
     rc = 0
     for portal_id in portal_ids:
         rc |= subprocess.call(
