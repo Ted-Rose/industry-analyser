@@ -23,8 +23,11 @@ OCR_CONTENT_TYPES = ('image/', 'application/pdf')
 
 
 class VacancyScrapper(BaseScraper):
-    def __init__(self, portal_id=1):
+    def __init__(self, portal_id=1, runner=None, dry_run=False):
         super().__init__()
+        self.runner = runner
+        self.dry_run = dry_run
+        self.portal_id = portal_id
         self.config = self.load_config(portal_id)
         self.keywords = Keyword.objects
         self.industries = Industry.objects
@@ -52,16 +55,58 @@ class VacancyScrapper(BaseScraper):
 
     def get_search_urls(self):
         if self.config.get('type') == 'nextjs':
+            yield from self._nextjs_search_urls()
+            return
+        yield from self._keyword_search_urls()
+
+    def _keyword_search_urls(self):
+        """API portals: one search URL (and one checkpoint item)
+        per keyword."""
+        base_url = self.config['base_url'] + self.config['search_href']
+        keywords = self.keywords.filter(
+            only_filter=False
+        ).order_by('id')
+        if self.runner is None:
+            for keyword in keywords:
+                yield (
+                    base_url
+                    + f"?limit=1000&keywords[]={keyword.name}"
+                )
+            return
+        items = self.runner.sync_items(
+            (k.name, k.name, 0, k.name) for k in keywords
+        )
+        for item in self.runner.pending_items(items):
+            try:
+                yield (
+                    base_url
+                    + f"?limit=1000&keywords[]={item.obj}"
+                )
+                self.runner.touch()
+            except Exception as e:
+                self.runner.item_failed(item, e)
+                continue
+            self.runner.item_done(item)
+
+    def _nextjs_search_urls(self):
+        """Next.js portals: the whole offset-paginated sweep is
+        one checkpoint item."""
+        if self.runner is None:
             yield from self._get_nextjs_search_urls()
             return
-        keywords = self.keywords.filter(only_filter=False).values('name')
-        keywords = [keyword['name'] for keyword in keywords]
-
         base_url = self.config['base_url'] + self.config['search_href']
-        for keyword in keywords:
-            url = base_url + f"?limit=1000&keywords[]={keyword}"
-            yield url
-        return
+        items = self.runner.sync_items(
+            [('search', base_url, 0, None)]
+        )
+        for item in self.runner.pending_items(items):
+            try:
+                for url in self._get_nextjs_search_urls():
+                    yield url
+                    self.runner.touch()
+            except Exception as e:
+                self.runner.item_failed(item, e)
+                continue
+            self.runner.item_done(item)
 
     def _get_nextjs_search_urls(self):
         """Public portal search pages (server-rendered Next.js).
@@ -500,7 +545,8 @@ class VacancyScrapper(BaseScraper):
                     existing.title = vacancy.title
                 if not existing.company_name and vacancy.company_name:
                     existing.company_name = vacancy.company_name
-                existing.save()
+                if not self.dry_run:
+                    existing.save()
                 # Transfer pending M2M data to existing instance
                 existing._pending_industries = (
                     vacancy._pending_industries
@@ -512,6 +558,15 @@ class VacancyScrapper(BaseScraper):
                 vacancies_to_update_m2m.append(existing)
             else:
                 new_vacancies.append(vacancy)
+
+        if self.dry_run:
+            logger.info(
+                f"[dry-run] Would create {len(new_vacancies)} "
+                f"new vacancies and update "
+                f"{len(vacancies_to_update_m2m)} existing "
+                f"— no vacancy/file writes."
+            )
+            return
 
         if new_vacancies:
             Vacancy.objects.bulk_create(new_vacancies)
