@@ -28,6 +28,7 @@ from ai_providers.providers.openai_compat import (
 from ai_providers.types import (
     AIResponse,
     GenerationOptions,
+    ImagePart,
     PromptSpec,
     RenderedPrompt,
 )
@@ -263,6 +264,22 @@ class GeminiProviderTest(SimpleTestCase):
         )
         resp = self.generate()
         self.assertEqual(resp.served_model, 'gemini-2.5-flash-lite')
+
+    def test_build_contents_text_only_returns_user_str(self):
+        contents = GeminiProvider._build_contents(
+            RenderedPrompt(user='U')
+        )
+        self.assertEqual(contents, 'U')
+
+    def test_build_contents_with_image_is_parts_then_text(self):
+        prompt = RenderedPrompt(
+            user='U',
+            images=(ImagePart(data=b'IMG', mime_type='image/png'),),
+        )
+        contents = GeminiProvider._build_contents(prompt)
+        self.assertIsInstance(contents, list)
+        self.assertIsInstance(contents[0], genai_types.Part)
+        self.assertEqual(contents[-1], 'U')
 
     def test_system_json_mode_and_sampling_passed_through(self):
         self.client.models.generate_content.return_value = (

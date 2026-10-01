@@ -7,6 +7,7 @@ is patched to a no-op so backoff/throttle never delay the tests.
 """
 
 import dataclasses
+import hashlib
 import types as py_types
 from decimal import Decimal
 from unittest import mock
@@ -33,7 +34,12 @@ from ai_providers.models import (
 from ai_providers.prompts import render_prompt
 from ai_providers.providers import PROVIDER_CLASSES
 from ai_providers.providers.base import BaseAIProvider
-from ai_providers.types import AIResponse, GenerationOptions, PromptSpec
+from ai_providers.types import (
+    AIResponse,
+    GenerationOptions,
+    ImagePart,
+    PromptSpec,
+)
 
 API_KEY = 'TESTKEY-do-not-leak-123'
 
@@ -418,6 +424,40 @@ class GenerateTests(JobClientTestCase):
         # A new client sees the change.
         with self.assertRaises(errors.AIJobNotConfiguredError):
             JobClient(self.job).generate(prompt(), 'cheap')
+
+    def test_images_reach_adapter_and_logged_as_options_meta(self):
+        """PromptSpec.images flows through render_prompt to the
+        adapter unchanged; AIRequest.options records per-image
+        sha256/mime_type/bytes (never the bytes themselves) while
+        prompt_sha256 still covers only the text parts."""
+        image = ImagePart(data=b'PNGDATA', mime_type='image/png')
+        spec = PromptSpec(
+            template_key='test.template',
+            template_text='instructions',
+            input_text='some input',
+            layout='inline_v1',
+            images=(image,),
+        )
+        result = self.job_client().generate(spec, 'cheap')
+        self.assertEqual(result.status, 'success')
+        seen = FakeGemini.calls[0]['prompt'].images
+        self.assertEqual(seen, (image,))
+        images_meta = result.ai_request.options['images']
+        self.assertEqual(len(images_meta), 1)
+        self.assertEqual(images_meta[0]['mime_type'], 'image/png')
+        self.assertEqual(images_meta[0]['bytes'], 7)
+        self.assertEqual(
+            images_meta[0]['sha256'],
+            hashlib.sha256(b'PNGDATA').hexdigest(),
+        )
+        self.assertNotIn('PNGDATA', str(result.ai_request.options))
+        expected = render_prompt(
+            'instructions', 'some input', 'inline_v1'
+        )
+        self.assertEqual(
+            result.ai_request.prompt_sha256,
+            rendered_prompt_sha256(expected.system, expected.user),
+        )
 
 
 class CapTests(JobClientTestCase):

@@ -144,6 +144,8 @@ class VacancyScrapper(BaseScraper):
         — the search payload alone already carries everything the
         Vacancy model needs.
         """
+        if self.config.get('type') != 'nextjs':
+            return super().enrich_result(result)
         if not self._needs_detail_fetch(result):
             return result
         info_link = self.get_resource_info_link(result)
@@ -177,7 +179,7 @@ class VacancyScrapper(BaseScraper):
         vacancy_portal_id = result.get('id')
         if vacancy_portal_id is None:
             return False
-        fetched_at = self._detail_fetched_map().get(
+        fetched_at = self._get_detail_fetched_map().get(
             vacancy_portal_id
         )
         if fetched_at is None:
@@ -189,7 +191,7 @@ class VacancyScrapper(BaseScraper):
         )
         return renewed is None or renewed > fetched_at
 
-    def _detail_fetched_map(self):
+    def _get_detail_fetched_map(self):
         """{vacancy_portal_id: detail_fetched_at}, built lazily."""
         if self._detail_fetched_map is None:
             self._detail_fetched_map = dict(
