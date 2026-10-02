@@ -132,7 +132,14 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:${GITHUB_SHA}"
+          # Jobs must point at the moving `latest` tag, not ${GITHUB_SHA}:
+          # sha tags are deleted by the AR cleanup policy (24h) and by
+          # cleanup-artifacts.yml, so a job pinned to a sha tag ends up
+          # referencing a dead image — updates fail with "Image not found"
+          # and scheduled executions break. `latest` shares the sha tag's
+          # digest, so the pushed image is identical; the sha tag push above
+          # remains for auditability.
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/industry-analyser:latest"
 
           # Helper function to update job only if it exists
           update_job_if_exists() {
