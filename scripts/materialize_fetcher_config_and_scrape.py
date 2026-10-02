@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cloud Run / local: build fetcher/config_v2.json from env then run vacancy scraper."""
+"""Cloud Run / local: build fetcher/config_v2.json from env, scrape."""
 import json
 import os
 import pathlib
