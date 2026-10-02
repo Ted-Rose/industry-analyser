@@ -16,7 +16,8 @@ Start with `DOCUMENTATION_INDEX.md` for the full doc map,
 | `blogs/` | Blog pages + Gemini AI theme analysis | spoki.lv |
 | `tv_programs/` | TV schedule + heuristic movie classification; `/tv/` UI | tet.lv |
 | `core_scraper/` | Shared `BaseScraper` ABC and `BaseRefetchCommand` ABC | — |
-| `accounts/` | Stub app | — |
+| `accounts/` | Retired stub — `/accounts/` 301-redirects to `/` | — |
+| `scrape_jobs/` | Scrape-job bookkeeping (ScrapeJob/Run/RunItem); `/` dashboard SPA + `/api/dashboard/` | — |
 | `industry_analyser/` | Django project (settings, root urls, wsgi/asgi) | — |
 | `terraform/` | GCP infra: Cloud Run jobs/service, Scheduler, Secret Manager | — |
 | `scripts/` | One-off data-fix and job-entrypoint scripts | — |

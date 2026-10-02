@@ -1,0 +1,153 @@
+/* Ported from the <style> block of the retired
+   scrape_jobs/dashboard.html — the same compact table look on top
+   of the Bootstrap 5 loaded by spa_shell.html. The template's
+   `.container` is renamed `.dash-panel` so it can't collide with
+   Bootstrap's own .container. */
+
+body {
+  background: #f5f5f5;
+}
+
+.dash-panel {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+  max-width: 1000px;
+  margin: 40px auto;
+  padding: 30px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.dash-panel h1 {
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.dash-panel h2 {
+  color: #333;
+  font-size: 18px;
+  margin-top: 30px;
+}
+
+.dash-panel .subtitle {
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.dash-panel .top-nav {
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.dash-panel .top-nav a {
+  color: #0066cc;
+  text-decoration: none;
+  margin-right: 14px;
+}
+
+.dash-panel .top-nav a:hover {
+  text-decoration: underline;
+}
+
+.dash-panel table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 14px;
+}
+
+.dash-panel th,
+.dash-panel td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e0e0e0;
+  white-space: nowrap;
+}
+
+.dash-panel th {
+  color: #555;
+  font-weight: 600;
+}
+
+.dash-panel td.num,
+.dash-panel th.num {
+  text-align: right;
+}
+
+.dash-panel .job-slug {
+  font-family: monospace;
+}
+
+.dash-panel .muted {
+  color: #999;
+}
+
+.dash-panel .st {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dash-panel .st-RUNNING {
+  background: #e3f0ff;
+  color: #0066cc;
+}
+
+.dash-panel .st-SUCCESS {
+  background: #e6f4ea;
+  color: #1e7e34;
+}
+
+.dash-panel .st-PARTIAL {
+  background: #fff3cd;
+  color: #8a6d00;
+}
+
+.dash-panel .st-FAILED {
+  background: #fdecea;
+  color: #b71c1c;
+}
+
+.dash-panel .st-ABANDONED {
+  background: #ececec;
+  color: #666;
+}
+
+.dash-panel .progress-bar {
+  display: inline-block;
+  width: 90px;
+  height: 8px;
+  background: #eee;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+.dash-panel .progress-bar > span {
+  display: block;
+  height: 100%;
+  background: #0066cc;
+  border-radius: 4px;
+}
+
+.dash-panel .filter-form {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.dash-panel .filter-form input {
+  padding: 4px 6px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.dash-panel .filter-form button {
+  padding: 5px 14px;
+  background: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}

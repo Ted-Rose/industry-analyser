@@ -344,6 +344,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dashboard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Dashboard
+         * @description Dashboard payload — mirrors the retired dashboard view's GET
+         *     logic verbatim (defaults fill in when a bound is absent).
+         */
+        get: operations["scrape_jobs_api_dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1119,6 +1140,126 @@ export interface components {
             /** Ad Rows */
             ad_rows: components["schemas"]["LinkedAdOut"][];
         };
+        /**
+         * DashboardOut
+         * @description The whole dashboard page payload — one fat GET per the
+         *     rewrite plan (jobs table + daily table + filter echo).
+         */
+        DashboardOut: {
+            /** Jobs */
+            jobs: components["schemas"]["JobRowOut"][];
+            /** Rows */
+            rows: components["schemas"]["DayRowOut"][];
+            totals: components["schemas"]["RunTotalsOut"];
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+        };
+        /**
+         * DayRowOut
+         * @description One day x job row — a dict from usage.runs_by_day().
+         */
+        DayRowOut: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Job Slug */
+            job_slug: string;
+            /** Run Count */
+            run_count: number;
+            /** Success Count */
+            success_count: number;
+            /** Partial Count */
+            partial_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Abandoned Count */
+            abandoned_count: number;
+            /** Avg Duration Seconds */
+            avg_duration_seconds: number | null;
+        };
+        /**
+         * JobRefOut
+         * @description The ScrapeJob slice a jobs-table row needs.
+         */
+        JobRefOut: {
+            /** Slug */
+            slug: string;
+            /** Description */
+            description: string;
+            /** Is Enabled */
+            is_enabled: boolean;
+        };
+        /**
+         * JobRowOut
+         * @description One jobs-table row — a dict from usage.job_overview().
+         */
+        JobRowOut: {
+            job: components["schemas"]["JobRefOut"];
+            /** Cycle Key */
+            cycle_key: string | null;
+            /** Item Total */
+            item_total: number;
+            /** Item Active */
+            item_active: number;
+            /** Cycle Done */
+            cycle_done: number;
+            /** Cycle Failed */
+            cycle_failed: number;
+            /** Progress Pct */
+            progress_pct: number | null;
+            /** Running */
+            running: boolean;
+            last_run: components["schemas"]["LastRunOut"] | null;
+        };
+        /**
+         * LastRunOut
+         * @description A job's most recent run — the status/last-run/duration cells.
+         */
+        LastRunOut: {
+            /** Id */
+            id: number;
+            /** Status */
+            status: string;
+            /** Executed By */
+            executed_by: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Completed At */
+            completed_at: string | null;
+            /** Duration Seconds */
+            duration_seconds: number | null;
+        };
+        /**
+         * RunTotalsOut
+         * @description The daily-runs subtitle totals — a usage.run_totals() dict.
+         */
+        RunTotalsOut: {
+            /** Run Count */
+            run_count: number;
+            /** Success Count */
+            success_count: number;
+            /** Partial Count */
+            partial_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Abandoned Count */
+            abandoned_count: number;
+            /** Avg Duration Seconds */
+            avg_duration_seconds: number | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1522,6 +1663,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PropertyDetailOut"];
+                };
+            };
+        };
+    };
+    scrape_jobs_api_dashboard: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardOut"];
                 };
             };
         };
