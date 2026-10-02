@@ -63,6 +63,10 @@ def error_slug(status_code):
 # root, so /api/dashboard/... 401s must send the user back to '/', not
 # '/dashboard/'.
 SPA_BASES = {'dashboard': '/'}
+# Dormant trap: the vacancies SPA also owns /companies/*, so an authed
+# op under /api/vacancies/companies/* would rewrite to the nonexistent
+# /vacancies/companies/… — add a sub-path mapping here if such an
+# endpoint ever appears (all company reads are public today).
 
 
 def spa_url_for(request):
@@ -73,6 +77,19 @@ def spa_url_for(request):
     path = request.path
     prefix = '/api/'
     if path.startswith(prefix):
+        # One endpoint serves both kinds (via ?kind= or the POST
+        # body); the SPA splits it into per-kind routes, and the
+        # mechanical /<app>/<sub> rewrite lands on a path the client
+        # router doesn't know. Carry ?kind= — the client includes it
+        # on the POST too — into the matching page route; the mapped
+        # route itself takes no query params.
+        if path == '/api/classified-ads/regions/config/':
+            kind = request.GET.get('kind')
+            if kind in ('apartment', 'house'):
+                return (
+                    f'/classified-ads/{kind}s/regions/config/'
+                )
+            return '/classified-ads/'
         app, _, sub = path[len(prefix):].partition('/')
         if app in SPA_BASES:
             path = SPA_BASES[app] + sub
@@ -117,7 +134,8 @@ def _on_validation_error(request, exc):
 def _on_http_error(request, exc):
     # `error` is always the machine-readable status slug; `code` adds
     # a more specific catalog key when the endpoint set one
-    # (ApiHttpError). errorDetail() prefers `code` + `params`.
+    # (ApiHttpError). `params` rides along for a future code→message
+    # map — the client's errorDetail() doesn't consume either today.
     body = {
         'error': error_slug(exc.status_code),
         'detail': str(exc),

@@ -11,8 +11,13 @@ import re
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, JsonResponse
+from django.http import (
+    Http404,
+    HttpResponsePermanentRedirect,
+    JsonResponse,
+)
 from django.shortcuts import redirect, render
+from django.urls import is_valid_path
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 
@@ -21,6 +26,38 @@ def chrome_devtools_probe(request):
     integration — an empty object keeps the 404 WARNING noise out of
     the runserver log. Routed only when DEBUG."""
     return JsonResponse({})
+
+
+def terminal_404(request, subpath=''):
+    """Drain for misses under prefixes owned by earlier mounts
+    (/api/, /admin/, /static/), routed just before the root
+    <path:subpath> catch-all.
+
+    Django's resolver catches a Resolver404 raised inside an
+    include()/api.urls mount and keeps iterating — without these
+    patterns a miss like /api/<typo> would fall through to the SPA
+    shell. The drain itself makes an unslashed path "valid" to
+    is_valid_path(), which would suppress CommonMiddleware's
+    APPEND_SLASH redirect — so the view replicates it: when the
+    slashed variant resolves to a real view (not back to this drain),
+    301 there just as the middleware would have.
+    """
+    if (
+        settings.APPEND_SLASH
+        and request.method in ('GET', 'HEAD')
+        and not request.path_info.endswith('/')
+    ):
+        match = is_valid_path(f'{request.path_info}/')
+        if (
+            match
+            and match.func is not terminal_404
+            and getattr(match.func, 'should_append_slash', True)
+        ):
+            target = f'{request.path_info}/'
+            if request.GET:
+                target = f'{target}?{request.GET.urlencode()}'
+            return HttpResponsePermanentRedirect(target)
+    raise Http404
 
 
 # SPA entry names map to folders under frontend/src/ and keys in

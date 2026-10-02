@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchPrograms, type ProgramOut } from '../api';
@@ -68,24 +68,43 @@ export default function ProgramList() {
     showDisliked: searchParams.get('show_disliked') === '1',
   });
 
-  // Re-sync the staged inputs when the URL changes (back/forward)
-  // and fill the server-effective defaults once data arrives —
-  // the template rendered filters.not_content_rating='R' and the
-  // 7-day date window into the form.
+  // Re-sync the staged inputs when the URL changes (back/forward,
+  // Filter submit). On a same-params data update — the initial
+  // resolve or a refetch (e.g. the reaction mutation's invalidate)
+  // — only fill still-empty fields with the server-echoed defaults
+  // (filters.not_content_rating 'R', the 7-day window) so staged
+  // edits are never discarded.
+  const lastSyncKey = useRef<string | null>(null);
   useEffect(() => {
     const p = new URLSearchParams(paramsKey);
-    setDraft({
-      contentRating: p.get('content_rating') ?? '',
-      notContentRating: p.has('not_content_rating')
-        ? (p.get('not_content_rating') ?? '')
-        : (data?.filters.not_content_rating ?? 'R'),
-      ratingValue: p.get('rating_value') ?? '',
-      ratio: p.get('ratio') ?? '',
-      startDate: p.get('start_date') ?? (data?.filters.start_date ?? ''),
-      endDate: p.get('end_date') ?? (data?.filters.end_date ?? ''),
-      channel: p.get('channel') ?? '',
-      excludeChannel: p.get('exclude_channel') ?? '',
-      showDisliked: p.get('show_disliked') === '1',
+    const paramsChanged = lastSyncKey.current !== paramsKey;
+    lastSyncKey.current = paramsKey;
+    setDraft((d) => {
+      if (paramsChanged) {
+        return {
+          contentRating: p.get('content_rating') ?? '',
+          notContentRating: p.has('not_content_rating')
+            ? (p.get('not_content_rating') ?? '')
+            : 'R',
+          ratingValue: p.get('rating_value') ?? '',
+          ratio: p.get('ratio') ?? '',
+          startDate: p.get('start_date') ?? '',
+          endDate: p.get('end_date') ?? '',
+          channel: p.get('channel') ?? '',
+          excludeChannel: p.get('exclude_channel') ?? '',
+          showDisliked: p.get('show_disliked') === '1',
+        };
+      }
+      if (!data) return d;
+      return {
+        ...d,
+        notContentRating:
+          d.notContentRating ||
+          data.filters.not_content_rating ||
+          'R',
+        startDate: d.startDate || data.filters.start_date,
+        endDate: d.endDate || data.filters.end_date,
+      };
     });
   }, [paramsKey, data]);
 
@@ -306,7 +325,10 @@ function ProgramCard({
   const show = program.show;
   const imageSrc =
     program.image_url || show?.image_url || PLACEHOLDER_IMAGE;
-  const imageAlt = show?.title_eng ?? program.title_eng ?? program.title_lv;
+  // `||` not `??`: the template used |default: (falsy), so an empty
+  // string on the linked Show must still fall back.
+  const imageAlt =
+    show?.title_eng || program.title_eng || program.title_lv;
   const matchRatio =
     show && show.title_match_ratio
       ? show.title_match_ratio
@@ -331,7 +353,10 @@ function ProgramCard({
           </span>{' '}
           | <span>Channel: {program.channel_name}</span> |{' '}
           <span>Start Time: {formatStartTime(program.start_time)}</span> |{' '}
-          <span>PG Rating: {show?.pg_rating ?? program.pg_rating}</span> |{' '}
+          <span>
+            PG Rating: {show?.pg_rating || program.pg_rating}
+          </span>{' '}
+          |{' '}
           <span>Match Ratio: {matchRatio.toFixed(2)}</span>
           {imdbHref && (
             <>

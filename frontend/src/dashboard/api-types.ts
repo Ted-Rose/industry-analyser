@@ -105,8 +105,8 @@ export interface paths {
          *     an explicit empty value (?not_content_rating=) disables the
          *     exclusion, like clearing the template input did. `ratio` was a
          *     declared-but-dead input in the template form — it now filters on
-         *     the displayed match ratio (show's, falling back to the
-         *     program's when no Show is linked).
+         *     the displayed match ratio (show's when truthy, falling back to
+         *     the program's like the card's |default-style fallback).
          */
         get: operations["tv_programs_api_list_programs"];
         put?: never;

@@ -96,6 +96,10 @@ export default function RegionConfig({ kind }: { kind: Kind }) {
     );
   };
 
+  // The live numerator counts staged checkboxes (what a save would
+  // enable); total_count is the DB-wide kind count — an enabled
+  // region outside the rendered tree can make them diverge, so the
+  // server's enabled_count is shown alongside when it disagrees.
   const enabledCount = checked.size;
   const totalCount = data?.total_count ?? 0;
 
@@ -121,6 +125,12 @@ export default function RegionConfig({ kind }: { kind: Kind }) {
           <strong>{enabledCount}</strong> of{' '}
           <strong>{totalCount}</strong> {copy.label} regions enabled
           for scraping
+          {data && data.enabled_count !== enabledCount && (
+            <span className="text-muted">
+              {' '}
+              ({data.enabled_count} currently enabled)
+            </span>
+          )}
         </div>
 
         {!user && (

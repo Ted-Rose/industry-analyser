@@ -92,8 +92,9 @@ describe('Dashboard', () => {
     ).toHaveLength(2);
     // Progress bar + done/active text.
     expect(screen.getByText(/2\/4/)).toBeInTheDocument();
-    // Daily table row.
-    expect(screen.getByText('2026-01-05')).toBeInTheDocument();
+    // Daily table row — rendered via DATE_FORMAT like {{ row.day }}
+    // did, not raw ISO.
+    expect(screen.getByText('Jan. 5, 2026')).toBeInTheDocument();
     // Totals subtitle.
     expect(
       screen.getByText(/2 runs \(1 success, 1 partial/),

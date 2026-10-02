@@ -67,8 +67,12 @@ class DashboardShellTests(TestCase):
 
     def test_non_get_root_404s(self):
         """react_app answers GET/HEAD only — the method check fires
-        before login_required, so even anonymous POSTs get a 404,
-        not a login redirect."""
+        before login_required inside the view. The test client is
+        CSRF-exempt, so it reaches the view; in production
+        CsrfViewMiddleware rejects a token-less anonymous POST with
+        403 before the view runs. These assertions pin the
+        view-layer contract (no HTML shell, no login redirect from
+        the view itself)."""
         for method in ('post', 'put', 'delete'):
             resp = getattr(self.client, method)('/')
             self.assertEqual(resp.status_code, 404)

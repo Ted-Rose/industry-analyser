@@ -142,7 +142,9 @@ export default function VacancyList() {
                   Include keywords
                 </label>
                 <div className="checkbox-scroll-list">
-                  {data && data.keywords.length > 0 ? (
+                  {isPending ? (
+                    <span className="text-muted">Loading…</span>
+                  ) : data && data.keywords.length > 0 ? (
                     data.keywords.map((keyword) => (
                       <label key={keyword}>
                         <input
