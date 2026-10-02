@@ -3,10 +3,319 @@
  * Do not make direct changes to the file.
  */
 
-export type paths = Record<string, never>;
+export interface paths {
+    "/api/vacancies/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Vacancies
+         * @description Vacancy list page payload — mirrors the retired
+         *     find_vacancies view's filtering exactly.
+         */
+        get: operations["fetcher_api_list_vacancies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vacancies/companies/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Companies
+         * @description Company list — mirrors company_list: canonical companies
+         *     only (merged-away rows hidden), name/reg-code search.
+         */
+        get: operations["fetcher_api_list_companies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vacancies/companies/{pk}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Company Detail
+         * @description Company detail — mirrors the company_detail view. A merged
+         *     company resolves to its canonical survivor (the old view 301'd
+         *     there; the API returns the canonical record directly).
+         */
+        get: operations["fetcher_api_company_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vacancies/keywords/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Keyword
+         * @description Create a keyword — session-auth replacement for the retired
+         *     HARD_CODED_PASSWORD form. Validation still goes through
+         *     KeywordForm so name normalization/uniqueness are unchanged.
+         */
+        post: operations["fetcher_api_add_keyword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+}
 export type webhooks = Record<string, never>;
 export interface components {
-    schemas: never;
+    schemas: {
+        /**
+         * VacanciesOut
+         * @description One page of vacancies plus the filter option lists the page
+         *     needs — a single fat endpoint per the rewrite plan.
+         */
+        VacanciesOut: {
+            /** Vacancies */
+            vacancies: components["schemas"]["VacancyOut"][];
+            /** Page */
+            page: number;
+            /** Num Pages */
+            num_pages: number;
+            /** Total Count */
+            total_count: number;
+            /** Start Index */
+            start_index: number;
+            /** End Index */
+            end_index: number;
+            /** Has Next */
+            has_next: boolean;
+            /** Has Previous */
+            has_previous: boolean;
+            /** Keywords */
+            keywords: string[];
+            /** Industries */
+            industries: string[];
+        };
+        /** VacancyOut */
+        VacancyOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string | null;
+            /** Url */
+            url: string;
+            /** Company Id */
+            company_id: string | null;
+            /** Company Name */
+            company_name: string | null;
+            /** Salary From */
+            salary_from: number | null;
+            /** Salary To */
+            salary_to: number | null;
+            /** Application Deadline */
+            application_deadline: string | null;
+            /** Last Seen */
+            last_seen: string | null;
+            /** Days Open */
+            days_open: number | null;
+            /** Keywords */
+            keywords: string[];
+            /** Industries */
+            industries: string[];
+        };
+        /** CompaniesOut */
+        CompaniesOut: {
+            /** Companies */
+            companies: components["schemas"]["CompanyOut"][];
+            /** Page */
+            page: number;
+            /** Num Pages */
+            num_pages: number;
+            /** Total Count */
+            total_count: number;
+            /** Start Index */
+            start_index: number;
+            /** End Index */
+            end_index: number;
+            /** Has Next */
+            has_next: boolean;
+            /** Has Previous */
+            has_previous: boolean;
+            /** Query */
+            query: string;
+        };
+        /** CompanyIdentityOut */
+        CompanyIdentityOut: {
+            /** Source */
+            source: string;
+            /** Employer Id */
+            employer_id: number;
+        };
+        /** CompanyOut */
+        CompanyOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Reg Code */
+            reg_code: string | null;
+            /** Needs Review */
+            needs_review: boolean;
+            /** Vacancy Count */
+            vacancy_count: number;
+            /** Open Count */
+            open_count: number;
+            /**
+             * Last Seen
+             * Format: date-time
+             */
+            last_seen: string;
+            /** Identities */
+            identities: components["schemas"]["CompanyIdentityOut"][];
+        };
+        /** CompanyDetailOut */
+        CompanyDetailOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Reg Code */
+            reg_code: string | null;
+            /** Reg Code Country */
+            reg_code_country: string | null;
+            /** About */
+            about: string | null;
+            /** Webpage Url */
+            webpage_url: string | null;
+            /** Video Url */
+            video_url: string | null;
+            /** Applying Url */
+            applying_url: string | null;
+            /** Address */
+            address: string | null;
+            /** Contact Name */
+            contact_name: string | null;
+            /** Contact Email */
+            contact_email: string | null;
+            /** Contact Phone */
+            contact_phone: string | null;
+            /** Needs Review */
+            needs_review: boolean;
+            /**
+             * First Seen
+             * Format: date-time
+             */
+            first_seen: string;
+            /**
+             * Last Seen
+             * Format: date-time
+             */
+            last_seen: string;
+            /** Logo Url */
+            logo_url: string | null;
+            /** Cover Url */
+            cover_url: string | null;
+            /** Gallery Urls */
+            gallery_urls: (string | null)[];
+            /** Identities */
+            identities: components["schemas"]["CompanyIdentityOut"][];
+            /** Name Aliases */
+            name_aliases: string[];
+            /** Reg Aliases */
+            reg_aliases: string[];
+            /** Vacancies */
+            vacancies: components["schemas"]["CompanyVacancyOut"][];
+            /** Page */
+            page: number;
+            /** Num Pages */
+            num_pages: number;
+            /** Total Count */
+            total_count: number;
+            /** Start Index */
+            start_index: number;
+            /** End Index */
+            end_index: number;
+            /** Has Next */
+            has_next: boolean;
+            /** Has Previous */
+            has_previous: boolean;
+        };
+        /**
+         * CompanyVacancyOut
+         * @description Lean vacancy row for the company detail table — no M2M
+         *     columns, matching the template's columns.
+         */
+        CompanyVacancyOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title */
+            title: string | null;
+            /** Url */
+            url: string;
+            /** Salary From */
+            salary_from: number | null;
+            /** Salary To */
+            salary_to: number | null;
+            /** Application Deadline */
+            application_deadline: string | null;
+            /** Last Seen */
+            last_seen: string | null;
+        };
+        /** KeywordSavedOut */
+        KeywordSavedOut: {
+            /** Success */
+            success: boolean;
+            /** Message */
+            message: string;
+        };
+        /** KeywordIn */
+        KeywordIn: {
+            /** Name */
+            name: string;
+            /**
+             * Only Filter
+             * @default true
+             */
+            only_filter: boolean;
+        };
+    };
     responses: never;
     parameters: never;
     requestBodies: never;
@@ -14,4 +323,102 @@ export interface components {
     pathItems: never;
 }
 export type $defs = Record<string, never>;
-export type operations = Record<string, never>;
+export interface operations {
+    fetcher_api_list_vacancies: {
+        parameters: {
+            query?: {
+                include_keywords?: string[];
+                exclude_keywords?: string[];
+                include_industries?: string[];
+                show_active_only?: boolean;
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VacanciesOut"];
+                };
+            };
+        };
+    };
+    fetcher_api_list_companies: {
+        parameters: {
+            query?: {
+                q?: string;
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompaniesOut"];
+                };
+            };
+        };
+    };
+    fetcher_api_company_detail: {
+        parameters: {
+            query?: {
+                page?: number;
+            };
+            header?: never;
+            path: {
+                pk: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyDetailOut"];
+                };
+            };
+        };
+    };
+    fetcher_api_add_keyword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeywordIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeywordSavedOut"];
+                };
+            };
+        };
+    };
+}
