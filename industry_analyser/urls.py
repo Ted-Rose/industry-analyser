@@ -19,15 +19,15 @@ from functools import partial
 from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from fetcher import views as fetcher
 from fetcher.api import router as vacancies_router
 from tv_programs.api import router as tv_router
 from classified_ads.api import router as classified_ads_router
-from accounts import views as accounts
-from scrape_jobs import views as scrape_jobs
+from scrape_jobs.api import router as dashboard_router
 from industry_analyser import views as project_views
 from industry_analyser.api import api
-from industry_analyser.views import react_app_public
+from industry_analyser.views import react_app, react_app_public
 
 api.add_router('/vacancies/', vacancies_router)
 api.add_router('/tv/', tv_router)
@@ -35,6 +35,9 @@ api.add_router('/tv/', tv_router)
 # the router mount follows it so spa_url_for's /api/<x>/ → /<x>/
 # login-next rewrite stays correct.
 api.add_router('/classified-ads/', classified_ads_router)
+# The dashboard SPA mounts at the site root — SPA_BASES maps
+# /api/dashboard/* 401 login_urls back to '/'.
+api.add_router('/dashboard/', dashboard_router)
 
 # The vacancies SPA owns both /vacancies/* and /companies/* — the
 # company pages are routes of the same React app (entry
@@ -46,17 +49,24 @@ react_app_vacancies = partial(
 react_app_companies = partial(
     react_app_public, entry='vacancies', title='Companies'
 )
+# The dashboard is the only login-required SPA (the template page it
+# replaces was @login_required) — react_app, not the public variant.
+react_app_dashboard = partial(
+    react_app, entry='dashboard', title='Dashboard'
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('manifest.json', fetcher.pwa_manifest, name='pwa_manifest'),
     path('sw.js', fetcher.pwa_service_worker, name='pwa_service_worker'),
     # Shared ninja API — mounted before the app routes so /api/* can
-    # never be swallowed by a future catch-all SPA mount.
+    # never be swallowed by the root catch-all SPA mount.
     path('api/', api.urls),
-    path('', scrape_jobs.dashboard, name='home'),
+    # The dashboard SPA owns the site root — the name 'home' is kept
+    # so reverse('home') still resolves to '/'.
+    path('', react_app_dashboard, name='home'),
     # Vacancies SPA. Route names stay so reverse()/{% url %} callers
-    # (the scrape_jobs dashboard links 'find_vacancies') keep working.
+    # keep working ('find_vacancies' reversed to /vacancies/).
     path('vacancies/', react_app_vacancies, name='find_vacancies'),
     # No trailing slash on <path:subpath> — it matches both 'x' and
     # 'x/', so client routes don't depend on an APPEND_SLASH hop.
@@ -79,7 +89,13 @@ urlpatterns = [
         react_app_companies,
         name='companies_subpath',
     ),
-    path('accounts/', accounts.accounts, name='accounts'),
+    # The accounts stub page is retired — 301 to the dashboard; the
+    # name is kept so any reverse('accounts') caller still resolves.
+    path(
+        'accounts/',
+        RedirectView.as_view(url='/', permanent=True),
+        name='accounts',
+    ),
     path(
         'add_keyword/',
         fetcher.add_keyword_redirect,
@@ -99,3 +115,14 @@ if settings.DEBUG:
         '.well-known/appspecific/com.chrome.devtools.json',
         project_views.chrome_devtools_probe,
     ))
+
+# The root dashboard catch-all must be the very LAST pattern — it
+# would shadow anything appended after it (including the DEBUG-only
+# .well-known probe above). No trailing slash on <path:subpath> — it
+# matches 'x' and 'x/', so client routes don't depend on an
+# APPEND_SLASH hop; non-GET/HEAD requests 404 via react_app.
+urlpatterns.append(path(
+    '<path:subpath>',
+    react_app_dashboard,
+    name='dashboard_subpath',
+))
