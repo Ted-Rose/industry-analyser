@@ -93,9 +93,11 @@ class ApartmentAdScraper(BaseScraper):
         self.dry_run = dry_run
         self.enrich_search_results = True
         self.validate_result = False
+        self.stop_on_redirect = True
         self.excluded_resources = []
         self._current_region = None
         self._current_deal_type = None
+        self._seen_ad_ids = set()
 
     def get_search_urls(self):
         # Fetch regions in consistent order (using model's Meta.ordering)
@@ -155,6 +157,7 @@ class ApartmentAdScraper(BaseScraper):
         """
         for suffix, deal_type in DEAL_SUFFIXES.items():
             self._current_deal_type = deal_type
+            self._seen_ad_ids = set()
             for page in range(1, self.max_pages + 1):
                 if page == 1:
                     yield region.url + suffix
@@ -270,7 +273,21 @@ class ApartmentAdScraper(BaseScraper):
                 'total_price': total_price,
                 'alt_price': alt_price,
             })
-        return results
+
+        # ss.com redirects out-of-range pages back to the first
+        # listing page (handled by stop_on_redirect); if a repeated
+        # page is ever served as 200, identical ad ids mean the end
+        # of this region's results has been reached.
+        new_results = [
+            r for r in results if r['ad_id'] not in self._seen_ad_ids
+        ]
+        self._seen_ad_ids.update(r['ad_id'] for r in results)
+        if results and not new_results:
+            logger.info(
+                'Page repeats already-scraped ads — '
+                'end of results reached'
+            )
+        return new_results
 
     def _get_or_create_project(self, raw_project: str):
         raw = str(raw_project).strip()

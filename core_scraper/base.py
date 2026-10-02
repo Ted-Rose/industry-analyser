@@ -35,6 +35,7 @@ class BaseScraper(abc.ABC):
         self.ai_analysis = False
         self.default_domain = 'default'
         self.last_search_had_results = True
+        self.stop_on_redirect = False
 
         retry_strategy = Retry(
             total=3,
@@ -98,6 +99,16 @@ class BaseScraper(abc.ABC):
 
     def scrape_portal(self, search_url):
         search_response = self.make_request(search_url)
+        if self.stop_on_redirect and self._was_redirected(
+            search_response
+        ):
+            logger.info(
+                f"{search_url} redirected to "
+                f"{search_response.geturl()}, treating as the end "
+                "of paginated results"
+            )
+            self.last_search_had_results = False
+            return
         parsed_results = self.parse_results(search_response)
 
         if not parsed_results:
@@ -111,6 +122,21 @@ class BaseScraper(abc.ABC):
         self.last_search_had_results = bool(parsed_results)
 
         return self.extract_resources(pruned_results)
+
+    @staticmethod
+    def _was_redirected(response):
+        """True when urllib3 followed a redirect to serve `response`.
+
+        Sites like ss.com redirect out-of-range pageN.html listing
+        URLs back to the first page instead of returning an empty
+        one, so a redirect signals the end of pagination.
+        """
+        if response is None:
+            return False
+        history = getattr(
+            getattr(response, 'retries', None), 'history', None
+        ) or ()
+        return any(h.redirect_location for h in history)
 
     def parse_results(self, search_response):
         raise NotImplementedError

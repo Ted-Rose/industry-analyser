@@ -1,4 +1,6 @@
 from datetime import date, timedelta
+from types import SimpleNamespace
+
 from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
@@ -171,6 +173,86 @@ class HousingAdScraperRunnerTest(TestCase):
         self.assertEqual(
             urls,
             [house.url + 'hand_over/', house.url + 'sell/'],
+        )
+
+
+class PaginationEndDetectionTest(TestCase):
+    """ss.com redirects out-of-range pageN.html listing URLs back to
+    the first page — pagination must stop instead of re-scraping the
+    same listing until max_pages."""
+
+    APARTMENT_ROW = (
+        '<tr id="tr_1"><td></td>'
+        '<td><a href="/msg/en/x.html">x</a></td><td>note</td>'
+        '<td>Street 1</td><td>2</td><td>50</td><td>3/5</td>'
+        '<td>New</td><td>10</td><td>500</td></tr>'
+    )
+
+    @staticmethod
+    def _response(html=b'', redirect_location=None):
+        history = ()
+        if redirect_location:
+            history = (
+                SimpleNamespace(redirect_location=redirect_location),
+            )
+        return SimpleNamespace(
+            data=html,
+            retries=SimpleNamespace(history=history),
+            geturl=lambda: 'https://www.ss.com/lv/final/',
+        )
+
+    def test_run_stops_when_page_redirects(self):
+        region = Region.objects.create(
+            name='Riga houses',
+            url='https://www.ss.com/en/real-estate/'
+                'homes-summer-residences/riga/',
+            scrape_enabled=True,
+        )
+        scraper = HousingAdScraper(max_pages=10)
+        redirected = self._response(redirect_location='/some/')
+        requested = []
+
+        def fake_request(url, **kw):
+            requested.append(url)
+            return redirected
+
+        scraper.make_request = fake_request
+        scraper.run()
+        # Each deal type stops after its first page despite
+        # max_pages=10 — no page2.html..page10.html fetches.
+        self.assertEqual(
+            requested,
+            [region.url + 'hand_over/', region.url + 'sell/'],
+        )
+
+    def test_repeated_page_stops_pagination(self):
+        scraper = ApartmentAdScraper(max_pages=10)
+        scraper._current_region = Region(name='Riga', url='https://x/')
+        scraper._current_deal_type = 'SELL'
+        html = f'<table>{self.APARTMENT_ROW}</table>'.encode()
+        scraper.make_request = lambda url, **kw: self._response(html)
+
+        scraper.scrape_portal('https://x/hand_over/')
+        self.assertTrue(scraper.last_search_had_results)
+        # Same ad ids served again (repeated last/first page):
+        # scrape_portal reports no results so pagination stops.
+        scraper.scrape_portal('https://x/hand_over/page2.html')
+        self.assertFalse(scraper.last_search_had_results)
+
+    def test_distinct_pages_keep_paginating(self):
+        scraper = ApartmentAdScraper(max_pages=10)
+        scraper._current_region = Region(name='Riga', url='https://x/')
+        scraper._current_deal_type = 'SELL'
+        html1 = f'<table>{self.APARTMENT_ROW}</table>'.encode()
+        html2 = (
+            '<table>' + self.APARTMENT_ROW.replace('tr_1', 'tr_2')
+            + '</table>'
+        ).encode()
+        self.assertEqual(
+            len(scraper.parse_results(self._response(html1))), 1
+        )
+        self.assertEqual(
+            len(scraper.parse_results(self._response(html2))), 1
         )
 
 
