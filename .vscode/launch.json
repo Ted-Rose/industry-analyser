@@ -40,12 +40,31 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Scrape Vacancy Portal (cv.lv)",
+            "name": "Scrape: Vacancy Portal 1 (cv.lv API)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
             "args": [
-                "scrape_first_vacancy_portal"
+                "scrape_first_vacancy_portal",
+                "1"
+            ],
+            "django": true,
+            "justMyCode": true,
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/venv/bin/python",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Scrape: Vacancy Portal 2 (cv.lv public)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "scrape_first_vacancy_portal",
+                "2"
             ],
             "django": true,
             "justMyCode": true,
