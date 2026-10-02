@@ -426,8 +426,8 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
 #   }
 # }
 
-resource "google_cloud_run_v2_job" "sync_regions" {
-  name     = "sync-regions"
+resource "google_cloud_run_v2_job" "sync_apartment_regions" {
+  name     = "sync-apartment-regions"
   location = var.region
 
   template {
@@ -560,10 +560,10 @@ resource "google_cloud_run_v2_job" "sync_housing_regions" {
   }
 }
 
-resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_regions" {
+resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_apartment_regions" {
   project  = var.project_id
   location = var.region
-  name     = google_cloud_run_v2_job.sync_regions.name
+  name     = google_cloud_run_v2_job.sync_apartment_regions.name
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
@@ -576,17 +576,17 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_housing_re
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
 
-resource "google_cloud_scheduler_job" "trigger_sync_regions" {
-  name             = "trigger-sync-regions"
-  description      = "Sync ss.com regions to DB weekly (Sunday 01:00 UTC)"
-  schedule         = "0 1 * * 0"
+resource "google_cloud_scheduler_job" "trigger_sync_apartment_regions" {
+  name             = "trigger-sync-apartment-regions"
+  description      = "Sync ss.com apartment regions to DB monthly (1st day 01:00 UTC)"
+  schedule         = "0 1 1 * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"
 
   http_target {
     http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_regions.name}:run"
+    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_apartment_regions.name}:run"
     body        = base64encode("{}")
 
     oauth_token {
@@ -595,15 +595,15 @@ resource "google_cloud_scheduler_job" "trigger_sync_regions" {
   }
 
   depends_on = [
-    google_cloud_run_v2_job.sync_regions,
+    google_cloud_run_v2_job.sync_apartment_regions,
     google_project_service.apis,
   ]
 }
 
 resource "google_cloud_scheduler_job" "trigger_sync_housing_regions" {
   name             = "trigger-sync-housing-regions"
-  description      = "Sync ss.com housing regions to DB weekly (Sunday 01:30 UTC)"
-  schedule         = "30 1 * * 0"
+  description      = "Sync ss.com housing regions to DB monthly (1st day 01:30 UTC)"
+  schedule         = "30 1 1 * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"

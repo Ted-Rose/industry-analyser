@@ -17,7 +17,7 @@ output "cloud_run_job_names" {
   value = [
     google_cloud_run_v2_job.scrape_vacancy.name,
     google_cloud_run_v2_job.scrape_tv_programs.name,
-    google_cloud_run_v2_job.sync_regions.name,
+    google_cloud_run_v2_job.sync_apartment_regions.name,
     google_cloud_run_v2_job.sync_housing_regions.name,
   ]
 }
@@ -26,7 +26,7 @@ output "cloud_scheduler_job_names" {
   value = [
     google_cloud_scheduler_job.trigger_scrape_vacancy.name,
     google_cloud_scheduler_job.trigger_scrape_tv_programs.name,
-    google_cloud_scheduler_job.trigger_sync_regions.name,
+    google_cloud_scheduler_job.trigger_sync_apartment_regions.name,
     google_cloud_scheduler_job.trigger_sync_housing_regions.name,
   ]
 }
@@ -55,7 +55,7 @@ output "alert_policies" {
   value = length(google_monitoring_notification_channel.email) > 0 ? [
     google_monitoring_alert_policy.scrape_vacancy_failure[0].name,
     google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
-    google_monitoring_alert_policy.sync_regions_failure[0].name,
+    google_monitoring_alert_policy.sync_apartment_regions_failure[0].name,
     google_monitoring_alert_policy.sync_housing_regions_failure[0].name,
   ] : []
   description = "Cloud Run job failure alert policies"

@@ -170,8 +170,8 @@ jobs:
             --command=python \
             --args=manage.py,scrape_housing_ads
 
-          # Region sync: fetches ss.com region list and upserts into DB
-          update_job_if_exists sync-regions \
+          # Apartment region sync: fetches ss.com region list and upserts into DB
+          update_job_if_exists sync-apartment-regions \
             --image="${IMAGE}" \
             --command=python \
             --args=manage.py,sync_apartment_regions

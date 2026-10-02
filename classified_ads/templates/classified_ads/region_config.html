@@ -115,7 +115,7 @@
         <a href="{% url 'classified_ads:apartment_region_stats' %}" class="back-link">View Region Stats →</a>
 
         <h1>Region Configuration</h1>
-        <p class="subtitle">Select which regions to scrape from SS.com. Run the <strong>sync-regions</strong> Cloud Run job to refresh this list from SS.com.</p>
+        <p class="subtitle">Select which regions to scrape from SS.com. Run the <strong>sync-apartment-regions</strong> Cloud Run job to refresh this list from SS.com.</p>
         
         <div class="stats">
             <strong>{{ enabled_count }}</strong> of <strong>{{ total_count }}</strong> regions enabled for scraping
@@ -160,7 +160,7 @@
                         {% endwith %}
                     </div>
                 {% empty %}
-                    <p style="color: #666;">No regions in database yet. Run the <strong>sync-regions</strong> Cloud Run job to populate.</p>
+                    <p style="color: #666;">No regions in database yet. Run the <strong>sync-apartment-regions</strong> Cloud Run job to populate.</p>
                 {% endfor %}
             </div>
 

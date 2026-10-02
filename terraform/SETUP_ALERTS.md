@@ -7,7 +7,8 @@ Automatically sends you an email whenever any of your Cloud Run jobs fail:
 - `scrape-tv-programs`
 - `scrape-apartment-ads`
 - `scrape-housing-ads`
-- `sync-regions`
+- `sync-apartment-regions`
+- `sync-housing-regions`
 
 ## Setup (3 minutes)
 
