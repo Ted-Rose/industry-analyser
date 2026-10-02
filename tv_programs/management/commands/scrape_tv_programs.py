@@ -94,25 +94,16 @@ class Command(BaseCommand):
                 dry_run=options['dry_run'],
                 enrich=not options['no_enrich'],
             )
-            programs = scraper.run()
+            scraper.run()
             runner.finish()
             end_time = timezone.now()
             duration = (end_time - start_time).total_seconds()
-
-            if programs:
-                self.stdout.write(
-                    self.style.SUCCESS(
-                        f"Successfully scraped {len(programs)} TV programs in "
-                        f"{duration:.2f} seconds"
-                    )
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"TV program scraping finished in "
+                    f"{duration:.2f} seconds"
                 )
-            else:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"No TV programs were scraped. Completed in "
-                        f"{duration:.2f} seconds"
-                    )
-                )
+            )
 
         except Exception as e:
             runner.finish('FAILED', traceback.format_exc())
