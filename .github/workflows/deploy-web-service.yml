@@ -17,6 +17,7 @@ on:
       - 'blogs/**'
       - 'accounts/**'
       - 'staticfiles/**'
+      - 'frontend/**'
       - '.github/workflows/deploy-web-service.yml'
   workflow_dispatch:
 

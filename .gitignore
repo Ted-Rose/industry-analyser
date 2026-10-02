@@ -23,3 +23,8 @@ terraform/*.auto.tfvars
 terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
+
+# React frontend (built output is generated at deploy time)
+node_modules/
+frontend/node_modules/
+frontend_dist/

@@ -18,3 +18,5 @@ google-api-core
 openai==3.17.0
 whitenoise==6.7.0
 gunicorn==23.0.0
+django-vite==3.2.0
+django-ninja==1.7.1

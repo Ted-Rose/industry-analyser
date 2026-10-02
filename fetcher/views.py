@@ -1,6 +1,7 @@
 import logging
 from django.shortcuts import get_object_or_404, render, redirect
 from django.core.paginator import Paginator
+from django.views.decorators.cache import cache_control
 from .models import Company, Keyword, Vacancy, Industry
 from .scraper import load_portals_config
 from django.conf import settings
@@ -16,6 +17,11 @@ def home(request):
     return render(request, 'fetcher/home.html')
 
 
+# Bump on every shipped frontend change (new SPA bundle, sw.js edit)
+# to force clients off the old service-worker cache.
+PWA_CACHE_VERSION = 'v2'
+
+
 def pwa_manifest(request):
     return render(
         request,
@@ -24,10 +30,12 @@ def pwa_manifest(request):
     )
 
 
+@cache_control(no_cache=True)
 def pwa_service_worker(request):
     return render(
         request,
         'fetcher/sw.js',
+        {'cache_version': PWA_CACHE_VERSION},
         content_type='application/javascript',
     )
 

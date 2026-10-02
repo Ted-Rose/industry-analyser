@@ -1,40 +1,41 @@
+{% load django_vite %}
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Add Keyword</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css"
-        integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <title>{{ title }} - Industry Analyser</title>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#0066cc">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Industry Analyser">
+    <link rel="apple-touch-icon"
+          href="{% static 'fetcher/icons/icon.svg' %}">
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      rel="stylesheet">
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
+      rel="stylesheet">
+    {% vite_hmr_client %}
+    {% vite_react_refresh %}
+    {% if manifest_ready %}
+        {% vite_asset vite_entry %}
+    {% endif %}
 </head>
-
 <body>
-    <div class="container">
-        <h1 class="text-center">Add Keyword</h1>
-        <form method="POST" action="{% url 'add_keyword' %}">
-            {% csrf_token %}
-            <input name="password" value="">
-            <div class="form-group">
-                <label for="name">Name:</label>
-                <input type="text" id="name" name="name" class="form-control" required>
-                {% if error %}
-                <div>
-                    Error: {{ error }}
-                </div>
-                {% endif %}
-            </div>
-            <div class="form-group">
-                <label for="only_filter">Only filter:</label>
-                <input type="checkbox" id="only_filter" name="only_filter" class="form-check-input" checked>
-            </div>
-            <button type="submit" class="btn btn-primary">Add Keyword</button>
-        </form>
+    <div id="root">Loading React app&hellip;</div>
+    {{ bootstrap|json_script:"spa-bootstrap" }}
+    {% if not manifest_ready %}
+    <div class="alert alert-warning m-3" role="alert">
+        React entry not loaded: <code>frontend_dist/manifest.json</code>
+        is missing in this runtime. Build the frontend with
+        <code>npm run build --prefix frontend</code>, or check that the
+        build output is bundled into the deployment.
     </div>
+    {% endif %}
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
@@ -57,10 +58,12 @@
                     });
                     return;
                 }
-                navigator.serviceWorker.register('/sw.js');
+                navigator.serviceWorker.register('/sw.js')
+                    .catch(function (err) {
+                        console.warn('SW registration failed:', err);
+                    });
             });
         }
     </script>
 </body>
-
 </html>
