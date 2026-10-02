@@ -7,7 +7,7 @@ from .scraper import load_portals_config
 
 # Bump on every shipped frontend change (new SPA bundle, sw.js edit)
 # to force clients off the old service-worker cache.
-PWA_CACHE_VERSION = 'v4'
+PWA_CACHE_VERSION = 'v5'
 
 
 def pwa_manifest(request):
