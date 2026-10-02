@@ -94,7 +94,7 @@ def spa_shell_public(request, entry, title=''):
     return _spa_shell(request, entry, title=title)
 
 
-def react_app(request, entry, title='', subpath=''):
+def react_app(request, entry, title='', subpath='', **kwargs):
     """React SPA shell shared by every login-required app mount.
 
     Mount with functools.partial (or a thin wrapper) binding `entry`
@@ -118,10 +118,16 @@ def react_app(request, entry, title='', subpath=''):
     return spa_shell(request, entry=entry, title=title)
 
 
-def react_app_public(request, entry, title='', subpath=''):
+def react_app_public(request, entry, title='', subpath='', **kwargs):
     """Same contract as `react_app` but without login_required — for
     apps whose pages are public today (vacancies, tv, classified-ads).
-    Mutations still require auth at the /api/ layer."""
+    Mutations still require auth at the /api/ layer.
+
+    `subpath` is captured by <path:subpath> catch-alls; `kwargs`
+    swallows any named converters (e.g. <uuid:pk> on a named route
+    kept for reverse() callers) — React Router resolves the page
+    either way.
+    """
     if request.method not in ('GET', 'HEAD'):
         raise Http404
     return spa_shell_public(request, entry=entry, title=title)

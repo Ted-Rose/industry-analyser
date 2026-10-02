@@ -1,0 +1,133 @@
+/* Ported from the <style> blocks of the retired fetcher templates
+   (vacancies.html / companies.html / company_detail.html — they shared
+   the same look). Bootstrap 5 is loaded by spa_shell.html; these are
+   the app-specific classes on top of it. */
+
+.vacancies-page {
+  max-width: 1400px;
+}
+
+body {
+  background-color: #f8f9fa;
+}
+
+.filter-card {
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.table thead th {
+  background-color: #343a40;
+  color: #fff;
+  border-color: #454d55;
+  white-space: nowrap;
+}
+
+.table-hover tbody tr:hover {
+  background-color: #e9f3ff;
+}
+
+.filter-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.checkbox-scroll-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 8px 12px;
+  background: #fff;
+}
+
+.checkbox-scroll-list label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.checkbox-scroll-list label:last-child {
+  margin-bottom: 0;
+}
+
+.back-link {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  color: #0066cc;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+  color: #0066cc;
+}
+
+.results-summary {
+  font-size: 0.875rem;
+  color: #6c757d;
+}
+
+.industry-tag,
+.source-tag {
+  display: inline-block;
+  background: #e9f3ff;
+  color: #0066cc;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 0.75rem;
+  margin: 1px 2px 1px 0;
+}
+
+.vacancy-title a,
+.company-name a {
+  color: #333;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.vacancy-title a:hover,
+.company-name a:hover {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
+.deadline-past {
+  color: #dc3545;
+}
+
+.deadline-active {
+  color: #28a745;
+}
+
+.salary-cell {
+  white-space: nowrap;
+}
+
+.keyword-match-badge {
+  display: inline-block;
+  background: #fff3cd;
+  color: #856404;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 0.7rem;
+  margin: 1px 2px 1px 0;
+}
+
+.company-logo {
+  max-height: 64px;
+  max-width: 200px;
+  object-fit: contain;
+}
+
+.detail-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: #6c757d;
+}
+
+.about-text {
+  white-space: pre-line;
+}

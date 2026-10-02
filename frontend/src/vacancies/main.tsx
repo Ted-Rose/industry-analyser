@@ -1,17 +1,24 @@
 import 'vite/modulepreload-polyfill';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
+import App from './App';
 import queryClient from '../shared/queryClient';
+import './vacancies.css';
 
-// Stage 0 stub — exercises the vite entry/manifest plumbing; the real
-// vacancies SPA replaces this in its own migration stage.
 const root = document.getElementById('root');
 if (root) {
   createRoot(root).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <div className="p-3">Vacancies — React entry placeholder</div>
+        {/* The vacancies SPA owns two public URL bases — /vacancies/*
+            and /companies/* (company pages are routes of the same
+            app) — so the router mounts without a basename and every
+            route declares its absolute path. */}
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
       </QueryClientProvider>
     </StrictMode>,
   );

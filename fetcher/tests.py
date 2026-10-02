@@ -16,7 +16,9 @@ import types
 from datetime import timedelta
 from unittest import mock
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.urls import reverse
 from django.utils import timezone
 
 from ai_providers import errors as ai_errors
@@ -30,7 +32,9 @@ from fetcher.models import (
     Industry,
     Keyword,
     Vacancy,
+    VacancyContainsKeyword,
     VacancyFile,
+    VacancyIndustries,
 )
 from fetcher.scraper import VacancyScrapper
 
@@ -1136,3 +1140,316 @@ class MergeCompaniesTests(TestCase):
             first_seen=timezone.now(), last_seen=timezone.now(),
         )
         self.assertEqual(loser.canonical(), target)
+
+
+def make_company(name='Acme', **kwargs):
+    defaults = {
+        'first_seen': timezone.now(),
+        'last_seen': timezone.now(),
+    }
+    defaults.update(kwargs)
+    return Company.objects.create(name=name, **defaults)
+
+
+class VacanciesApiTests(TestCase):
+    """HTTP-layer coverage for the vacancies SPA API (mounted at
+    /api/vacancies/) and the URL cutover — the retired template
+    views' behavior is covered here at the JSON boundary."""
+
+    API = '/api/vacancies'
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='alice', password='pw'
+        )
+
+    # --- URL cutover / shell ---
+
+    def test_vacancies_url_serves_shell(self):
+        resp = self.client.get('/vacancies/')
+        self.assertEqual(resp.status_code, 200)
+        # The vite asset tag is gated on the built manifest — the
+        # test env may not have frontend_dist/, so assert only the
+        # mount point and the diagnostic bootstrap are present.
+        self.assertContains(resp, 'id="root"')
+        self.assertContains(resp, 'spa-bootstrap')
+
+    def test_vacancies_deep_link_serves_shell(self):
+        resp = self.client.get('/vacancies/keywords')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="root"')
+
+    def test_companies_urls_serve_shell(self):
+        company = make_company()
+        for url in ('/companies/', f'/companies/{company.pk}/'):
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200)
+            self.assertContains(resp, 'id="root"')
+
+    def test_non_get_to_spa_urls_404s(self):
+        for method in ('post', 'put', 'delete'):
+            resp = getattr(self.client, method)('/vacancies/')
+            self.assertEqual(resp.status_code, 404)
+        resp = self.client.post('/add_keyword/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_add_keyword_redirects_into_spa(self):
+        resp = self.client.get('/add_keyword/')
+        self.assertEqual(resp.status_code, 301)
+        self.assertEqual(resp.url, '/vacancies/keywords')
+
+    def test_named_routes_still_reverse(self):
+        self.assertEqual(reverse('find_vacancies'), '/vacancies/')
+        self.assertEqual(reverse('companies'), '/companies/')
+        company = make_company()
+        self.assertEqual(
+            reverse('company_detail', kwargs={'pk': company.pk}),
+            f'/companies/{company.pk}/',
+        )
+        self.assertEqual(reverse('add_keyword'), '/add_keyword/')
+
+    # --- GET /api/vacancies/ ---
+
+    def test_vacancy_list_is_public(self):
+        make_vacancy(1)
+        resp = self.client.get(f'{self.API}/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(len(body['vacancies']), 1)
+        self.assertIn('keywords', body)
+        self.assertIn('industries', body)
+        self.assertEqual(body['page'], 1)
+
+    def test_vacancy_list_returns_filter_option_lists(self):
+        Keyword.objects.create(name='python')
+        Industry.objects.create(name='it')
+        resp = self.client.get(f'{self.API}/')
+        body = resp.json()
+        self.assertEqual(body['keywords'], ['python'])
+        self.assertEqual(body['industries'], ['it'])
+
+    def test_include_keywords_filter(self):
+        kw = Keyword.objects.create(name='python')
+        match = make_vacancy(1)
+        VacancyContainsKeyword.objects.create(
+            vacancy=match, keyword=kw
+        )
+        make_vacancy(2)
+        resp = self.client.get(
+            f'{self.API}/', {'include_keywords': ['python']}
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(
+            body['vacancies'][0]['id'], str(match.pk)
+        )
+        self.assertEqual(body['vacancies'][0]['keywords'], ['python'])
+
+    def test_exclude_keywords_filter(self):
+        kw = Keyword.objects.create(name='java')
+        excluded = make_vacancy(1)
+        VacancyContainsKeyword.objects.create(
+            vacancy=excluded, keyword=kw
+        )
+        kept = make_vacancy(2)
+        resp = self.client.get(
+            f'{self.API}/', {'exclude_keywords': ['java']}
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['vacancies'][0]['id'], str(kept.pk))
+
+    def test_include_industries_filter(self):
+        industry = Industry.objects.create(name='it')
+        match = make_vacancy(1)
+        VacancyIndustries.objects.create(
+            vacancy=match, industry=industry
+        )
+        make_vacancy(2)
+        resp = self.client.get(
+            f'{self.API}/', {'include_industries': ['it']}
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['vacancies'][0]['id'], str(match.pk))
+        self.assertEqual(body['vacancies'][0]['industries'], ['it'])
+
+    def test_show_active_only_excludes_past_deadlines(self):
+        make_vacancy(
+            1,
+            application_deadline=(
+                timezone.now() - timedelta(days=1)
+            ),
+        )
+        live = make_vacancy(
+            2,
+            application_deadline=(
+                timezone.now() + timedelta(days=5)
+            ),
+        )
+        resp = self.client.get(
+            f'{self.API}/', {'show_active_only': '1'}
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['vacancies'][0]['id'], str(live.pk))
+
+    def test_pagination(self):
+        for i in range(3):
+            make_vacancy(10 + i)
+        with mock.patch('fetcher.api.VACANCIES_PER_PAGE', 2):
+            first = self.client.get(f'{self.API}/', {'page': 1})
+            second = self.client.get(f'{self.API}/', {'page': 2})
+        body = first.json()
+        self.assertEqual(body['num_pages'], 2)
+        self.assertEqual(body['total_count'], 3)
+        self.assertEqual(len(body['vacancies']), 2)
+        self.assertTrue(body['has_next'])
+        self.assertFalse(body['has_previous'])
+        self.assertEqual((body['start_index'], body['end_index']), (1, 2))
+        body2 = second.json()
+        self.assertEqual(len(body2['vacancies']), 1)
+        self.assertTrue(body2['has_previous'])
+        self.assertFalse(body2['has_next'])
+
+    def test_out_of_range_page_returns_last_page(self):
+        make_vacancy(1)
+        resp = self.client.get(f'{self.API}/', {'page': 99})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['page'], 1)
+
+    def test_non_integer_page_422s(self):
+        resp = self.client.get(f'{self.API}/', {'page': 'abc'})
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()['error'], 'validation_error')
+
+    # --- GET /api/vacancies/companies/ ---
+
+    def test_company_list_is_public(self):
+        company = make_company('Acme')
+        resp = self.client.get(f'{self.API}/companies/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        row = body['companies'][0]
+        self.assertEqual(row['id'], str(company.pk))
+        self.assertEqual(row['name'], 'Acme')
+        self.assertEqual(row['vacancy_count'], 0)
+
+    def test_company_list_query_filter(self):
+        make_company('Acme', reg_code='1234')
+        make_company('Other')
+        resp = self.client.get(f'{self.API}/companies/', {'q': 'acme'})
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['companies'][0]['name'], 'Acme')
+        self.assertEqual(body['query'], 'acme')
+
+    def test_company_list_hides_merged(self):
+        target = make_company('Target')
+        make_company('Loser', merged_into=target)
+        resp = self.client.get(f'{self.API}/companies/')
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['companies'][0]['name'], 'Target')
+
+    # --- GET /api/vacancies/companies/{pk}/ ---
+
+    def test_company_detail_is_public(self):
+        company = make_company('Acme', reg_code='1234')
+        vacancy = make_vacancy(1, company=company)
+        CompanyAlias.objects.create(
+            company=company, kind='name', value='Acme SIA',
+            first_seen=timezone.now(), last_seen=timezone.now(),
+        )
+        resp = self.client.get(f'{self.API}/companies/{company.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['name'], 'Acme')
+        self.assertEqual(body['reg_code'], '1234')
+        self.assertEqual(body['name_aliases'], ['Acme SIA'])
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(
+            body['vacancies'][0]['id'], str(vacancy.pk)
+        )
+
+    def test_company_detail_merged_returns_canonical(self):
+        target = make_company('Target')
+        loser = make_company('Loser', merged_into=target)
+        resp = self.client.get(f'{self.API}/companies/{loser.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['id'], str(target.pk))
+
+    def test_company_detail_404s_unknown_pk(self):
+        import uuid
+        resp = self.client.get(
+            f'{self.API}/companies/{uuid.uuid4()}/'
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()['error'], 'not_found')
+
+    # --- POST /api/vacancies/keywords/ ---
+
+    def test_keywords_post_unauthenticated_401(self):
+        resp = self.client.post(
+            f'{self.API}/keywords/',
+            data=json.dumps({'name': 'python'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 401)
+        body = resp.json()
+        self.assertEqual(body['error'], 'unauthenticated')
+        # login_url points at the SPA page, not back at the JSON URL.
+        self.assertIn(
+            'next=%2Fvacancies%2Fkeywords%2F', body['login_url']
+        )
+
+    def test_keywords_post_success(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            f'{self.API}/keywords/',
+            data=json.dumps(
+                {'name': ' Python ', 'only_filter': False}
+            ),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body['success'])
+        keyword = Keyword.objects.get()
+        # KeywordForm keeps its strip+lowercase normalization.
+        self.assertEqual(keyword.name, 'python')
+        self.assertFalse(keyword.only_filter)
+
+    def test_keywords_post_duplicate_400(self):
+        Keyword.objects.create(name='python')
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            f'{self.API}/keywords/',
+            data=json.dumps({'name': 'python'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()['error'], 'bad_request')
+
+    def test_keywords_post_invalid_422(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            f'{self.API}/keywords/',
+            data=json.dumps({'name': ''}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()['error'], 'validation_error')
+
+    def test_keywords_post_csrf_enforced(self):
+        csrf_client = self.client.__class__(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        resp = csrf_client.post(
+            f'{self.API}/keywords/',
+            data=json.dumps({'name': 'python'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()['error'], 'forbidden')
