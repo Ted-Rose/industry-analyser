@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import date, timedelta
 
 from django.core.paginator import Paginator
@@ -9,12 +10,19 @@ from .models import (
     ApartmentForSale,
     ApartmentForRentSighting,
     ApartmentForSaleSighting,
+    ApartmentProperty,
     HouseForRent,
     HouseForSale,
     HouseForRentSighting,
     HouseForSaleSighting,
+    HouseProperty,
     Region,
 )
+
+PROPERTY_MODELS = {
+    'apartment': (ApartmentProperty, 'Apartment'),
+    'house': (HouseProperty, 'House'),
+}
 
 STATS_DEFAULT_DAYS = 30
 
@@ -224,6 +232,49 @@ def _region_and_descendant_ids(region):
     return ids
 
 
+def _linked_property_stats(ads_qs, sighting_models):
+    """Per-property stats for ads with a confirmed property link.
+
+    Returns (distinct linked property count, avg days-on-market)
+    where days-on-market is the union of sighting dates across all
+    ads linked to each property (both deal types, and including ads
+    outside the report window — the metric survives delete+repost).
+    """
+    prop_ids = (
+        ads_qs.filter(
+            property__isnull=False,
+            property_match_status__in=('auto', 'manual'),
+        )
+        .values_list('property', flat=True)
+        .distinct()
+    )
+    seen_by_prop = defaultdict(set)
+    for sighting_model in sighting_models:
+        pairs = (
+            sighting_model.objects
+            .filter(ad__property__in=prop_ids)
+            .values_list('ad__property', 'seen_on')
+        )
+        for prop_id, seen_on in pairs:
+            seen_by_prop[prop_id].add(seen_on)
+    total_properties = len(prop_ids)
+    days = [len(dates) for dates in seen_by_prop.values()]
+    avg_days = sum(days) / len(days) if days else None
+    return total_properties, avg_days
+
+
+def _distinct_linked_property_count(*ads_querysets):
+    prop_ids = set()
+    for ads_qs in ads_querysets:
+        prop_ids.update(
+            ads_qs.filter(
+                property__isnull=False,
+                property_match_status__in=('auto', 'manual'),
+            ).values_list('property', flat=True)
+        )
+    return len(prop_ids)
+
+
 def _compute_apartment_region_stats(
     region, date_from, date_to, deal_type=''
 ):
@@ -257,9 +308,13 @@ def _compute_apartment_region_stats(
         total_ads = rent_qs.count() + sale_qs.count()
         stats = {
             'total_ads': total_ads,
+            'total_properties': _distinct_linked_property_count(
+                rent_qs, sale_qs
+            ),
             'avg_price_per_sqm': None,
             'avg_size': None,
             'avg_days_tracked': None,
+            'avg_days_on_market': None,
             'region': region,
         }
         return stats
@@ -269,6 +324,12 @@ def _compute_apartment_region_stats(
         avg_price_per_sqm=Avg(price_field),
         avg_size=Avg('size'),
         avg_days_tracked=Avg('sighting_count'),
+    )
+    stats['total_properties'], stats['avg_days_on_market'] = (
+        _linked_property_stats(
+            ads_qs,
+            (ApartmentForRentSighting, ApartmentForSaleSighting),
+        )
     )
     stats['region'] = region
     return stats
@@ -517,9 +578,13 @@ def _compute_house_region_stats(
         total_ads = rent_qs.count() + sale_qs.count()
         stats = {
             'total_ads': total_ads,
+            'total_properties': _distinct_linked_property_count(
+                rent_qs, sale_qs
+            ),
             'avg_price_per_sqm': None,
             'avg_size': None,
             'avg_days_tracked': None,
+            'avg_days_on_market': None,
             'region': region,
         }
         return stats
@@ -529,6 +594,12 @@ def _compute_house_region_stats(
         avg_price_per_sqm=Avg(price_field),
         avg_size=Avg('size'),
         avg_days_tracked=Avg('sighting_count'),
+    )
+    stats['total_properties'], stats['avg_days_on_market'] = (
+        _linked_property_stats(
+            ads_qs,
+            (HouseForRentSighting, HouseForSaleSighting),
+        )
     )
     stats['region'] = region
     return stats
@@ -779,5 +850,79 @@ def daily_sightings_report(request):
             'order': order,
             'regions': regions,
             'selected_region': region_id,
+        }
+    )
+
+
+def property_list(request, kind):
+    model, label = PROPERTY_MODELS[kind]
+
+    qs = model.objects.annotate(
+        rent_ad_count=Count('rent_ads', distinct=True),
+        sale_ad_count=Count('sale_ads', distinct=True),
+    ).order_by('-last_seen')
+
+    district = request.GET.get('district', '').strip()
+    street = request.GET.get('street', '').strip()
+    if district:
+        qs = qs.filter(district=district)
+    if street:
+        qs = qs.filter(street_name__icontains=street)
+
+    districts = (
+        model.objects.values_list('district', flat=True)
+        .distinct()
+        .order_by('district')
+    )
+
+    paginator = Paginator(qs, 50)
+    properties = paginator.get_page(request.GET.get('page'))
+
+    return render(
+        request,
+        'classified_ads/property_list.html',
+        {
+            'properties': properties,
+            'districts': districts,
+            'selected_district': district,
+            'selected_street': street,
+            'total_count': qs.count(),
+            'kind': kind,
+            'kind_label': label,
+            'detail_url_name': (
+                f'classified_ads:{kind}_property_detail'
+            ),
+        }
+    )
+
+
+def property_detail(request, kind, pk):
+    model, label = PROPERTY_MODELS[kind]
+    prop = get_object_or_404(model, pk=pk)
+
+    ad_rows = []
+    ads = sorted(
+        prop.linked_ads(), key=lambda a: (a.first_seen, a.id)
+    )
+    for ad in ads:
+        is_rent = hasattr(ad, 'monthly_price')
+        ad_rows.append({
+            'ad': ad,
+            'deal': 'Rent' if is_rent else 'Sale',
+            'price': (
+                ad.monthly_price if is_rent else ad.total_price
+            ),
+            'price_suffix': '/mo' if is_rent else '',
+        })
+
+    return render(
+        request,
+        'classified_ads/property_detail.html',
+        {
+            'property': prop,
+            'ad_rows': ad_rows,
+            'days_on_market': prop.days_on_market,
+            'kind': kind,
+            'kind_label': label,
         }
     )

@@ -1,0 +1,109 @@
+{% extends "classified_ads/base.html" %}
+
+{% block title %}{{ property }} - {{ kind_label }} Property{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css"
+    integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+<style>
+    body { background-color: #f8f9fa; }
+    .filter-card {
+        border: none;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, .1);
+    }
+    .table thead th {
+        background-color: #343a40;
+        color: #fff;
+        border-color: #454d55;
+        white-space: nowrap;
+    }
+    .back-link { display: inline-block; margin-bottom: .5rem; }
+    .prop-attrs dt { font-weight: 600; }
+    .prop-attrs dd { margin-bottom: .25rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <a href="javascript:history.back()" class="back-link">← Back</a>
+    <h2 class="mb-1">{{ property.street_name }} {{ property.street_no }}{% if property.apartment_no %}, apt {{ property.apartment_no }}{% endif %}</h2>
+    <p class="text-muted mb-4">{{ property.district }}{% if property.region %} · {{ property.region.name }}{% endif %}</p>
+
+    <div class="card filter-card mb-4">
+        <div class="card-body">
+            <dl class="prop-attrs row mb-0">
+                <dt class="col-sm-3">Rooms</dt>
+                <dd class="col-sm-3">{{ property.rooms }}</dd>
+                <dt class="col-sm-3">Size</dt>
+                <dd class="col-sm-3">{{ property.size|floatformat:1 }} m²</dd>
+                {% if kind == 'apartment' %}
+                <dt class="col-sm-3">Floor</dt>
+                <dd class="col-sm-3">{{ property.floor }} / {{ property.max_floor }}</dd>
+                {% endif %}
+                {% if kind == 'house' %}
+                <dt class="col-sm-3">Floors</dt>
+                <dd class="col-sm-3">{{ property.floors }}</dd>
+                {% endif %}
+                {% if kind == 'house' and property.land_area_sqm is not None %}
+                <dt class="col-sm-3">Land</dt>
+                <dd class="col-sm-3">{{ property.land_area_sqm|floatformat:0 }} m²</dd>
+                {% endif %}
+                <dt class="col-sm-3">Days on market</dt>
+                <dd class="col-sm-3">{{ days_on_market }}</dd>
+                <dt class="col-sm-3">First seen</dt>
+                <dd class="col-sm-3">{{ property.first_seen|date:"Y-m-d" }}</dd>
+                <dt class="col-sm-3">Last seen</dt>
+                <dd class="col-sm-3">{{ property.last_seen|date:"Y-m-d" }}</dd>
+            </dl>
+        </div>
+    </div>
+
+    <h4 class="mb-3">Linked ads ({{ ad_rows|length }})</h4>
+    <div class="card filter-card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Ad</th>
+                            <th>Deal</th>
+                            <th class="text-right">Price</th>
+                            <th>Match</th>
+                            <th class="text-right">Score</th>
+                            <th>First seen</th>
+                            <th>Last seen</th>
+                            <th class="text-right">Days seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in ad_rows %}
+                        <tr>
+                            <td>
+                                <a href="{{ row.ad.link }}" target="_blank" rel="noopener">
+                                    {{ row.ad.ad_id|truncatechars:30 }}
+                                </a>
+                            </td>
+                            <td>{{ row.deal }}</td>
+                            <td class="text-right">€{{ row.price|floatformat:0 }}{{ row.price_suffix }}</td>
+                            <td>{{ row.ad.get_property_match_status_display }}</td>
+                            <td class="text-right">
+                                {% if row.ad.property_match_score is not None %}
+                                    {{ row.ad.property_match_score|floatformat:2 }}
+                                {% else %}—{% endif %}
+                            </td>
+                            <td>{{ row.ad.first_seen|date:"Y-m-d" }}</td>
+                            <td>{{ row.ad.last_seen|date:"Y-m-d" }}</td>
+                            <td class="text-right">{{ row.ad.days_active }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="8" class="text-center text-muted py-4">No linked ads.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

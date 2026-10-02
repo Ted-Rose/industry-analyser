@@ -81,4 +81,28 @@ urlpatterns = [
         views.daily_sightings_report,
         name='daily_sightings_report'
     ),
+    path(
+        'properties/apartments/',
+        views.property_list,
+        {'kind': 'apartment'},
+        name='apartment_property_list',
+    ),
+    path(
+        'properties/apartments/<int:pk>/',
+        views.property_detail,
+        {'kind': 'apartment'},
+        name='apartment_property_detail',
+    ),
+    path(
+        'properties/houses/',
+        views.property_list,
+        {'kind': 'house'},
+        name='house_property_list',
+    ),
+    path(
+        'properties/houses/<int:pk>/',
+        views.property_detail,
+        {'kind': 'house'},
+        name='house_property_detail',
+    ),
 ]

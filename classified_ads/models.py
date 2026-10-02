@@ -49,6 +49,213 @@ class Seller(models.Model):
         return self.phone or self.contact_id
 
 
+PROPERTY_MATCH_STATUS_CHOICES = [
+    ('unmatched', 'Unmatched'),
+    ('auto', 'Auto-linked'),
+    ('candidate', 'Pending review'),
+    ('manual', 'Manually linked'),
+]
+
+# Fields copied onto a property from its "best" linked ad by
+# BaseProperty.refresh_from_ads(). Concrete subclasses extend this.
+BASE_PROPERTY_CANONICAL_FIELDS = (
+    'region_id', 'district', 'street_name', 'street_no',
+)
+
+
+def _ad_completeness(ad):
+    """Count of non-empty optional fields, used to pick the best ad."""
+    filled = 0
+    for field in (
+        'apartment_no', 'project_id', 'house_type', 'facilities',
+        'land_area_sqm', 'comment', 'post_date', 'seller_id',
+    ):
+        if getattr(ad, field, None) not in (None, ''):
+            filled += 1
+    return filled
+
+
+class BaseProperty(models.Model):
+    """Canonical physical unit that one or more ads may refer to."""
+
+    region = models.ForeignKey(
+        'Region',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='%(class)s_properties',
+    )
+    district = models.CharField(max_length=255)
+    street_name = models.CharField(max_length=255)
+    street_no = models.CharField(max_length=50, blank=True)
+    first_seen = models.DateTimeField()
+    last_seen = models.DateTimeField()
+
+    CANONICAL_FIELDS = BASE_PROPERTY_CANONICAL_FIELDS
+
+    class Meta:
+        abstract = True
+
+    def iter_linked_ads(self):
+        """Yield every linked ad (rent and sale).
+
+        Uses the ``_linked_ads_cache`` list when present so unsaved
+        properties (dry-run matching) behave like saved ones.
+        """
+        cached = getattr(self, '_linked_ads_cache', None)
+        if cached is not None:
+            yield from cached
+            return
+        if self.pk is None:
+            return
+        # all_objects: hidden/misclassified ads still belong to the
+        # property (matching + days_on_market need them).
+        yield from self.rent_ads.model.all_objects.filter(property=self)
+        yield from self.sale_ads.model.all_objects.filter(property=self)
+
+    def linked_ads(self):
+        return list(self.iter_linked_ads())
+
+    def note_linked_ad(self, ad):
+        """Track a freshly linked ad in the in-memory cache, if any."""
+        cache = getattr(self, '_linked_ads_cache', None)
+        if cache is not None:
+            cache.append(ad)
+
+    def discard_linked_ad(self, ad):
+        """Drop an ad from the in-memory cache, if any."""
+        cache = getattr(self, '_linked_ads_cache', None)
+        if cache is not None:
+            cache[:] = [a for a in cache if a.pk != ad.pk]
+
+    @property
+    def days_on_market(self):
+        """Distinct days the unit was seen across all linked ads."""
+        seen = set()
+        for ad in self.iter_linked_ads():
+            for sighting in ad.sightings.all():
+                seen.add(sighting.seen_on)
+        return len(seen)
+
+    @classmethod
+    def from_ad(cls, ad):
+        """Build an unsaved property seeded from a single ad."""
+        prop = cls(first_seen=ad.first_seen, last_seen=ad.last_seen)
+        for field in cls.CANONICAL_FIELDS:
+            setattr(prop, field, prop._canonical_value(ad, field))
+        prop._linked_ads_cache = [ad]
+        return prop
+
+    def _canonical_value(self, ad, field):
+        value = getattr(ad, field)
+        if field == 'street_no':
+            from .property_matcher import normalize_street_no
+            return normalize_street_no(value)
+        # Block lookups filter on stripped values — keep stored
+        # canonical strings clean so they always match.
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    def refresh_from_ads(self, save=True):
+        """Recompute canonical fields and first/last seen from ads.
+
+        Canonical attributes come from the "best" linked ad (most
+        sightings, tie-break most complete); first_seen/last_seen are
+        the min/max across all linked ads.
+        """
+        ads = self.linked_ads()
+        if not ads:
+            return
+        best = max(
+            ads,
+            key=lambda a: (a.days_active, _ad_completeness(a)),
+        )
+        for field in self.CANONICAL_FIELDS:
+            setattr(self, field, self._canonical_value(best, field))
+        self.first_seen = min(a.first_seen for a in ads)
+        self.last_seen = max(a.last_seen for a in ads)
+        if save and self.pk:
+            self.save()
+
+
+class ApartmentProperty(BaseProperty):
+    apartment_no = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Apartment/unit number within the building'
+    )
+    rooms = models.IntegerField()
+    size = models.FloatField(help_text='Square metres')
+    floor = models.IntegerField()
+    max_floor = models.IntegerField()
+    project = models.ForeignKey(
+        'Project',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='apartment_properties',
+    )
+
+    CANONICAL_FIELDS = BASE_PROPERTY_CANONICAL_FIELDS + (
+        'apartment_no', 'rooms', 'size', 'floor', 'max_floor',
+        'project_id',
+    )
+
+    class Meta:
+        db_table = 'classified_ads_apartment_property'
+        verbose_name = 'Apartment Property'
+        verbose_name_plural = 'Apartment Properties'
+        indexes = [
+            models.Index(
+                fields=['district', 'street_no'],
+                name='ca_apt_prop_block_idx',
+            ),
+        ]
+
+    def __str__(self):
+        addr = f'{self.street_name} {self.street_no}'.strip()
+        if self.apartment_no:
+            addr += f', apt {self.apartment_no}'
+        return (
+            f'{self.district} | {addr} | '
+            f'{self.rooms}rm | {self.size}m²'
+        )
+
+
+class HouseProperty(BaseProperty):
+    rooms = models.IntegerField()
+    size = models.FloatField(help_text='House floor area m²')
+    floors = models.IntegerField(help_text='Total number of storeys')
+    land_area_sqm = models.FloatField(
+        null=True,
+        blank=True,
+        help_text='Plot area in m²',
+    )
+
+    CANONICAL_FIELDS = BASE_PROPERTY_CANONICAL_FIELDS + (
+        'rooms', 'size', 'floors', 'land_area_sqm',
+    )
+
+    class Meta:
+        db_table = 'classified_ads_house_property'
+        verbose_name = 'House Property'
+        verbose_name_plural = 'House Properties'
+        indexes = [
+            models.Index(
+                fields=['district', 'street_no'],
+                name='ca_house_prop_block_idx',
+            ),
+        ]
+
+    def __str__(self):
+        addr = f'{self.street_name} {self.street_no}'.strip()
+        return (
+            f'{self.district} | {addr} | '
+            f'{self.rooms}rm | {self.size}m²'
+        )
+
+
 class BaseApartmentAd(models.Model):
     ad_id = models.CharField(max_length=255, unique=True)
     comment = models.TextField(blank=True)
@@ -101,6 +308,13 @@ class BaseApartmentAd(models.Model):
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
     is_hidden = models.BooleanField(default=False)
+    property_match_status = models.CharField(
+        max_length=20,
+        choices=PROPERTY_MATCH_STATUS_CHOICES,
+        default='unmatched',
+        db_index=True,
+    )
+    property_match_score = models.FloatField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -137,6 +351,22 @@ class ApartmentForRent(BaseApartmentAd):
             'posted in the wrong category'
         )
     )
+    property = models.ForeignKey(
+        ApartmentProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='rent_ads',
+        help_text='Canonical property this ad is linked to',
+    )
+    candidate_property = models.ForeignKey(
+        ApartmentProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text='Proposed property link awaiting review',
+    )
 
     objects = CleanRentalManager()
     all_objects = models.Manager()
@@ -154,6 +384,23 @@ class ApartmentForRent(BaseApartmentAd):
 
 
 class ApartmentForSale(BaseApartmentAd):
+    property = models.ForeignKey(
+        ApartmentProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sale_ads',
+        help_text='Canonical property this ad is linked to',
+    )
+    candidate_property = models.ForeignKey(
+        ApartmentProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text='Proposed property link awaiting review',
+    )
+
     objects = VisibleApartmentManager()
     all_objects = models.Manager()
 
@@ -243,6 +490,13 @@ class BaseHouseAd(models.Model):
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
     is_hidden = models.BooleanField(default=False)
+    property_match_status = models.CharField(
+        max_length=20,
+        choices=PROPERTY_MATCH_STATUS_CHOICES,
+        default='unmatched',
+        db_index=True,
+    )
+    property_match_score = models.FloatField(null=True, blank=True)
 
     class Meta:
         abstract = True
@@ -257,6 +511,22 @@ class HouseForRent(BaseHouseAd):
     monthly_price_per_sqm = models.FloatField()
     total_price_120m = models.FloatField()
     price_per_sqm_120m = models.FloatField()
+    property = models.ForeignKey(
+        HouseProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='rent_ads',
+        help_text='Canonical property this ad is linked to',
+    )
+    candidate_property = models.ForeignKey(
+        HouseProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text='Proposed property link awaiting review',
+    )
 
     objects = VisibleHouseManager()
     all_objects = models.Manager()
@@ -274,6 +544,23 @@ class HouseForRent(BaseHouseAd):
 
 
 class HouseForSale(BaseHouseAd):
+    property = models.ForeignKey(
+        HouseProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sale_ads',
+        help_text='Canonical property this ad is linked to',
+    )
+    candidate_property = models.ForeignKey(
+        HouseProperty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        help_text='Proposed property link awaiting review',
+    )
+
     objects = VisibleHouseManager()
     all_objects = models.Manager()
 

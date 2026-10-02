@@ -109,9 +109,11 @@
                             <tr>
                                 <th>Region</th>
                                 <th class="text-right">Total ads</th>
+                                <th class="text-right">Properties</th>
                                 <th class="text-right">Avg €/m²</th>
                                 <th class="text-right">Avg size m²</th>
                                 <th class="text-right">Avg day count ad is open</th>
+                                <th class="text-right">Avg days on market</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -124,6 +126,7 @@
                                     </a>
                                 </td>
                                 <td class="text-right">{{ result.total_ads }}</td>
+                                <td class="text-right">{{ result.total_properties }}</td>
                                 <td class="text-right">
                                     {% if result.avg_price_per_sqm %}{{ result.avg_price_per_sqm|floatformat:0 }}{% else %}—{% endif %}
                                 </td>
@@ -133,10 +136,13 @@
                                 <td class="text-right">
                                     {% if result.avg_days_tracked %}{{ result.avg_days_tracked|floatformat:1 }}{% else %}—{% endif %}
                                 </td>
+                                <td class="text-right">
+                                    {% if result.avg_days_on_market %}{{ result.avg_days_on_market|floatformat:1 }}{% else %}—{% endif %}
+                                </td>
                             </tr>
                             {% empty %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted py-4">No regions selected.</td>
+                                <td colspan="7" class="text-center text-muted py-4">No regions selected.</td>
                             </tr>
                             {% endfor %}
                         </tbody>
