@@ -6,8 +6,12 @@ import re
 from django.conf import settings
 from bs4 import BeautifulSoup
 import urllib3
+from . import company_linking
 from .ai_jobs import VACANCY_IMAGE_OCR
 from .models import (
+    Company,
+    CompanyAlias,
+    CompanyIdentity,
     Industry,
     Keyword,
     Vacancy,
@@ -16,6 +20,7 @@ from .models import (
     VacancyIndustries,
 )
 from typing import List
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -226,14 +231,9 @@ class VacancyScrapper(BaseScraper):
             )
             return result
         data = self._extract_next_data(response.data)
-        detail = None
-        if data:
-            vacancies = (
-                data.get('props', {})
-                .get('pageProps', {})
-                .get('vacancy') or {}
-            )
-            detail = vacancies.get(str(result['id']))
+        detail = company_linking.extract_vacancy_detail(
+            data, result['id']
+        )
         if detail is None:
             logger.warning(
                 f"No detail JSON for vacancy {result.get('id')} "
@@ -485,12 +485,27 @@ class VacancyScrapper(BaseScraper):
             state="CREATED",
         )
 
+        # Employer identity — the search payload's employerId is the
+        # stable join key to a Company (see
+        # docs/company_linking_plan.md). Free on every portal.
+        try:
+            employer_id = int(result.get('employerId'))
+        except (TypeError, ValueError):
+            employer_id = None
+
         # Detail-page enrichment (nextjs portal): flatten the
         # standardDetails sections and OCR the attached file when
         # present, so image-only ads still feed keyword matching.
         detail = result.get('_detail')
         if detail is not None:
             vacancy.detail_fetched_at = timezone.now()
+            vacancy._pending_employer_detail = (
+                company_linking.employer_detail_slice(detail)
+            )
+            if employer_id is None:
+                employer_id = (
+                    vacancy._pending_employer_detail['employer_id']
+                )
             details = detail.get('details') or {}
             extra = self._standard_details_text(
                 details.get('standardDetails')
@@ -508,6 +523,11 @@ class VacancyScrapper(BaseScraper):
                     vacancy._pending_file = pending_file
             if extra:
                 result['_extra_content'] = extra
+
+        if employer_id is not None:
+            vacancy._pending_employer = (
+                employer_id, result.get('employerName')
+            )
 
         # Store M2M data for later (after save)
         vacancy._pending_industries = []
@@ -565,7 +585,7 @@ class VacancyScrapper(BaseScraper):
 
         new_vacancies = []
         changed_vacancies = []
-        sighted_pks = []
+        sighted = []
         m2m_vacancies = []
 
         for vacancy in vacancies:
@@ -595,7 +615,7 @@ class VacancyScrapper(BaseScraper):
                 existing.last_seen = timezone.now()
                 changed_vacancies.append(existing)
             else:
-                sighted_pks.append(existing.pk)
+                sighted.append(existing)
             # Transfer pending M2M data to existing instance
             existing._pending_industries = (
                 vacancy._pending_industries
@@ -604,16 +624,34 @@ class VacancyScrapper(BaseScraper):
             existing._pending_file = getattr(
                 vacancy, '_pending_file', None
             )
+            existing._pending_employer = getattr(
+                vacancy, '_pending_employer', None
+            )
+            existing._pending_employer_detail = getattr(
+                vacancy, '_pending_employer_detail', None
+            )
             m2m_vacancies.append(existing)
 
         if self.dry_run:
+            employer_ids = {
+                v._pending_employer[0]
+                for v in (*new_vacancies, *m2m_vacancies, *sighted)
+                if getattr(v, '_pending_employer', None)
+            }
             logger.info(
                 f"[dry-run] Would create {len(new_vacancies)} "
                 f"new vacancies and update "
-                f"{len(m2m_vacancies)} existing "
-                f"— no vacancy/file writes."
+                f"{len(m2m_vacancies)} existing; "
+                f"{len(employer_ids)} distinct employer(s) observed "
+                f"— no vacancy/file/company writes."
             )
             return
+
+        # Resolve companies before the INSERT so new rows carry the
+        # FK; also assigns .company on existing/sighted rows.
+        self._persist_companies(
+            new_vacancies, changed_vacancies, sighted
+        )
 
         if new_vacancies:
             Vacancy.objects.bulk_create(new_vacancies)
@@ -621,16 +659,16 @@ class VacancyScrapper(BaseScraper):
                 f"Created {len(new_vacancies)} new vacancies. \n\n"
             )
 
-        if sighted_pks:
-            Vacancy.objects.filter(pk__in=sighted_pks).update(
-                last_seen=timezone.now()
-            )
+        if sighted:
+            Vacancy.objects.filter(
+                pk__in=[v.pk for v in sighted]
+            ).update(last_seen=timezone.now())
         if changed_vacancies:
             Vacancy.objects.bulk_update(
                 changed_vacancies,
                 [
                     'last_seen', 'detail_fetched_at',
-                    'title', 'company_name',
+                    'title', 'company_name', 'company',
                 ],
             )
         if m2m_vacancies:
@@ -681,3 +719,175 @@ class VacancyScrapper(BaseScraper):
             )
 
         return
+
+    def _persist_companies(
+        self, new_vacancies, changed_vacancies, sighted
+    ):
+        """Resolve ``_pending_employer`` observations to Companies.
+
+        Batched: one query for existing identities, bulk_create for
+        the missing companies/identities, one bump UPDATE each, and
+        one bulk INSERT + one UPDATE for 'name' alias sightings.
+        Rich employer fields (``_pending_employer_detail``, nextjs
+        detail pages only) go through
+        ``company_linking.apply_employer_detail`` which carries the
+        §4.1 reg-code conflict rules.
+
+        Assigns ``vacancy.company`` in place — new rows are set
+        before ``bulk_create``, changed rows ride the existing
+        ``bulk_update``, and sighting-only rows get one grouped
+        UPDATE per company when their FK is null or stale (e.g.
+        after an admin merge).
+        """
+        now = timezone.now()
+        vacancies = [*new_vacancies, *changed_vacancies, *sighted]
+        employers = {}  # employer_id -> observed employerName
+        details = {}    # employer_id -> employer_detail_slice
+        for vacancy in vacancies:
+            pending = getattr(vacancy, '_pending_employer', None)
+            if pending:
+                employers[pending[0]] = pending[1]
+            detail = getattr(
+                vacancy, '_pending_employer_detail', None
+            )
+            if detail and detail.get('employer_id') is not None:
+                details[detail['employer_id']] = detail
+        if not employers:
+            return
+
+        identities = {
+            i.employer_id: i
+            for i in CompanyIdentity.objects.filter(
+                source=company_linking.SOURCE_CVLV,
+                employer_id__in=employers,
+            ).select_related('company')
+        }
+        new_companies = []
+        new_identities = []
+        for employer_id, name in employers.items():
+            if employer_id in identities:
+                continue
+            company = Company(
+                name=(name or '').strip(),
+                first_seen=now, last_seen=now,
+            )
+            new_companies.append(company)
+            new_identities.append(CompanyIdentity(
+                company=company,
+                source=company_linking.SOURCE_CVLV,
+                employer_id=employer_id,
+                first_seen=now, last_seen=now,
+            ))
+            identities[employer_id] = new_identities[-1]
+        if new_companies:
+            Company.objects.bulk_create(new_companies)
+            CompanyIdentity.objects.bulk_create(new_identities)
+            logger.info(
+                f"Created {len(new_companies)} new companies."
+            )
+
+        # employer_id -> canonical Company (follow merged_into so
+        # admin merges repoint future sightings automatically)
+        companies = {}
+        for employer_id, identity in identities.items():
+            company = identity.company
+            if company.merged_into_id is not None:
+                company = company.canonical()
+            companies[employer_id] = company
+
+        # Rich employer fields — nextjs detail slices only; carries
+        # the reg-code collision/change flagging.
+        detailed_pks = set()
+        for employer_id, detail in details.items():
+            company = companies.get(employer_id)
+            if company is None:
+                continue
+            company_linking.apply_employer_detail(
+                company, detail, now=now
+            )
+            detailed_pks.add(company.pk)
+
+        # Renames among non-enriched employers — routine: the alias
+        # sighting below records the name, just refresh the display
+        # name (no review flag).
+        renamed = {}
+        for employer_id, name in employers.items():
+            company = companies[employer_id]
+            if company.pk in detailed_pks:
+                continue
+            name = (name or '').strip()
+            if name and company.name != name:
+                company.name = name
+                renamed[company.pk] = company
+        if renamed:
+            Company.objects.bulk_update(
+                list(renamed.values()), ['name']
+            )
+
+        # Observation windows.
+        CompanyIdentity.objects.filter(
+            source=company_linking.SOURCE_CVLV,
+            employer_id__in=employers,
+        ).update(last_seen=now)
+        Company.objects.filter(
+            pk__in={c.pk for c in companies.values()}
+        ).update(last_seen=now)
+
+        # 'name' alias sightings — bulk INSERT the new ones, one
+        # grouped UPDATE bumps last_seen on pre-existing rows.
+        observed = {
+            (companies[eid].pk, (name or '').strip())
+            for eid, name in employers.items() if name
+        }
+        if observed:
+            existing = set(
+                CompanyAlias.objects.filter(
+                    company_id__in={c for c, _ in observed},
+                    kind=CompanyAlias.KIND_NAME,
+                    value__in={n for _, n in observed},
+                ).values_list('company_id', 'value')
+            )
+            CompanyAlias.objects.bulk_create([
+                CompanyAlias(
+                    company_id=cid,
+                    kind=CompanyAlias.KIND_NAME,
+                    value=name,
+                    first_seen=now, last_seen=now,
+                )
+                for cid, name in observed - existing
+            ])
+            to_bump = observed & existing
+            if to_bump:
+                q = Q()
+                for cid, name in to_bump:
+                    q |= Q(company_id=cid, value=name)
+                CompanyAlias.objects.filter(
+                    q, kind=CompanyAlias.KIND_NAME
+                ).update(last_seen=now)
+
+        # Sighting-only rows that lack a company (or still point at
+        # a pre-merge one) — one UPDATE per distinct company. Done
+        # before assigning .company below so the FK diff is visible.
+        pks_by_company = {}
+        for vacancy in sighted:
+            pending = getattr(vacancy, '_pending_employer', None)
+            if pending is None:
+                continue
+            company = companies.get(pending[0])
+            if company is None:
+                continue
+            if vacancy.company_id != company.pk:
+                pks_by_company.setdefault(
+                    company.pk, []
+                ).append(vacancy.pk)
+        for company_id, pks in pks_by_company.items():
+            Vacancy.objects.filter(pk__in=pks).update(
+                company_id=company_id
+            )
+
+        for vacancy in vacancies:
+            pending = getattr(vacancy, '_pending_employer', None)
+            if pending is not None:
+                company = companies.get(pending[0])
+                if company is not None:
+                    vacancy.company = company

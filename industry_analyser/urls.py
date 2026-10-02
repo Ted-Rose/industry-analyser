@@ -26,6 +26,12 @@ urlpatterns = [
     path('sw.js', fetcher.pwa_service_worker, name='pwa_service_worker'),
     path('', scrape_jobs.dashboard, name='home'),
     path('vacancies/', fetcher.find_vacancies, name='find_vacancies'),
+    path('companies/', fetcher.company_list, name='companies'),
+    path(
+        'companies/<uuid:pk>/',
+        fetcher.company_detail,
+        name='company_detail',
+    ),
     path('accounts/', accounts.accounts, name='accounts'),
     path('add_keyword/', fetcher.add_keyword, name='add_keyword'),
     path('tv/', include('tv_programs.urls', namespace='tv_programs')),

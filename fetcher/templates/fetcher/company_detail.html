@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ company.name }} — Companies</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.4.1/dist/css/bootstrap.min.css" integrity="sha384-Vkoo8x4CGsO3+Hhxv8T/Q5PaXtkKtu6ug5TOeNV6gBiFeWPGFN9MuhOf23Q9Ifjh" crossorigin="anonymous">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .filter-card {
+            border: none;
+            box-shadow: 0 1px 4px rgba(0,0,0,.1);
+        }
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+            border-color: #454d55;
+            white-space: nowrap;
+        }
+        .table-hover tbody tr:hover {
+            background-color: #e9f3ff;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: .5rem;
+            color: #0066cc;
+            text-decoration: none;
+            font-size: .9rem;
+        }
+        .back-link:hover { text-decoration: underline; color: #0066cc; }
+        .results-summary {
+            font-size: .875rem;
+            color: #6c757d;
+        }
+        .company-logo {
+            max-height: 64px;
+            max-width: 200px;
+            object-fit: contain;
+        }
+        .detail-label {
+            font-weight: 600;
+            font-size: .85rem;
+            color: #6c757d;
+        }
+        .source-tag {
+            display: inline-block;
+            background: #e9f3ff;
+            color: #0066cc;
+            border-radius: 3px;
+            padding: 1px 6px;
+            font-size: .75rem;
+            margin: 1px 2px 1px 0;
+        }
+        .about-text { white-space: pre-line; }
+        .vacancy-title a {
+            color: #333;
+            font-weight: 500;
+            text-decoration: none;
+        }
+        .vacancy-title a:hover {
+            color: #0066cc;
+            text-decoration: underline;
+        }
+        .deadline-past { color: #dc3545; }
+        .deadline-active { color: #28a745; }
+        .salary-cell { white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4" style="max-width: 1400px;">
+        <a href="{% url 'companies' %}" class="back-link">← All Companies</a>
+
+        <!-- Company card -->
+        <div class="card filter-card mb-4">
+            <div class="card-body">
+                <div class="d-flex align-items-start">
+                    {% if logo_url %}
+                        <img src="{{ logo_url }}" alt="{{ company.name }} logo"
+                             class="company-logo mr-4">
+                    {% endif %}
+                    <div class="flex-grow-1">
+                        <h2 class="mb-1">
+                            {{ company.name|default:"(unnamed)" }}
+                            {% if company.needs_review %}
+                                <span class="badge badge-warning align-middle">needs review</span>
+                            {% endif %}
+                        </h2>
+                        <div class="mb-2">
+                            {% for identity in company.identities.all %}
+                                <span class="source-tag">{{ identity.source }}:{{ identity.employer_id }}</span>
+                            {% endfor %}
+                        </div>
+                        {% if company.about %}
+                            <p class="about-text text-muted mb-3">{{ company.about }}</p>
+                        {% endif %}
+                        <dl class="row mb-0">
+                            {% if company.reg_code %}
+                                <dt class="col-sm-3 detail-label">Reg. code</dt>
+                                <dd class="col-sm-9">
+                                    {{ company.reg_code }}
+                                    {% if company.reg_code_country %}({{ company.reg_code_country }}){% endif %}
+                                </dd>
+                            {% endif %}
+                            {% if company.webpage_url %}
+                                <dt class="col-sm-3 detail-label">Website</dt>
+                                <dd class="col-sm-9">
+                                    <a href="{{ company.webpage_url }}" target="_blank" rel="noopener">{{ company.webpage_url }}</a>
+                                </dd>
+                            {% endif %}
+                            {% if company.address %}
+                                <dt class="col-sm-3 detail-label">Address</dt>
+                                <dd class="col-sm-9">{{ company.address }}</dd>
+                            {% endif %}
+                            {% if company.contact_name or company.contact_email or company.contact_phone %}
+                                <dt class="col-sm-3 detail-label">Contact</dt>
+                                <dd class="col-sm-9">
+                                    {{ company.contact_name|default:"" }}
+                                    {% if company.contact_email %}
+                                        <a href="mailto:{{ company.contact_email }}">{{ company.contact_email }}</a>
+                                    {% endif %}
+                                    {{ company.contact_phone|default:"" }}
+                                </dd>
+                            {% endif %}
+                            {% if company.applying_url %}
+                                <dt class="col-sm-3 detail-label">External ATS</dt>
+                                <dd class="col-sm-9">
+                                    <a href="{{ company.applying_url }}" target="_blank" rel="noopener">{{ company.applying_url }}</a>
+                                </dd>
+                            {% endif %}
+                            {% if company.video_url %}
+                                <dt class="col-sm-3 detail-label">Video</dt>
+                                <dd class="col-sm-9">
+                                    <a href="{{ company.video_url }}" target="_blank" rel="noopener">{{ company.video_url }}</a>
+                                </dd>
+                            {% endif %}
+                            <dt class="col-sm-3 detail-label">Seen</dt>
+                            <dd class="col-sm-9">
+                                {{ company.first_seen|date:"Y.m.d" }} –
+                                {{ company.last_seen|date:"Y.m.d" }}
+                            </dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alias history -->
+        {% if name_aliases or reg_aliases %}
+        <div class="card filter-card mb-4">
+            <div class="card-body">
+                <h5 class="mb-3">History</h5>
+                {% if name_aliases %}
+                    <div class="mb-2">
+                        <span class="detail-label">Names:</span>
+                        {% for alias in name_aliases %}
+                            <span class="source-tag">{{ alias.value }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                {% if reg_aliases %}
+                    <div>
+                        <span class="detail-label">Reg. codes:</span>
+                        {% for alias in reg_aliases %}
+                            <span class="source-tag">{{ alias.value }}</span>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Vacancies -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h4 class="mb-0">Vacancies</h4>
+            <span class="results-summary">
+                {% if total_count %}
+                    {{ total_count }} vacanc{% if total_count == 1 %}y{% else %}ies{% endif %}
+                {% endif %}
+            </span>
+        </div>
+        <div class="card filter-card">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm mb-0">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Salary</th>
+                                <th>Deadline</th>
+                                <th>Last seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for vacancy in vacancies %}
+                            <tr>
+                                <td class="vacancy-title">
+                                    <a href="{{ vacancy.url }}" target="_blank" rel="noopener">
+                                        {{ vacancy.title|default:"(no title)" }}
+                                    </a>
+                                </td>
+                                <td class="salary-cell">
+                                    {% if vacancy.salary_from and vacancy.salary_to %}
+                                        €{{ vacancy.salary_from|floatformat:0 }} – €{{ vacancy.salary_to|floatformat:0 }}
+                                    {% elif vacancy.salary_from %}
+                                        From €{{ vacancy.salary_from|floatformat:0 }}
+                                    {% elif vacancy.salary_to %}
+                                        Up to €{{ vacancy.salary_to|floatformat:0 }}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if vacancy.application_deadline %}
+                                        {% if vacancy.application_deadline < now %}
+                                            <span class="deadline-past">{{ vacancy.application_deadline|date:"Y.m.d" }}</span>
+                                        {% else %}
+                                            <span class="deadline-active">{{ vacancy.application_deadline|date:"Y.m.d" }}</span>
+                                        {% endif %}
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                                <td class="text-muted">{{ vacancy.last_seen|date:"Y.m.d"|default:"—" }}</td>
+                            </tr>
+                            {% empty %}
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-5">
+                                    No vacancies for this company.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pagination -->
+        {% if vacancies.paginator.num_pages > 1 %}
+        <nav class="mt-3" aria-label="Page navigation">
+            <ul class="pagination pagination-sm justify-content-center">
+                {% if vacancies.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ vacancies.previous_page_number }}">‹</a>
+                </li>
+                {% endif %}
+                {% for page_num in vacancies.paginator.page_range %}
+                    {% if page_num == vacancies.number %}
+                    <li class="page-item active">
+                        <span class="page-link">{{ page_num }}</span>
+                    </li>
+                    {% elif page_num > vacancies.number|add:"-3" and page_num < vacancies.number|add:"3" %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ page_num }}">{{ page_num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+                {% if vacancies.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ vacancies.next_page_number }}">›</a>
+                </li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,250 @@
+"""Company identity resolution shared by the vacancy scraper and
+the ``link_vacancies_to_companies`` backfill command.
+
+Implements docs/company_linking_plan.md §4: ``employerId`` is the
+stable join key (survives renames), ``regCode`` is a strong but
+self-reported signal — collisions and changes are flagged with
+``needs_review`` instead of auto-merging.
+"""
+import logging
+import re
+
+from bs4 import BeautifulSoup
+from django.utils import timezone
+
+from .models import Company, CompanyAlias, CompanyIdentity
+
+logger = logging.getLogger('fetcher')
+
+# All cv.lv portals (api/nextjs) share one employerId namespace.
+SOURCE_CVLV = 'cv.lv'
+
+_WS_RE = re.compile(r'\s+')
+
+
+def normalize_reg_code(value):
+    """strip + drop all whitespace + upper; empty -> None."""
+    code = _WS_RE.sub('', (value or '').strip()).upper()
+    return code or None
+
+
+def extract_vacancy_detail(next_data, vacancy_id):
+    """Return ``props.pageProps.vacancy[str(vacancy_id)]`` from a
+    parsed ``__NEXT_DATA__`` blob, or None."""
+    if not next_data:
+        return None
+    vacancies = (
+        next_data.get('props', {})
+        .get('pageProps', {})
+        .get('vacancy') or {}
+    )
+    return vacancies.get(str(vacancy_id))
+
+
+def employer_detail_slice(detail):
+    """Pull the company-relevant slices out of a vacancy detail
+    dict (the ``pageProps.vacancy[<id>]`` object)."""
+    if not detail:
+        return None
+    employer = detail.get('employer') or {}
+    employer_id = detail.get('employerId') or employer.get(
+        'employerId'
+    )
+    try:
+        employer_id = int(employer_id)
+    except (TypeError, ValueError):
+        employer_id = None
+    return {
+        'employer_id': employer_id,
+        'employer_name': detail.get('employerName'),
+        'employer': employer,
+        'contacts': detail.get('contacts') or {},
+        'applying_url': (
+            detail.get('settings') or {}
+        ).get('applyingUrl'),
+        'address': (
+            detail.get('highlights') or {}
+        ).get('address'),
+    }
+
+
+def strip_html(html):
+    return (
+        BeautifulSoup(html or '', 'html.parser')
+        .get_text(' ')
+        .strip()
+    )
+
+
+def observe_alias(company, kind, value, now=None):
+    """get_or_create a (company, kind, value) alias row and bump
+    ``last_seen`` on repeats."""
+    value = (value or '').strip()
+    if not value:
+        return
+    now = now or timezone.now()
+    alias, created = CompanyAlias.objects.get_or_create(
+        company=company, kind=kind, value=value,
+        defaults={'first_seen': now, 'last_seen': now},
+    )
+    if not created:
+        alias.last_seen = now
+        alias.save(update_fields=['last_seen'])
+
+
+def resolve_company(employer_id, employer_name=None,
+                    source=SOURCE_CVLV, now=None):
+    """Return the canonical Company for a portal employer id.
+
+    First sight creates a fresh Company + identity; later sights
+    bump ``last_seen`` and apply rename bookkeeping (new 'name'
+    alias + updated display name — routine, no review flag).
+    """
+    now = now or timezone.now()
+    identity = (
+        CompanyIdentity.objects
+        .filter(source=source, employer_id=employer_id)
+        .select_related('company')
+        .first()
+    )
+    if identity is None:
+        company = Company.objects.create(
+            name=(employer_name or '').strip(),
+            first_seen=now,
+            last_seen=now,
+        )
+        CompanyIdentity.objects.create(
+            company=company, source=source,
+            employer_id=employer_id,
+            first_seen=now, last_seen=now,
+        )
+    else:
+        company = identity.company
+        if company.merged_into_id is not None:
+            company = company.canonical()
+        identity.last_seen = now
+        identity.save(update_fields=['last_seen'])
+
+    name = (employer_name or '').strip()
+    if name:
+        observe_alias(company, CompanyAlias.KIND_NAME, name, now)
+    update_fields = ['last_seen']
+    company.last_seen = now
+    if name and company.name != name:
+        company.name = name
+        update_fields.append('name')
+    company.save(update_fields=update_fields)
+    return company
+
+
+def apply_employer_detail(company, detail_slice, now=None):
+    """Upsert rich employer fields onto ``company`` from a
+    ``employer_detail_slice()`` dict and apply the §4.1 conflict
+    rules (reg-code collision / change -> needs_review)."""
+    now = now or timezone.now()
+    employer = detail_slice.get('employer') or {}
+
+    name = (detail_slice.get('employer_name') or '').strip()
+    if name:
+        observe_alias(company, CompanyAlias.KIND_NAME, name, now)
+        if company.name != name:
+            company.name = name
+
+    reg_code = normalize_reg_code(employer.get('regCode'))
+    if reg_code:
+        observe_alias(
+            company, CompanyAlias.KIND_REG_CODE, reg_code, now
+        )
+        collides = (
+            Company.objects
+            .filter(reg_code=reg_code)
+            .exclude(pk=company.pk)
+            .exists()
+        )
+        if collides:
+            # Same regCode under a different employerId — strong
+            # same-entity evidence or a typo; never auto-merge.
+            # The observed code stays in the alias history.
+            if not company.needs_review:
+                company.needs_review = True
+                logger.warning(
+                    f"regCode {reg_code} observed on company "
+                    f"{company.pk} ({company.name}) is already "
+                    f"held by another company — flagged for review"
+                )
+        elif company.reg_code != reg_code:
+            if company.reg_code:
+                # regCode changed under the same employerId —
+                # possible acquisition; keep the old code in the
+                # alias history and flag for review.
+                observe_alias(
+                    company, CompanyAlias.KIND_REG_CODE,
+                    company.reg_code, now,
+                )
+                company.needs_review = True
+                logger.warning(
+                    f"Company {company.pk} ({company.name}) "
+                    f"regCode {company.reg_code} -> {reg_code} "
+                    f"— flagged for review"
+                )
+            company.reg_code = reg_code
+
+    contacts = detail_slice.get('contacts') or {}
+    contact_name = ' '.join(
+        part for part in (
+            (contacts.get('firstName') or '').strip(),
+            (contacts.get('lastName') or '').strip(),
+        ) if part
+    ) or None
+
+    company.about = strip_html(employer.get('about')) or None
+    company.webpage_url = employer.get('webpageUrl') or None
+    company.video_url = employer.get('videoUrl') or None
+    company.logo_file_id = employer.get('logoFileId') or None
+    company.cover_file_id = employer.get('coverFileId') or None
+    company.gallery = employer.get('gallery') or []
+    company.contact_name = contact_name
+    company.contact_email = contacts.get('email') or None
+    company.contact_phone = contacts.get('phone') or None
+    company.applying_url = detail_slice.get('applying_url') or None
+    company.address = detail_slice.get('address') or None
+    company.raw_employer = employer or None
+    company.detail_fetched_at = now
+    company.last_seen = now
+    company.save()
+    return company
+
+
+def merge_companies(target, sources):
+    """Repoint identities, vacancies and aliases from ``sources``
+    onto ``target``, then soft-redirect the losers via
+    ``merged_into``. Clears ``needs_review`` on both sides."""
+    for source in sources:
+        if source.pk == target.pk:
+            continue
+        CompanyIdentity.objects.filter(
+            company=source
+        ).update(company=target)
+        source.vacancies.update(company=target)
+        for alias in source.aliases.all():
+            existing = target.aliases.filter(
+                kind=alias.kind, value=alias.value
+            ).first()
+            if existing is None:
+                alias.company = target
+                alias.save(update_fields=['company'])
+                continue
+            if alias.first_seen < existing.first_seen:
+                existing.first_seen = alias.first_seen
+            if alias.last_seen > existing.last_seen:
+                existing.last_seen = alias.last_seen
+            existing.save()
+            alias.delete()
+        source.merged_into = target
+        source.needs_review = False
+        source.save(
+            update_fields=['merged_into', 'needs_review']
+        )
+    if target.needs_review:
+        target.needs_review = False
+        target.save(update_fields=['needs_review'])

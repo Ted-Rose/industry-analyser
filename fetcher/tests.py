@@ -10,6 +10,7 @@ text.
 """
 
 import hashlib
+import io
 import json
 import types
 from datetime import timedelta
@@ -19,7 +20,13 @@ from django.test import TestCase
 from django.utils import timezone
 
 from ai_providers import errors as ai_errors
+from django.core.management import call_command
+
+from fetcher import company_linking
 from fetcher.models import (
+    Company,
+    CompanyAlias,
+    CompanyIdentity,
     Industry,
     Keyword,
     Vacancy,
@@ -697,3 +704,435 @@ class BatchedPersistenceTests(TestCase):
             set(stored.keywords.values_list('name', flat=True)),
             {'python'},
         )
+
+
+def employer_page_detail(
+    employer_id=7,
+    employer_name='Acme',
+    reg_code=None,
+):
+    """Detail-page vacancy dict carrying the employer slices the
+    company linking code reads (plan §2.1)."""
+    return {
+        'employerId': employer_id,
+        'employerName': employer_name,
+        'employer': {
+            'employerId': employer_id,
+            'regCode': reg_code,
+            'about': '<div>About us</div>',
+            'webpageUrl': 'https://acme.example',
+            'videoUrl': 'https://acme.example/video',
+            'logoFileId': 'logo-1',
+            'coverFileId': 'cover-1',
+            'gallery': ['g1', 'g2'],
+        },
+        'contacts': {
+            'firstName': 'Talent ',
+            'lastName': 'Team',
+            'email': 'talent@acme.example',
+            'phone': '+371 123',
+        },
+        'settings': {'applyingUrl': 'https://ats.example/apply'},
+        'highlights': {'address': 'Marijas iela 2a'},
+        'details': {'standardDetails': [], 'fileDetails': None},
+    }
+
+
+def employer_detail_response(vacancy_id, **detail_kwargs):
+    payload = {
+        'props': {
+            'pageProps': {
+                'vacancy': {
+                    str(vacancy_id): employer_page_detail(
+                        **detail_kwargs
+                    ),
+                },
+            },
+        },
+    }
+    return response(next_data_html(payload))
+
+
+class CompanyLinkingTests(TestCase):
+    """employerId -> Company/CompanyIdentity linking at scrape
+    time (plan PR-2)."""
+
+    def setUp(self):
+        super().setUp()
+        self.scraper = make_scraper(API_CONFIG, portal_id=1)
+
+    def _scrape(self, results):
+        vacancies = [
+            self.scraper.initiate_resource(r) for r in results
+        ]
+        self.scraper.create_or_update_resources(vacancies)
+        return vacancies
+
+    def test_new_vacancy_links_company_and_identity(self):
+        self._scrape([
+            vacancy_result(1, employerId=7, employerName='Acme')
+        ])
+        company = Company.objects.get()
+        self.assertEqual(company.name, 'Acme')
+        identity = CompanyIdentity.objects.get()
+        self.assertEqual(identity.source, 'cv.lv')
+        self.assertEqual(identity.employer_id, 7)
+        self.assertEqual(identity.company, company)
+        stored = Vacancy.objects.get(vacancy_portal_id=1)
+        self.assertEqual(stored.company_id, company.pk)
+        self.assertTrue(
+            company.aliases.filter(kind='name', value='Acme')
+            .exists()
+        )
+
+    def test_identity_reused_across_runs(self):
+        self._scrape([vacancy_result(1, employerId=7)])
+        self._scrape([vacancy_result(2, employerId=7)])
+        self.assertEqual(Company.objects.count(), 1)
+        self.assertEqual(CompanyIdentity.objects.count(), 1)
+
+    def test_rename_updates_name_and_records_alias(self):
+        self._scrape([
+            vacancy_result(1, employerId=7, employerName='Acme')
+        ])
+        self._scrape([
+            vacancy_result(2, employerId=7, employerName='Acme Corp')
+        ])
+        company = Company.objects.get()
+        self.assertEqual(company.name, 'Acme Corp')
+        names = set(
+            company.aliases.filter(kind='name')
+            .values_list('value', flat=True)
+        )
+        self.assertEqual(names, {'Acme', 'Acme Corp'})
+        # Renames are routine — no review flag.
+        self.assertFalse(company.needs_review)
+
+    def test_two_employer_ids_same_name_make_two_companies(self):
+        self._scrape([
+            vacancy_result(1, employerId=7, employerName='Acme'),
+            vacancy_result(2, employerId=8, employerName='Acme'),
+        ])
+        self.assertEqual(Company.objects.count(), 2)
+        self.assertEqual(CompanyIdentity.objects.count(), 2)
+        employer_ids = set(
+            CompanyIdentity.objects.values_list(
+                'employer_id', flat=True
+            )
+        )
+        self.assertEqual(employer_ids, {7, 8})
+
+    def test_100_vacancies_one_employer_make_one_company(self):
+        results = [
+            vacancy_result(1000 + i, employerId=7)
+            for i in range(100)
+        ]
+        self._scrape(results)
+        self.assertEqual(Company.objects.count(), 1)
+        self.assertEqual(CompanyIdentity.objects.count(), 1)
+        self.assertEqual(
+            Vacancy.objects.filter(company__isnull=False).count(),
+            100,
+        )
+
+    def test_sighting_only_row_gets_company(self):
+        existing = make_vacancy(
+            42,
+            title='Python developer',
+            company_name='Acme SIA',
+        )
+        self._scrape([vacancy_result(42, employerId=7)])
+        existing.refresh_from_db()
+        self.assertEqual(
+            existing.company_id,
+            Company.objects.get().pk,
+        )
+
+    def test_changed_existing_row_carries_company(self):
+        # A real change (fresh detail) puts the row on the
+        # bulk_update path — the FK still lands.
+        existing = make_vacancy(42, title=None)
+        self._scrape([vacancy_result(42, employerId=7)])
+        existing.refresh_from_db()
+        self.assertEqual(
+            existing.company_id,
+            Company.objects.get().pk,
+        )
+
+    def test_merged_company_resolves_to_survivor(self):
+        self._scrape([
+            vacancy_result(1, employerId=7, employerName='Acme'),
+            vacancy_result(2, employerId=8, employerName='Acme 2'),
+        ])
+        target, loser = Company.objects.order_by('name')
+        company_linking.merge_companies(target, [loser])
+        loser_identity = CompanyIdentity.objects.get(
+            employer_id=8
+        )
+        self._scrape([vacancy_result(3, employerId=8)])
+        stored = Vacancy.objects.get(vacancy_portal_id=3)
+        self.assertEqual(stored.company_id, target.pk)
+        # The stale link on vacancy 2 is repointed on its next
+        # sighting too.
+        self._scrape([vacancy_result(2, employerId=8)])
+        self.assertEqual(
+            Vacancy.objects.get(vacancy_portal_id=2).company_id,
+            target.pk,
+        )
+        self.assertEqual(loser_identity.employer_id, 8)
+
+    def test_missing_employer_id_leaves_company_null(self):
+        self._scrape([vacancy_result(1)])
+        self.assertIsNone(
+            Vacancy.objects.get(vacancy_portal_id=1).company_id
+        )
+        self.assertFalse(Company.objects.exists())
+
+    def test_dry_run_writes_no_companies(self):
+        scraper = make_scraper(API_CONFIG, portal_id=1)
+        scraper.dry_run = True
+        vacancies = [
+            scraper.initiate_resource(
+                vacancy_result(1, employerId=7)
+            )
+        ]
+        scraper.create_or_update_resources(vacancies)
+        self.assertFalse(Company.objects.exists())
+        self.assertFalse(CompanyIdentity.objects.exists())
+        self.assertFalse(CompanyAlias.objects.exists())
+        self.assertFalse(Vacancy.objects.exists())
+
+
+class EmployerDetailEnrichmentTests(TestCase):
+    """Detail-page employer fields -> Company upsert (plan PR-3)."""
+
+    def setUp(self):
+        super().setUp()
+        self.scraper = make_scraper(CONFIG, portal_id=2)
+
+    def _scrape_detail(self, vacancy_id, **detail_kwargs):
+        result = vacancy_result(
+            vacancy_id,
+            employerId=detail_kwargs.get('employer_id', 7),
+            employerName=detail_kwargs.get('employer_name', 'Acme'),
+        )
+        result['_detail'] = employer_page_detail(**detail_kwargs)
+        vacancy = self.scraper.initiate_resource(result)
+        self.scraper.create_or_update_resources([vacancy])
+
+    def test_reg_code_normalized_and_fields_upserted(self):
+        self._scrape_detail(1, reg_code=' 0749 5895 ')
+        company = Company.objects.get()
+        self.assertEqual(company.reg_code, '07495895')
+        self.assertEqual(company.about, 'About us')
+        self.assertEqual(
+            company.webpage_url, 'https://acme.example'
+        )
+        self.assertEqual(company.logo_file_id, 'logo-1')
+        self.assertEqual(company.cover_file_id, 'cover-1')
+        self.assertEqual(company.gallery, ['g1', 'g2'])
+        self.assertEqual(company.contact_name, 'Talent Team')
+        self.assertEqual(
+            company.contact_email, 'talent@acme.example'
+        )
+        self.assertEqual(company.contact_phone, '+371 123')
+        self.assertEqual(
+            company.applying_url, 'https://ats.example/apply'
+        )
+        self.assertEqual(company.address, 'Marijas iela 2a')
+        self.assertEqual(company.raw_employer['employerId'], 7)
+        self.assertIsNotNone(company.detail_fetched_at)
+        self.assertFalse(company.needs_review)
+        self.assertTrue(
+            company.aliases.filter(
+                kind='reg_code', value='07495895'
+            ).exists()
+        )
+
+    def test_reg_code_change_flags_review(self):
+        self._scrape_detail(1, reg_code='111')
+        self._scrape_detail(2, reg_code='222')
+        company = Company.objects.get()
+        self.assertEqual(company.reg_code, '222')
+        self.assertTrue(company.needs_review)
+        codes = set(
+            company.aliases.filter(kind='reg_code')
+            .values_list('value', flat=True)
+        )
+        self.assertEqual(codes, {'111', '222'})
+
+    def test_reg_code_collision_flags_new_company(self):
+        self._scrape_detail(1, reg_code='999', employer_id=7)
+        self._scrape_detail(2, reg_code='999', employer_id=8)
+        self.assertEqual(Company.objects.count(), 2)
+        flagged = Company.objects.get(needs_review=True)
+        # Constraint can't fire — the observed code lives in the
+        # alias history instead.
+        self.assertIsNone(flagged.reg_code)
+        self.assertTrue(
+            flagged.aliases.filter(
+                kind='reg_code', value='999'
+            ).exists()
+        )
+        keeper = Company.objects.get(needs_review=False)
+        self.assertEqual(keeper.reg_code, '999')
+
+    def test_missing_reg_code_leaves_null(self):
+        self._scrape_detail(1, reg_code=None)
+        company = Company.objects.get()
+        self.assertIsNone(company.reg_code)
+        self.assertFalse(company.needs_review)
+
+
+class CompanyLinkingHelperTests(TestCase):
+    """Pure helpers in fetcher.company_linking."""
+
+    def test_normalize_reg_code(self):
+        self.assertEqual(
+            company_linking.normalize_reg_code(' ab 12 cd '),
+            'AB12CD',
+        )
+        self.assertIsNone(company_linking.normalize_reg_code(''))
+        self.assertIsNone(company_linking.normalize_reg_code(None))
+        self.assertIsNone(company_linking.normalize_reg_code('   '))
+
+    def test_extract_vacancy_detail(self):
+        data = {
+            'props': {
+                'pageProps': {'vacancy': {'7': {'id': 7}}},
+            },
+        }
+        self.assertEqual(
+            company_linking.extract_vacancy_detail(data, 7),
+            {'id': 7},
+        )
+        self.assertIsNone(
+            company_linking.extract_vacancy_detail(data, 8)
+        )
+        self.assertIsNone(
+            company_linking.extract_vacancy_detail(None, 7)
+        )
+        self.assertIsNone(
+            company_linking.extract_vacancy_detail({}, 7)
+        )
+
+    def test_employer_detail_slice(self):
+        detail = employer_page_detail(reg_code='1')
+        s = company_linking.employer_detail_slice(detail)
+        self.assertEqual(s['employer_id'], 7)
+        self.assertEqual(s['employer_name'], 'Acme')
+        self.assertEqual(s['employer']['regCode'], '1')
+        self.assertEqual(
+            s['applying_url'], 'https://ats.example/apply'
+        )
+        self.assertEqual(s['address'], 'Marijas iela 2a')
+        self.assertIsNone(company_linking.employer_detail_slice(None))
+
+
+class LinkVacanciesToCompaniesTests(TestCase):
+    """The backfill command (plan PR-4)."""
+
+    def _run(self, *args, **kwargs):
+        with mock.patch.object(
+            VacancyScrapper, 'load_config', return_value=CONFIG
+        ), mock.patch(
+            'fetcher.management.commands.'
+            'link_vacancies_to_companies.load_portals_config',
+            return_value={'2': dict(CONFIG, order=1)},
+        ), mock.patch.object(
+            VacancyScrapper, 'make_request',
+            return_value=kwargs.pop('response', None),
+        ):
+            call_command('link_vacancies_to_companies', *args)
+
+    def test_links_vacancy_via_detail_page(self):
+        vacancy = make_vacancy(42)
+        self._run(
+            '--ids', '42',
+            response=employer_detail_response(
+                42, reg_code=' 11 22 '
+            ),
+        )
+        vacancy.refresh_from_db()
+        self.assertIsNotNone(vacancy.company_id)
+        self.assertIsNotNone(vacancy.detail_fetched_at)
+        self.assertEqual(vacancy.company.reg_code, '1122')
+        identity = CompanyIdentity.objects.get()
+        self.assertEqual(identity.employer_id, 7)
+
+    def test_dead_detail_page_leaves_company_null(self):
+        vacancy = make_vacancy(42)
+        self._run('--ids', '42', response=response(b'<html></html>'))
+        vacancy.refresh_from_db()
+        self.assertIsNone(vacancy.company_id)
+
+    def test_fetch_failure_leaves_company_null(self):
+        vacancy = make_vacancy(42)
+        self._run('--ids', '42', response=None)
+        vacancy.refresh_from_db()
+        self.assertIsNone(vacancy.company_id)
+
+    def test_dry_run_reports_only(self):
+        make_vacancy(42)
+        out = io.StringIO()
+        with mock.patch.object(
+            VacancyScrapper, 'load_config', return_value=CONFIG
+        ), mock.patch(
+            'fetcher.management.commands.'
+            'link_vacancies_to_companies.load_portals_config',
+            return_value={'2': CONFIG},
+        ):
+            call_command(
+                'link_vacancies_to_companies',
+                '--dry-run', stdout=out,
+            )
+        self.assertIn('dry-run', out.getvalue())
+        self.assertFalse(Company.objects.exists())
+
+
+class MergeCompaniesTests(TestCase):
+
+    def test_merge_repoints_everything(self):
+        target = Company.objects.create(
+            name='Target', first_seen=timezone.now(),
+            last_seen=timezone.now(),
+        )
+        loser = Company.objects.create(
+            name='Loser', needs_review=True,
+            first_seen=timezone.now(), last_seen=timezone.now(),
+        )
+        CompanyIdentity.objects.create(
+            company=loser, source='cv.lv', employer_id=8,
+            first_seen=timezone.now(), last_seen=timezone.now(),
+        )
+        loser_vacancy = make_vacancy(1, company=loser)
+        CompanyAlias.objects.create(
+            company=loser, kind='name', value='Loser',
+            first_seen=timezone.now(), last_seen=timezone.now(),
+        )
+        company_linking.merge_companies(target, [loser])
+
+        loser.refresh_from_db()
+        self.assertEqual(loser.merged_into, target)
+        self.assertFalse(loser.needs_review)
+        loser_vacancy.refresh_from_db()
+        self.assertEqual(loser_vacancy.company_id, target.pk)
+        self.assertEqual(
+            CompanyIdentity.objects.get(employer_id=8).company,
+            target,
+        )
+        self.assertTrue(
+            target.aliases.filter(kind='name', value='Loser')
+            .exists()
+        )
+
+    def test_canonical_follows_chain(self):
+        target = Company.objects.create(
+            name='T', first_seen=timezone.now(),
+            last_seen=timezone.now(),
+        )
+        loser = Company.objects.create(
+            name='L', merged_into=target,
+            first_seen=timezone.now(), last_seen=timezone.now(),
+        )
+        self.assertEqual(loser.canonical(), target)

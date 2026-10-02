@@ -1,0 +1,61 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a> &rsaquo;
+  <a href="{% url 'admin:app_list' app_label='fetcher' %}">Fetcher</a> &rsaquo;
+  <a href="{% url 'admin:fetcher_company_changelist' %}">Companies</a> &rsaquo;
+  {% translate 'Merge' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>{% translate 'Merge companies' %}</h1>
+
+<p>
+  Pick the company the others are merged into. Its identities,
+  vacancies and aliases absorb the losers'; each loser keeps a
+  browsable row with <code>merged_into</code> pointing at the
+  survivor. <code>needs_review</code> is cleared on both sides.
+</p>
+
+<form method="post" action="">
+  {% csrf_token %}
+  <input type="hidden" name="action" value="{{ action_name }}">
+  <input type="hidden" name="apply" value="1">
+  {% for id in selected_ids %}
+    <input type="hidden" name="_selected_action" value="{{ id }}">
+  {% endfor %}
+
+  <table>
+    <thead>
+      <tr>
+        <th>{% translate 'Survives' %}</th>
+        <th>{% translate 'Name' %}</th>
+        <th>{% translate 'Reg. code' %}</th>
+        <th>{% translate 'Needs review' %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for company in companies %}
+      <tr>
+        <td>
+          <input type="radio" name="target" value="{{ company.pk }}"
+                 {% if forloop.first %}checked{% endif %}>
+        </td>
+        <td>{{ company.name }}</td>
+        <td>{{ company.reg_code|default:"—" }}</td>
+        <td>{{ company.needs_review }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="submit-row" style="margin-top: 1em;">
+    <input type="submit" class="default" value="{% translate 'Merge' %}">
+    <a href="{% url 'admin:fetcher_company_changelist' %}"
+       class="button cancel-link">{% translate 'Cancel' %}</a>
+  </div>
+</form>
+{% endblock %}

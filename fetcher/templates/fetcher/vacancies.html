@@ -214,7 +214,15 @@
                                         {{ vacancy.title|default:"(no title)" }}
                                     </a>
                                 </td>
-                                <td>{{ vacancy.company_name|default:"—" }}</td>
+                                <td>
+                                    {% if vacancy.company_id %}
+                                        <a href="{% url 'company_detail' vacancy.company_id %}">
+                                            {{ vacancy.company_name|default:"—" }}
+                                        </a>
+                                    {% else %}
+                                        {{ vacancy.company_name|default:"—" }}
+                                    {% endif %}
+                                </td>
                                 <td class="salary-cell">
                                     {% if vacancy.salary_from and vacancy.salary_to %}
                                         €{{ vacancy.salary_from|floatformat:0 }} – €{{ vacancy.salary_to|floatformat:0 }}
