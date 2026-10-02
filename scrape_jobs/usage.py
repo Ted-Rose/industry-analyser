@@ -8,12 +8,12 @@ import datetime
 import logging
 
 from django.db.models import (
-    Avg, Count, DurationField, ExpressionWrapper, F, Q,
+    Avg, Count, DurationField, ExpressionWrapper, F, Max, Q,
 )
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
-from .models import ScrapeJobRun, ScrapeJobRunItem
+from .models import ScrapeJob, ScrapeJobRun, ScrapeJobRunItem
 
 logger = logging.getLogger('scrape_jobs')
 
@@ -105,6 +105,72 @@ def run_totals(date_from=None, date_to=None):
         ScrapeJobRun.objects.all(), date_from, date_to
     )
     return queryset.aggregate(**_RUN_AGGREGATES)
+
+
+def job_overview(cycle_key=None):
+    """Per-job snapshot for the dashboard.
+
+    Returns a list of dicts: ``job``, ``item_total``/``item_active``
+    (ScrapeJobItem counts), ``cycle_done``/``cycle_failed`` (distinct
+    items DONE/FAILED across the cycle's runs — the resume
+    skip-set), ``progress_pct`` (cycle_done over active items),
+    ``running`` (a RUNNING run exists) and ``last_run``.
+    """
+    cycle_key = cycle_key or timezone.localdate().isoformat()
+    jobs = list(
+        ScrapeJob.objects.order_by('slug').prefetch_related('items')
+    )
+    last_run_ids = (
+        ScrapeJobRun.objects.values('job_id')
+        .annotate(last_id=Max('id'))
+        .values_list('last_id', flat=True)
+    )
+    last_runs = {
+        run.job_id: run
+        for run in ScrapeJobRun.objects.filter(pk__in=last_run_ids)
+    }
+    running_ids = set(
+        ScrapeJobRun.objects.filter(status=ScrapeJobRun.RUNNING)
+        .values_list('job_id', flat=True)
+    )
+    cycle_counts = {
+        row['run__job_id']: row
+        for row in (
+            ScrapeJobRunItem.objects
+            .filter(run__cycle_key=cycle_key)
+            .values('run__job_id')
+            .annotate(
+                done=Count(
+                    'item', distinct=True,
+                    filter=Q(status=ScrapeJobRunItem.DONE),
+                ),
+                failed=Count(
+                    'item', distinct=True,
+                    filter=Q(status=ScrapeJobRunItem.FAILED),
+                ),
+            )
+        )
+    }
+    rows = []
+    for job in jobs:
+        items = list(job.items.all())
+        active = sum(1 for item in items if item.is_active)
+        counts = cycle_counts.get(job.id, {})
+        done = counts.get('done', 0)
+        rows.append({
+            'job': job,
+            'item_total': len(items),
+            'item_active': active,
+            'cycle_done': done,
+            'cycle_failed': counts.get('failed', 0),
+            'progress_pct': (
+                min(100, round(100 * done / active))
+                if active else None
+            ),
+            'running': job.id in running_ids,
+            'last_run': last_runs.get(job.id),
+        })
+    return rows
 
 
 def item_totals(date_from=None, date_to=None):

@@ -78,6 +78,10 @@ OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
 # DATABASE_URL).
 AI_API_KEY_SETTINGS = ('GEMINI_API_KEY', 'OPENROUTER_API_KEY')
 
+# Admin is the only login UI; the root dashboard bounces anonymous
+# visitors there via login_required.
+LOGIN_URL = '/admin/login/'
+
 ALLOWED_HOSTS = [
     '127.0.0.1',
     '0.0.0.0',

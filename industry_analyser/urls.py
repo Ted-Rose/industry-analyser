@@ -18,13 +18,14 @@ from django.contrib import admin
 from django.urls import path, include
 from fetcher import views as fetcher
 from accounts import views as accounts
+from scrape_jobs import views as scrape_jobs
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('manifest.json', fetcher.pwa_manifest, name='pwa_manifest'),
     path('sw.js', fetcher.pwa_service_worker, name='pwa_service_worker'),
     path('fetcher/', fetcher.fetcher, name='fetcher'),
-    path('', fetcher.home, name='home'),
+    path('', scrape_jobs.dashboard, name='home'),
     path('vacancies/', fetcher.find_vacancies, name='find_vacancies'),
     path('accounts/', accounts.accounts, name='accounts'),
     path('add_keyword/', fetcher.add_keyword, name='add_keyword'),
