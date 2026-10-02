@@ -221,7 +221,9 @@ python manage.py scrape_vacancies [portal_id]   # all configured portals by defa
 python manage.py scrape_apartment_ads --max-pages 10
 python manage.py scrape_housing_ads
 python manage.py scrape_blogs [--theme NAME] [--reanalyze] [--max-api-requests N]
-python manage.py scrape_tv_programs [--force] [--dry-run]
+python manage.py scrape_tv_programs [--force] [--dry-run] [--days-past N] [--days-future N] [--no-enrich]
+python manage.py backfill_program_shows [--dry-run] [--batch-size N]
+python manage.py enrich_tv_shows [--status pending|not_found|failed] [--limit N] [--dry-run]
 python manage.py sync_apartment_regions / sync_housing_regions
 python manage.py refetch_apartment_ads --filter "post_date__isnull=True" --dry-run
 python manage.py validate_sightings

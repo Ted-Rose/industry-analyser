@@ -42,6 +42,23 @@ class Command(BaseCommand):
             default=None,
             help='Debug: start at the item with this key',
         )
+        parser.add_argument(
+            '--days-past',
+            type=int,
+            default=None,
+            help='Days back to scrape (default: 7)',
+        )
+        parser.add_argument(
+            '--days-future',
+            type=int,
+            default=None,
+            help='Days ahead to scrape (default: 7)',
+        )
+        parser.add_argument(
+            '--no-enrich',
+            action='store_true',
+            help='Skip OMDb/AI enrichment of new Shows',
+        )
 
     def handle(self, *args, **options):
         start_time = timezone.now()
@@ -64,10 +81,18 @@ class Command(BaseCommand):
             dry_run=options['dry_run'],
         )
 
+        config = {}
+        if options['days_past'] is not None:
+            config['days_in_past'] = options['days_past']
+        if options['days_future'] is not None:
+            config['days_in_future'] = options['days_future']
+
         try:
             scraper = TVProgramScraper(
+                config=config or None,
                 runner=runner,
                 dry_run=options['dry_run'],
+                enrich=not options['no_enrich'],
             )
             programs = scraper.run()
             runner.finish()

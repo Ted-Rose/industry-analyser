@@ -94,6 +94,41 @@
         color: #777;
       }
 
+      .feed-title-eng {
+        font-weight: normal;
+        color: #777;
+        font-size: 14px;
+      }
+
+      .feed-actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+      }
+
+      .feed-actions form {
+        display: inline;
+      }
+
+      .reaction-btn {
+        padding: 4px 12px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: white;
+        cursor: pointer;
+        font-size: 13px;
+      }
+
+      .reaction-btn.liked {
+        background: #d4edda;
+        border-color: #28a745;
+      }
+
+      .reaction-btn.disliked {
+        background: #f8d7da;
+        border-color: #dc3545;
+      }
+
       @media (max-width: 768px) {
         .feed-container {
           width: 100%;
@@ -209,9 +244,20 @@
                     <label for="not_channel">Exclude Channel:</label>
           <input
             type="text"
-            name="not_channel"
+            name="exclude_channel"
             id="not_channel"
-            value="{{ request.GET.not_channel }}"
+            value="{{ request.GET.exclude_channel }}"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="show_disliked">Show disliked:</label>
+          <input
+            type="checkbox"
+            name="show_disliked"
+            id="show_disliked"
+            value="1"
+            {% if filters.show_disliked %}checked{% endif %}
           />
         </div>
 
@@ -222,22 +268,43 @@
       {% for program in programs %}
       <div class="feed-card">
         <img
-          src="{{ program.image_url|default:'https://via.assets.so/img.jpg?w=400&h=300&bg=e5e7eb&f=png' }}"
-          alt="{{ program.title_eng|default:program.title_lv }}"
+          src="{{ program.image_url|default:program.show.image_url|default:'https://via.assets.so/img.jpg?w=400&h=300&bg=e5e7eb&f=png' }}"
+          alt="{{ program.show.title_eng|default:program.title_eng|default:program.title_lv }}"
         />
         <div class="feed-content">
-          <div class="feed-title">{{ program.title_lv }}</div>
-          <div class="feed-description">{{ program.description_lv }}</div>
-          <div class="feed-metadata">
-            <span>Rating: {{ program.imdb_rating }}</span> |
-            <span>Channel: {{ program.channel }}</span> |
-            <span>Start Time: {{ program.start_time }}</span> |
-            <span>PG Rating: {{ program.pg_rating }}</span> |
-            <span>Match Ratio: {{ program.title_match_ratio|floatformat:2 }}</span> |
-            {% if program.url %}
-              <a href="{{ program.url }}" target="_blank" class="btn btn-secondary btn-sm ml-2">Imdb</a>
+          <div class="feed-title">
+            {% if program.show %}{{ program.show.title_lv }}{% else %}{{ program.title_lv }}{% endif %}
+            {% if program.show.title_eng %}
+              <span class="feed-title-eng">{{ program.show.title_eng }}</span>
             {% endif %}
           </div>
+          <div class="feed-description">{{ program.description_lv }}</div>
+          <div class="feed-metadata">
+            <span>Rating: {{ program.show.imdb_rating|default:program.imdb_rating }}</span> |
+            <span>Channel: {{ program.channel }}</span> |
+            <span>Start Time: {{ program.start_time }}</span> |
+            <span>PG Rating: {{ program.show.pg_rating|default:program.pg_rating }}</span> |
+            <span>Match Ratio: {{ program.show.title_match_ratio|default:program.title_match_ratio|floatformat:2 }}</span> |
+            {% if program.show.imdb_url %}
+              <a href="{{ program.show.imdb_url }}" target="_blank" class="btn btn-secondary btn-sm ml-2">IMDb</a>
+            {% elif program.url %}
+              <a href="{{ program.url }}" target="_blank" class="btn btn-secondary btn-sm ml-2">IMDb</a>
+            {% endif %}
+          </div>
+          {% if program.show %}
+          <div class="feed-actions">
+            <form method="post" action="{% url 'tv_programs:react_to_show' program.show.pk 'like' %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}" />
+              <button type="submit" class="reaction-btn{% if program.user_reaction == 'like' %} liked{% endif %}">Like</button>
+            </form>
+            <form method="post" action="{% url 'tv_programs:react_to_show' program.show.pk 'dislike' %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}" />
+              <button type="submit" class="reaction-btn{% if program.user_reaction == 'dislike' %} disliked{% endif %}">Dislike</button>
+            </form>
+          </div>
+          {% endif %}
         </div>
       </div>
       {% empty %}

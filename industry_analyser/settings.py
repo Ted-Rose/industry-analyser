@@ -72,6 +72,7 @@ BASE_URL = env('BASE_URL')
 HARD_CODED_PASSWORD = env('HARD_CODED_PASSWORD', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
+OMDB_KEY = env('OMDB_KEY', default='')
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or

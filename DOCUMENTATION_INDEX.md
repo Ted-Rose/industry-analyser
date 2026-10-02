@@ -190,6 +190,7 @@ industry-analyser/
 ├── docs/
 │   ├── README.md                     # Docs index
 │   ├── react_frontend_migration/README.md  # React+Vite migration plan
+│   ├── tv_show_normalization_plan.md  # Show/Program normalization plan
 │   └── cvlv_api_integration_task.md  # Task details
 │
 └── terraform/

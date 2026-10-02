@@ -131,6 +131,15 @@ resource "google_secret_manager_secret_iam_member" "fetcher_portals_accessor" {
   member    = "serviceAccount:${google_service_account.job_runtime.email}"
 }
 
+# OMDb API key for tv_programs show enrichment (secret created
+# outside Terraform with gcloud)
+resource "google_secret_manager_secret_iam_member" "omdb_key_accessor" {
+  project   = var.project_id
+  secret_id = "industry-analyser-omdb-key"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.job_runtime.email}"
+}
+
 resource "google_cloud_run_v2_job" "scrape_vacancy" {
   name     = "scrape-vacancy"
   location = var.region
@@ -267,6 +276,16 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
           value = var.gemini_api_key
         }
 
+        env {
+          name = "OMDB_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = "industry-analyser-omdb-key"
+              version = "latest"
+            }
+          }
+        }
+
         resources {
           limits = {
             cpu    = "1"
@@ -280,6 +299,7 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
   depends_on = [
     google_artifact_registry_repository.dockerhub_cache,
     google_project_service.apis,
+    google_secret_manager_secret_iam_member.omdb_key_accessor,
   ]
 
   lifecycle {
