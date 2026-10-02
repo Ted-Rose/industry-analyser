@@ -1,0 +1,378 @@
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { fetchPrograms, type ProgramOut } from '../api';
+import { useReactToShow } from '../mutations';
+import { displayRating, formatStartTime } from '../format';
+import { errorDetail } from '../../shared/api/errors';
+
+const PLACEHOLDER_IMAGE =
+  'https://via.assets.so/img.jpg?w=400&h=300&bg=e5e7eb&f=png';
+
+interface Draft {
+  contentRating: string;
+  notContentRating: string;
+  ratingValue: string;
+  ratio: string;
+  startDate: string;
+  endDate: string;
+  channel: string;
+  excludeChannel: string;
+  showDisliked: boolean;
+}
+
+/**
+ * React port of tv_programs/program_list.html — the filtered program
+ * feed. All filter state lives in the URL (useSearchParams) so
+ * filtered feeds stay bookmarkable; like the GET form, inputs are
+ * staged locally and applied to the URL on Filter.
+ *
+ * Draft seeding mirrors the template inputs: `request.GET.*` fields
+ * render the raw param ('' when absent); `filters.*` fields render
+ * the server-effective value (not_content_rating defaults to 'R',
+ * dates to the last-7-days window) once the payload arrives.
+ */
+export default function ProgramList() {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const { data, isPending, isError, error } = useQuery({
+    queryKey: ['tv', 'programs', searchParams.toString()],
+    queryFn: () =>
+      fetchPrograms({
+        contentRating: searchParams.get('content_rating'),
+        // `has` not `get`: absent → server default 'R'; explicit
+        // empty (?not_content_rating=) → exclusion disabled.
+        notContentRating: searchParams.has('not_content_rating')
+          ? searchParams.get('not_content_rating')
+          : null,
+        ratingValue: searchParams.get('rating_value'),
+        ratio: searchParams.get('ratio'),
+        startDate: searchParams.get('start_date'),
+        endDate: searchParams.get('end_date'),
+        channel: searchParams.get('channel'),
+        excludeChannel: searchParams.get('exclude_channel'),
+        showDisliked: searchParams.get('show_disliked'),
+      }),
+  });
+
+  const paramsKey = searchParams.toString();
+  const [draft, setDraft] = useState<Draft>({
+    contentRating: searchParams.get('content_rating') ?? '',
+    notContentRating: searchParams.get('not_content_rating') ?? 'R',
+    ratingValue: searchParams.get('rating_value') ?? '',
+    ratio: searchParams.get('ratio') ?? '',
+    startDate: searchParams.get('start_date') ?? '',
+    endDate: searchParams.get('end_date') ?? '',
+    channel: searchParams.get('channel') ?? '',
+    excludeChannel: searchParams.get('exclude_channel') ?? '',
+    showDisliked: searchParams.get('show_disliked') === '1',
+  });
+
+  // Re-sync the staged inputs when the URL changes (back/forward)
+  // and fill the server-effective defaults once data arrives —
+  // the template rendered filters.not_content_rating='R' and the
+  // 7-day date window into the form.
+  useEffect(() => {
+    const p = new URLSearchParams(paramsKey);
+    setDraft({
+      contentRating: p.get('content_rating') ?? '',
+      notContentRating: p.has('not_content_rating')
+        ? (p.get('not_content_rating') ?? '')
+        : (data?.filters.not_content_rating ?? 'R'),
+      ratingValue: p.get('rating_value') ?? '',
+      ratio: p.get('ratio') ?? '',
+      startDate: p.get('start_date') ?? (data?.filters.start_date ?? ''),
+      endDate: p.get('end_date') ?? (data?.filters.end_date ?? ''),
+      channel: p.get('channel') ?? '',
+      excludeChannel: p.get('exclude_channel') ?? '',
+      showDisliked: p.get('show_disliked') === '1',
+    });
+  }, [paramsKey, data]);
+
+  const applyFilters = (e: React.FormEvent) => {
+    e.preventDefault();
+    const next = new URLSearchParams();
+    if (draft.contentRating) {
+      next.set('content_rating', draft.contentRating);
+    }
+    // Always send — even '' — so clearing the input disables the
+    // server-side 'R' default (param absent would re-apply it).
+    next.set('not_content_rating', draft.notContentRating);
+    if (draft.ratingValue) next.set('rating_value', draft.ratingValue);
+    if (draft.ratio) next.set('ratio', draft.ratio);
+    if (draft.startDate) next.set('start_date', draft.startDate);
+    if (draft.endDate) next.set('end_date', draft.endDate);
+    if (draft.channel) next.set('channel', draft.channel);
+    if (draft.excludeChannel) {
+      next.set('exclude_channel', draft.excludeChannel);
+    }
+    if (draft.showDisliked) next.set('show_disliked', '1');
+    setSearchParams(next);
+  };
+
+  const reactMutation = useReactToShow();
+  const programs = data?.programs ?? [];
+
+  return (
+    <div className="feed-container">
+      {/* Filtering Form */}
+      <form className="filter-form" onSubmit={applyFilters}>
+        <div className="form-group">
+          <label htmlFor="content_rating">Content Rating:</label>
+          <input
+            type="text"
+            name="content_rating"
+            id="content_rating"
+            value={draft.contentRating}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, contentRating: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="not_content_rating">Exclude Rating:</label>
+          <input
+            type="text"
+            name="not_content_rating"
+            id="not_content_rating"
+            value={draft.notContentRating}
+            placeholder="e.g., R"
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                notContentRating: e.target.value,
+              }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="rating_value">Minimum Rating:</label>
+          <input
+            type="number"
+            step="0.1"
+            name="rating_value"
+            id="rating_value"
+            value={draft.ratingValue}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, ratingValue: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="start_date">Start Date:</label>
+          <input
+            type="date"
+            name="start_date"
+            id="start_date"
+            value={draft.startDate}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, startDate: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="end_date">End Date:</label>
+          <input
+            type="date"
+            name="end_date"
+            id="end_date"
+            value={draft.endDate}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, endDate: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="ratio">Min. Match Ratio:</label>
+          <input
+            type="number"
+            step="0.1"
+            name="ratio"
+            id="ratio"
+            value={draft.ratio}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, ratio: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="channel">Channel:</label>
+          <input
+            type="text"
+            name="channel"
+            id="channel"
+            list="channel-names"
+            value={draft.channel}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, channel: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="not_channel">Exclude Channel:</label>
+          <input
+            type="text"
+            name="exclude_channel"
+            id="not_channel"
+            list="channel-names"
+            value={draft.excludeChannel}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, excludeChannel: e.target.value }))
+            }
+          />
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="show_disliked">Show disliked:</label>
+          <input
+            type="checkbox"
+            name="show_disliked"
+            id="show_disliked"
+            value="1"
+            checked={draft.showDisliked}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, showDisliked: e.target.checked }))
+            }
+          />
+        </div>
+
+        <button type="submit">Filter</button>
+      </form>
+
+      {/* Channel names — the template context carried `channels` for
+          autocomplete that never shipped; the API still returns it. */}
+      <datalist id="channel-names">
+        {data?.channels.map((name) => (
+          <option key={name} value={name} />
+        ))}
+      </datalist>
+
+      {isError && (
+        <div className="feed-card feed-content">
+          Failed to load programs — {errorDetail(error)}
+        </div>
+      )}
+      {reactMutation.isError && (
+        <div className="feed-card feed-content">
+          Reaction failed — {errorDetail(reactMutation.error)}
+        </div>
+      )}
+
+      {/* Feed Content */}
+      {programs.length === 0 && !isPending ? (
+        <div>No programs available</div>
+      ) : (
+        programs.map((program) => (
+          <ProgramCard
+            key={program.id}
+            program={program}
+            pendingShowId={
+              reactMutation.isPending
+                ? (reactMutation.variables?.showId ?? null)
+                : null
+            }
+            onReact={(reaction) => {
+              if (program.show) {
+                reactMutation.mutate({
+                  showId: program.show.id,
+                  reaction,
+                });
+              }
+            }}
+          />
+        ))
+      )}
+      {isPending && <div>Loading…</div>}
+    </div>
+  );
+}
+
+function ProgramCard({
+  program,
+  pendingShowId,
+  onReact,
+}: {
+  program: ProgramOut;
+  pendingShowId: string | null;
+  onReact: (reaction: 'like' | 'dislike') => void;
+}) {
+  const show = program.show;
+  const imageSrc =
+    program.image_url || show?.image_url || PLACEHOLDER_IMAGE;
+  const imageAlt = show?.title_eng ?? program.title_eng ?? program.title_lv;
+  const matchRatio =
+    show && show.title_match_ratio
+      ? show.title_match_ratio
+      : program.title_match_ratio;
+  const imdbHref = show?.imdb_url || program.url;
+  const busy = pendingShowId === show?.id;
+
+  return (
+    <div className="feed-card">
+      <img src={imageSrc} alt={imageAlt} />
+      <div className="feed-content">
+        <div className="feed-title">
+          {show ? show.title_lv : program.title_lv}
+          {show?.title_eng && (
+            <span className="feed-title-eng"> {show.title_eng}</span>
+          )}
+        </div>
+        <div className="feed-description">{program.description_lv}</div>
+        <div className="feed-metadata">
+          <span>
+            Rating: {displayRating(show?.imdb_rating, program.imdb_rating)}
+          </span>{' '}
+          | <span>Channel: {program.channel_name}</span> |{' '}
+          <span>Start Time: {formatStartTime(program.start_time)}</span> |{' '}
+          <span>PG Rating: {show?.pg_rating ?? program.pg_rating}</span> |{' '}
+          <span>Match Ratio: {matchRatio.toFixed(2)}</span>
+          {imdbHref && (
+            <>
+              {' '}
+              |{' '}
+              <a
+                href={imdbHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn btn-secondary btn-sm ml-2"
+              >
+                IMDb
+              </a>
+            </>
+          )}
+        </div>
+        {show && (
+          <div className="feed-actions">
+            <button
+              type="button"
+              className={`reaction-btn${
+                program.user_reaction === 'like' ? ' liked' : ''
+              }`}
+              disabled={busy}
+              onClick={() => onReact('like')}
+            >
+              Like
+            </button>
+            <button
+              type="button"
+              className={`reaction-btn${
+                program.user_reaction === 'dislike' ? ' disliked' : ''
+              }`}
+              disabled={busy}
+              onClick={() => onReact('dislike')}
+            >
+              Dislike
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

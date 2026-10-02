@@ -90,6 +90,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tv/programs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Programs
+         * @description Program feed — mirrors the retired program_list view.
+         *
+         *     `not_content_rating` defaults to 'R' when the param is absent;
+         *     an explicit empty value (?not_content_rating=) disables the
+         *     exclusion, like clearing the template input did. `ratio` was a
+         *     declared-but-dead input in the template form — it now filters on
+         *     the displayed match ratio (show's, falling back to the
+         *     program's when no Show is linked).
+         */
+        get: operations["tv_programs_api_list_programs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tv/spoki-page/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Spoki Page
+         * @description Live-fetches the hardcoded spoki.lv article and returns
+         *     {title, content} — the SPA renders content as HTML (same trust
+         *     posture as the template's |safe render).
+         */
+        get: operations["tv_programs_api_spoki_page"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/tv/shows/{show_id}/react/{reaction}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * React To Show
+         * @description Toggle a like/dislike on a Show — posting the same reaction
+         *     again removes it. Session-auth (was: anonymous form POST).
+         */
+        post: operations["tv_programs_api_react_to_show"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -315,6 +385,126 @@ export interface components {
              */
             only_filter: boolean;
         };
+        /**
+         * ProgramFiltersOut
+         * @description Effective filter state — echoes the template's context
+         *     `filters` dict so the SPA can render the applied window.
+         */
+        ProgramFiltersOut: {
+            /** Content Rating */
+            content_rating: string | null;
+            /** Not Content Rating */
+            not_content_rating: string | null;
+            /** Rating Value */
+            rating_value: number | null;
+            /** Ratio */
+            ratio: number | null;
+            /**
+             * Start Date
+             * Format: date
+             */
+            start_date: string;
+            /**
+             * End Date
+             * Format: date
+             */
+            end_date: string;
+            /** Channel Name */
+            channel_name: string | null;
+            /** Exclude Channel Name */
+            exclude_channel_name: string | null;
+            /** Show Disliked */
+            show_disliked: boolean;
+        };
+        /** ProgramOut */
+        ProgramOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title Lv */
+            title_lv: string;
+            /** Title Eng */
+            title_eng: string | null;
+            /** Description Lv */
+            description_lv: string | null;
+            /** Channel Name */
+            channel_name: string;
+            /** Start Time */
+            start_time: string;
+            /** Image Url */
+            image_url: string | null;
+            /** Url */
+            url: string | null;
+            /** Pg Rating */
+            pg_rating: string | null;
+            /** Imdb Rating */
+            imdb_rating: string | null;
+            /** Title Match Ratio */
+            title_match_ratio: number;
+            show: components["schemas"]["ShowRef"] | null;
+            /** User Reaction */
+            user_reaction: string | null;
+        };
+        /**
+         * ProgramsOut
+         * @description The whole program_list page payload — filtered programs plus
+         *     the channel option list (the template's `channels` context).
+         */
+        ProgramsOut: {
+            /** Programs */
+            programs: components["schemas"]["ProgramOut"][];
+            /** Channels */
+            channels: string[];
+            filters: components["schemas"]["ProgramFiltersOut"];
+        };
+        /**
+         * ShowRef
+         * @description The canonical Show slice a program card needs.
+         */
+        ShowRef: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Title Lv */
+            title_lv: string;
+            /** Title Eng */
+            title_eng: string | null;
+            /** Imdb Rating */
+            imdb_rating: string | null;
+            /** Imdb Url */
+            imdb_url: string | null;
+            /** Pg Rating */
+            pg_rating: string | null;
+            /** Image Url */
+            image_url: string | null;
+            /** Title Match Ratio */
+            title_match_ratio: number;
+        };
+        /** SpokiPageOut */
+        SpokiPageOut: {
+            /** Title */
+            title: string;
+            /** Content */
+            content: string;
+        };
+        /** ReactionOut */
+        ReactionOut: {
+            /** Success */
+            success: boolean;
+            /**
+             * Show Id
+             * Format: uuid
+             */
+            show_id: string;
+            /** Reaction */
+            reaction: string | null;
+            /** Message */
+            message: string;
+        };
     };
     responses: never;
     parameters: never;
@@ -417,6 +607,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KeywordSavedOut"];
+                };
+            };
+        };
+    };
+    tv_programs_api_list_programs: {
+        parameters: {
+            query?: {
+                content_rating?: string | null;
+                not_content_rating?: string | null;
+                rating_value?: number | null;
+                ratio?: number | null;
+                start_date?: string | null;
+                end_date?: string | null;
+                channel?: string | null;
+                exclude_channel?: string | null;
+                show_disliked?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProgramsOut"];
+                };
+            };
+        };
+    };
+    tv_programs_api_spoki_page: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpokiPageOut"];
+                };
+            };
+        };
+    };
+    tv_programs_api_react_to_show: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                show_id: string;
+                reaction: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionOut"];
                 };
             };
         };

@@ -56,7 +56,11 @@ def _db_ssl_pem_from_env() -> str:
 
 
 def _apply_db_ssl_cert(db_config, db_ssl_cert_content, ca_pem_path):
-    if not db_ssl_cert_content:
+    # sslmode/sslrootcert are Postgres-only OPTIONS — a local
+    # DATABASE_URL=sqlite:///... alongside a ca.pem must not crash.
+    if not db_ssl_cert_content or 'postgres' not in db_config.get(
+        'ENGINE', ''
+    ):
         return
     pem_content = format_db_ssl_pem(db_ssl_cert_content)
     with open(ca_pem_path, 'w') as f:
