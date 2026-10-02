@@ -27,6 +27,19 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Scrape: Housing Ads",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "scrape_housing_ads",
+                "--max-pages", "5"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Scrape Vacancy Portal (cv.lv)",
             "type": "debugpy",
             "request": "launch",
@@ -51,6 +64,20 @@
             "args": [
                 "scrape_blogs",
                 "--max-api-requests", "20"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/venv/bin/python"
+        },
+        {
+            "name": "Scrape: TV Programs",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "scrape_tv_programs"
             ],
             "django": true,
             "justMyCode": false,
