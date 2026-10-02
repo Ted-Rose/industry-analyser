@@ -53,7 +53,7 @@ job executions share progress **as long as they share the same
 |---|---|---|---|
 | `scrape_apartment_ads` | `Region` × deal type (`hand_over/`=RENT, `sell/`=SELL) | `Region.objects.filter(scrape_enabled=True)` | `order_by('id')` |
 | `scrape_housing_ads` | `Region` × deal type, only urls containing `/homes-summer-residences/` | same queryset + URL filter | `order_by('id')` |
-| `scrape_first_vacancy_portal [portal_id]` | `Keyword` (one URL each, `?limit=1000&keywords[]=`) | `Keyword.objects.filter(only_filter=False)` | unordered (PK) |
+| `scrape_vacancies [portal_id]` | `Keyword` (one URL each, `?limit=1000&keywords[]=`) | `Keyword.objects.filter(only_filter=False)` | unordered (PK) |
 | `scrape_blogs` | Listing URL (each paginates via `<link rel="next">`) | `blogs/config.yaml` `blog_listing_urls` | yaml order |
 | `scrape_tv_programs` | Channel × date (~3 channels × 14 days) | hardcoded `self.channels` dict | chronological |
 
@@ -94,7 +94,7 @@ job executions share progress **as long as they share the same
    pass is not silently repeated.
    `--fresh` forces a full pass regardless.
    Commands may pick a coarser default key: the vacancy scraper runs
-   weekly, so `scrape_first_vacancy_portal` defaults to the ISO week
+   weekly, so `scrape_vacancies` defaults to the ISO week
    (`YYYY-Www`, `iso_week_cycle_key()`).
 3. **Per-item completion records**, not just `last_completed_item`.
    Priority ordering makes position-based resume work only while
@@ -387,7 +387,7 @@ source of truth. Same for portal config (`FETCHER_PORTALS_JSON`).
   runner; delete `_get_last_scraped_region_id` from both scrapers
   (superseded — keep sightings writes untouched, they serve
   `days_active` not resume).
-- **PR-3**: `scrape_first_vacancy_portal` — job slug per portal id;
+- **PR-3**: `scrape_vacancies` — job slug per portal id;
   checkpoint per keyword.
 - **PR-4** (optional): `scrape_blogs` (item = listing URL; page-level
   resume inside a listing is out of scope — `Page` dedup makes a

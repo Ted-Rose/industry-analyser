@@ -433,7 +433,7 @@ exit()
 
 ```bash
 # Run the scraper
-python manage.py scrape_first_vacancy_portal
+python manage.py scrape_vacancies
 ```
 
 You should see output like:
@@ -621,7 +621,7 @@ pip install psycopg2-binary
    python manage.py runserver
    
    # Or run specific management commands
-   python manage.py scrape_first_vacancy_portal
+   python manage.py scrape_vacancies
    ```
 
 5. **Commit and push**:
@@ -650,7 +650,7 @@ python manage.py createsuperuser
 python manage.py changepassword <username>
 
 # Scrapers
-python manage.py scrape_first_vacancy_portal
+python manage.py scrape_vacancies
 python manage.py scrape_blogs
 python manage.py scrape_apartment_ads
 python manage.py scrape_housing_ads
@@ -702,7 +702,7 @@ python manage.py shell -c "
 from fetcher.models import Keyword
 Keyword.objects.exclude(name='python').update(only_filter=True)
 "
-python manage.py scrape_first_vacancy_portal
+python manage.py scrape_vacancies
 python manage.py shell -c "
 from fetcher.models import Keyword
 Keyword.objects.all().update(only_filter=False)
@@ -765,7 +765,7 @@ industry-analyser/
 │   ├── QUICK_REFERENCE.md       # Quick commands
 │   └── management/
 │       └── commands/
-│           └── scrape_first_vacancy_portal.py
+│           └── scrape_vacancies.py
 │
 ├── classified_ads/              # Apartment scraper app
 │   ├── models.py

@@ -35,7 +35,7 @@ def main() -> int:
             [
                 sys.executable,
                 str(BASE / "manage.py"),
-                "scrape_first_vacancy_portal",
+                "scrape_vacancies",
                 str(portal_id),
             ],
             cwd=str(BASE),

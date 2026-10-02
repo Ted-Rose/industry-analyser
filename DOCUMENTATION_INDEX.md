@@ -210,7 +210,7 @@ python manage.py createsuperuser
 # Development
 python manage.py runserver
 python manage.py shell
-python manage.py scrape_first_vacancy_portal
+python manage.py scrape_vacancies
 
 # Production
 gcloud secrets versions access latest --secret="industry-analyser-fetcher-portals"

@@ -33,8 +33,8 @@ Cloud Run Job (production) or Local CLI (development)
   common scraping functionality (HTTP requests, retry logic, rate limiting)
 - **`VacancyScrapper`** (`fetcher/scraper.py`): Implements vacancy-specific
   scraping logic for multiple portals
-- **`scrape_first_vacancy_portal`**: Django management command to run the
-  scraper
+- **`scrape_vacancies`**: Django management command to run the scraper
+  (all configured portals by default, or a single `portal_id`)
 - **`materialize_fetcher_config_and_scrape.py`**: Production script that
   builds config from environment variables and runs the scraper
 
@@ -129,16 +129,14 @@ else:
 
 ### Running the Scraper Locally
 
-**Basic usage** (scrapes portal 1):
+**Basic usage** (scrapes all configured portals):
 ```bash
-python manage.py scrape_first_vacancy_portal
+python manage.py scrape_vacancies
 ```
 
 **With specific portal ID**:
 ```bash
-# Note: The command uses old-style args, not modern argparse
-# Portal ID is passed as the first positional argument in handle()
-# Currently only portal 1 is supported via the default
+python manage.py scrape_vacancies 1
 ```
 
 ### Testing with Limited Keywords
@@ -156,7 +154,7 @@ test_keywords = ['python', 'django']
 Keyword.objects.exclude(name__in=test_keywords).update(only_filter=True)
 
 # Run scraper (in another terminal)
-# python manage.py scrape_first_vacancy_portal
+# python manage.py scrape_vacancies
 
 # Restore all keywords
 Keyword.objects.all().update(only_filter=False)
@@ -180,14 +178,14 @@ The scraper runs as a **Cloud Run Job** (not a service) triggered by Cloud
 Scheduler:
 
 ```
-Cloud Scheduler (cron: "0 2 * * *")
+Cloud Scheduler (cron: "0 2 * * 1" — weekly, Mon 02:00 UTC)
     ↓ HTTP POST
 Cloud Run Job: scrape-vacancy
     ↓ runs
 scripts/materialize_fetcher_config_and_scrape.py
     ↓ builds config from env vars
     ↓ runs
-python manage.py scrape_first_vacancy_portal
+python manage.py scrape_vacancies <portal_id>
 ```
 
 ### Configuration Management

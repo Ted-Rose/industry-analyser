@@ -58,7 +58,7 @@ Visit http://127.0.0.1:8000/admin/ to access the admin interface.
 
 ```bash
 # Run scrapers
-python manage.py scrape_first_vacancy_portal  # Job vacancies
+python manage.py scrape_vacancies             # Job vacancies
 python manage.py scrape_apartment_ads          # Apartment ads
 python manage.py scrape_blogs                  # Blog posts
 

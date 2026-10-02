@@ -16,4 +16,4 @@ cp -r /vercel/path0/staticfiles/static* .vercel/output/static/
 
 python3.12 manage.py makemigrations
 python3.12 manage.py migrate
-timeout 3m python3.12 manage.py scrape_first_vacancy_portal
+timeout 3m python3.12 manage.py scrape_vacancies

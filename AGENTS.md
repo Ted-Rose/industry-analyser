@@ -217,7 +217,7 @@ python manage.py test <app>       # test coverage is thin; tests.py are mostly s
 python manage.py runserver
 
 # Scrapers (make real HTTP requests — see Guardrails)
-python manage.py scrape_first_vacancy_portal [portal_id]   # positional arg, default 1
+python manage.py scrape_vacancies [portal_id]   # all configured portals by default
 python manage.py scrape_apartment_ads --max-pages 10
 python manage.py scrape_housing_ads
 python manage.py scrape_blogs [--theme NAME] [--reanalyze] [--max-api-requests N]

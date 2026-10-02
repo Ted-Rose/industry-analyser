@@ -22,6 +22,19 @@ logger = logging.getLogger('fetcher')
 OCR_CONTENT_TYPES = ('image/', 'application/pdf')
 
 
+def load_portals_config():
+    """portal-id → config dict from FETCHER_PORTALS_JSON env or
+    fetcher/config_v2.json."""
+    portals_json = os.environ.get('FETCHER_PORTALS_JSON')
+    if portals_json:
+        return json.loads(portals_json)
+    config_path = os.path.join(
+        settings.BASE_DIR, 'fetcher/config_v2.json'
+    )
+    with open(config_path, 'r') as file:
+        return json.load(file)['portals']
+
+
 class VacancyScrapper(BaseScraper):
     def __init__(self, portal_id=1, runner=None, dry_run=False):
         super().__init__()
@@ -44,14 +57,7 @@ class VacancyScrapper(BaseScraper):
         self._search_total = None
 
     def load_config(self, portal_id):
-        portals_json = os.environ.get('FETCHER_PORTALS_JSON')
-        if portals_json:
-            portals = json.loads(portals_json)
-            return portals.get(str(portal_id))
-        config_path = os.path.join(settings.BASE_DIR, 'fetcher/config_v2.json')
-        with open(config_path, 'r') as file:
-            config = json.load(file)
-            return config['portals'].get(str(portal_id))
+        return load_portals_config().get(str(portal_id))
 
     def get_search_urls(self):
         if self.config.get('type') == 'nextjs':

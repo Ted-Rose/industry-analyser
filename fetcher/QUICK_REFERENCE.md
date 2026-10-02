@@ -18,8 +18,8 @@ Quick commands and snippets for common operations.
 # Activate virtual environment
 source venv/bin/activate
 
-# Run scraper for portal 1 (cv.lv)
-python manage.py scrape_first_vacancy_portal
+# Run scraper for all configured portals
+python manage.py scrape_vacancies
 ```
 
 ### Test with Limited Keywords
@@ -37,7 +37,7 @@ test_keywords = ['python', 'django', 'javascript']
 Keyword.objects.exclude(name__in=test_keywords).update(only_filter=True)
 
 # Exit shell and run scraper
-# python manage.py scrape_first_vacancy_portal
+# python manage.py scrape_vacancies
 
 # Restore all keywords (in shell again)
 Keyword.objects.all().update(only_filter=False)
@@ -428,7 +428,7 @@ print(f"Starting count: {before_count}")
 print(f"Start time: {before_time}")
 
 # Run scraper in another terminal
-# python manage.py scrape_first_vacancy_portal
+# python manage.py scrape_vacancies
 
 # After scraping
 time.sleep(60)  # Wait for scraper to finish
@@ -538,7 +538,7 @@ for date_str in test_dates:
 
 ```bash
 # Time the scraper
-time python manage.py scrape_first_vacancy_portal
+time python manage.py scrape_vacancies
 ```
 
 ### Count Requests
