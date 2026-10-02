@@ -86,6 +86,21 @@
             "python": "${workspaceFolder}/venv/bin/python"
         },
         {
+            "name": "Link Ads to Properties",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/manage.py",
+            "args": [
+                "link_ads_to_properties",
+                "--older-than-days", "3"
+            ],
+            "django": true,
+            "justMyCode": false,
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "python": "${workspaceFolder}/venv/bin/python"
+        },
+        {
             "name": "Fix Apartment Addresses",
             "type": "debugpy",
             "request": "launch",
