@@ -1,0 +1,8 @@
+/* Floating toast stack — bottom-left corner, above page content. */
+.action-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 20px;
+  z-index: 2000;
+  max-width: 420px;
+}

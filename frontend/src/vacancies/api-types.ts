@@ -160,6 +160,190 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/classified-ads/ads/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ads Table
+         * @description Ads table page — mirrors the four retired *_ads_table views.
+         *     Rent tables filter on monthly_price_per_sqm, sale tables on
+         *     price_per_sqm (the template's '€/m² min/max' inputs).
+         */
+        get: operations["classified_ads_api_ads_table"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/regions/config/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Config
+         * @description Region-config page read — mirrors the GET half of the retired
+         *     apartment/house_region_config views. The house set is keyed off
+         *     the '/homes-summer-residences/' URL substring, not the category
+         *     column — identical to the old views.
+         */
+        get: operations["classified_ads_api_region_config"];
+        put?: never;
+        /**
+         * Save Region Config
+         * @description Save checked regions — session-auth replacement for the two
+         *     retired config POST forms. Same semantics as the views: the kind's
+         *     region set is first disabled wholesale, then every submitted URL
+         *     is re-enabled (a submitted URL outside the kind's set is enabled
+         *     too — verbatim from the old form handler).
+         */
+        post: operations["classified_ads_api_save_region_config"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/regions/stats/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Stats
+         * @description Region stats page — mirrors apartment/house_region_stats.
+         *     `regions` repeats per checked parent region; results stay null
+         *     until at least one is selected.
+         */
+        get: operations["classified_ads_api_region_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/regions/{region_id}/children/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Stats Children
+         * @description Sub-region stats for one parent — mirrors the retired
+         *     *_region_stats_children views (404 unless the region is a
+         *     parent).
+         */
+        get: operations["classified_ads_api_region_stats_children"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/regions/{region_id}/ads/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Region Ads List
+         * @description Ads in a region subtree — mirrors the retired *_region_ads_list
+         *     views: the subtree filter is first_seen inside the window, and a
+         *     missing/blank deal_type yields an empty table.
+         */
+        get: operations["classified_ads_api_region_ads_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/sightings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Daily Sightings
+         * @description Daily sightings report — mirrors the retired
+         *     daily_sightings_report view: per-day sighting counts for each of
+         *     the four ad tables, optionally restricted to a region subtree.
+         */
+        get: operations["classified_ads_api_daily_sightings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/properties/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Property List
+         * @description Property list — mirrors the retired property_list view:
+         *     properties with their linked-ad counts, district/street filters.
+         */
+        get: operations["classified_ads_api_property_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/classified-ads/properties/{kind}/{pk}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Property Detail
+         * @description Property detail — mirrors the retired property_detail view,
+         *     including linked_ads() (all_objects: hidden and misclassified ads
+         *     still belong to the property) and the days_on_market union count.
+         */
+        get: operations["classified_ads_api_property_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -505,6 +689,436 @@ export interface components {
             /** Message */
             message: string;
         };
+        /**
+         * AdOut
+         * @description One row of an ads table — the union of the apartment and house
+         *     columns the templates render (kind-specific fields stay null).
+         */
+        AdOut: {
+            /** Id */
+            id: number;
+            /** Ad Id */
+            ad_id: string;
+            /** Link */
+            link: string;
+            /** District */
+            district: string;
+            /** Street Name */
+            street_name: string;
+            /** Street No */
+            street_no: string;
+            /** Rooms */
+            rooms: number;
+            /** Size */
+            size: number;
+            /** Post Date */
+            post_date: string | null;
+            /** Days Active */
+            days_active: number;
+            /** Deal */
+            deal: string;
+            /** Project */
+            project: string | null;
+            /** Floor */
+            floor: number | null;
+            /** Max Floor */
+            max_floor: number | null;
+            /** Floors */
+            floors: number | null;
+            /** Land Area Sqm */
+            land_area_sqm: number | null;
+            /** Price Per Sqm */
+            price_per_sqm: number;
+            /** Total Price */
+            total_price: number;
+            /** Monthly Price */
+            monthly_price: number | null;
+            /** Monthly Price Per Sqm */
+            monthly_price_per_sqm: number | null;
+        };
+        /**
+         * AdsFiltersOut
+         * @description Echo of the applied filters — the template's selected_* context.
+         */
+        AdsFiltersOut: {
+            /** District */
+            district: string;
+            /** Rooms */
+            rooms: number | null;
+            /** Price Min */
+            price_min: number | null;
+            /** Price Max */
+            price_max: number | null;
+        };
+        /**
+         * AdsTableOut
+         * @description One page of an ads table plus the filter option lists — a
+         *     single fat endpoint per the rewrite plan.
+         */
+        AdsTableOut: {
+            /** Ads */
+            ads: components["schemas"]["AdOut"][];
+            /** Page */
+            page: number;
+            /** Num Pages */
+            num_pages: number;
+            /** Total Count */
+            total_count: number;
+            /** Has Next */
+            has_next: boolean;
+            /** Has Previous */
+            has_previous: boolean;
+            /** Districts */
+            districts: string[];
+            /** Room Choices */
+            room_choices: number[];
+            filters: components["schemas"]["AdsFiltersOut"];
+        };
+        /** RegionConfigOut */
+        RegionConfigOut: {
+            /** Kind */
+            kind: string;
+            /** Regions Tree */
+            regions_tree: components["schemas"]["RegionNodeOut"][];
+            /** Enabled Count */
+            enabled_count: number;
+            /** Total Count */
+            total_count: number;
+        };
+        /**
+         * RegionNodeOut
+         * @description A region with its sub-regions — the config/checkbox trees.
+         */
+        RegionNodeOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Url */
+            url: string;
+            /** Scrape Enabled */
+            scrape_enabled: boolean;
+            /** Sub Regions */
+            sub_regions: components["schemas"]["RegionNodeOut"][];
+        };
+        /** RegionConfigSavedOut */
+        RegionConfigSavedOut: {
+            /** Success */
+            success: boolean;
+            /** Message */
+            message: string;
+        };
+        /** RegionConfigIn */
+        RegionConfigIn: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "apartment" | "house";
+            /** Regions */
+            regions?: string[];
+        };
+        /** RegionRefOut */
+        RegionRefOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+        };
+        /** RegionStatsOut */
+        RegionStatsOut: {
+            /** Kind */
+            kind: string;
+            /** Parent Regions */
+            parent_regions: components["schemas"]["RegionRefOut"][];
+            /** Selected Ids */
+            selected_ids: number[];
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Deal Type */
+            deal_type: string;
+            /** Results */
+            results: components["schemas"]["RegionStatsRowOut"][] | null;
+        };
+        /**
+         * RegionStatsRowOut
+         * @description One row of the region-stats table — a dict from
+         *     _compute_*_region_stats with the Region nested under 'region'.
+         */
+        RegionStatsRowOut: {
+            region: components["schemas"]["RegionRefOut"];
+            /** Total Ads */
+            total_ads: number;
+            /** Total Properties */
+            total_properties: number;
+            /** Avg Price Per Sqm */
+            avg_price_per_sqm: number | null;
+            /** Avg Size */
+            avg_size: number | null;
+            /** Avg Days Tracked */
+            avg_days_tracked: number | null;
+            /** Avg Days On Market */
+            avg_days_on_market: number | null;
+        };
+        /** RegionStatsChildrenOut */
+        RegionStatsChildrenOut: {
+            /** Kind */
+            kind: string;
+            parent_region: components["schemas"]["RegionRefOut"];
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Deal Type */
+            deal_type: string;
+            /** Results */
+            results: components["schemas"]["RegionStatsRowOut"][];
+        };
+        /** RegionAdsOut */
+        RegionAdsOut: {
+            /** Kind */
+            kind: string;
+            region: components["schemas"]["RegionAdsRegionOut"];
+            /** Ads */
+            ads: components["schemas"]["AdOut"][];
+            /** Page */
+            page: number;
+            /** Num Pages */
+            num_pages: number;
+            /** Total Count */
+            total_count: number;
+            /** Has Next */
+            has_next: boolean;
+            /** Has Previous */
+            has_previous: boolean;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Deal Type */
+            deal_type: string;
+        };
+        /** RegionAdsRegionOut */
+        RegionAdsRegionOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Parent Id */
+            parent_id: number | null;
+            /** Parent Name */
+            parent_name: string | null;
+        };
+        /** DailySightingsOut */
+        DailySightingsOut: {
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Order */
+            order: string;
+            /** Selected Region */
+            selected_region: number | null;
+            /** Daily Data */
+            daily_data: components["schemas"]["DailySightingsRowOut"][];
+            /** Regions */
+            regions: components["schemas"]["SightingsRegionOut"][];
+        };
+        /** DailySightingsRowOut */
+        DailySightingsRowOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Apartment Rent */
+            apartment_rent: number;
+            /** Apartment Sale */
+            apartment_sale: number;
+            /** Apartment Total */
+            apartment_total: number;
+            /** House Rent */
+            house_rent: number;
+            /** House Sale */
+            house_sale: number;
+            /** House Total */
+            house_total: number;
+            /** Grand Total */
+            grand_total: number;
+        };
+        /**
+         * SightingsRegionOut
+         * @description Parent region + flat sub-region list — the <optgroup> option
+         *     tree of the retired sightings form.
+         */
+        SightingsRegionOut: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Sub Regions */
+            sub_regions: components["schemas"]["RegionRefOut"][];
+        };
+        /** PropertyListOut */
+        PropertyListOut: {
+            /** Kind */
+            kind: string;
+            /** Kind Label */
+            kind_label: string;
+            /** Properties */
+            properties: components["schemas"]["PropertyRowOut"][];
+            /** Page */
+            page: number;
+            /** Num Pages */
+            num_pages: number;
+            /** Total Count */
+            total_count: number;
+            /** Has Next */
+            has_next: boolean;
+            /** Has Previous */
+            has_previous: boolean;
+            /** Districts */
+            districts: string[];
+            /** Selected District */
+            selected_district: string;
+            /** Selected Street */
+            selected_street: string;
+        };
+        /** PropertyRowOut */
+        PropertyRowOut: {
+            /** Id */
+            id: number;
+            /** District */
+            district: string;
+            /** Street Name */
+            street_name: string;
+            /** Street No */
+            street_no: string;
+            /** Apartment No */
+            apartment_no: string | null;
+            /** Rooms */
+            rooms: number;
+            /** Size */
+            size: number;
+            /** Rent Ad Count */
+            rent_ad_count: number;
+            /** Sale Ad Count */
+            sale_ad_count: number;
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+        };
+        /**
+         * LinkedAdOut
+         * @description One row of the property-detail linked-ads table — built from
+         *     both the rent and sale ad models (all_objects via linked_ads).
+         */
+        LinkedAdOut: {
+            /** Ad Id */
+            ad_id: string;
+            /** Link */
+            link: string;
+            /** Deal */
+            deal: string;
+            /** Price */
+            price: number | null;
+            /** Price Suffix */
+            price_suffix: string;
+            /** Match Status */
+            match_status: string;
+            /** Match Score */
+            match_score: number | null;
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Days Active */
+            days_active: number;
+        };
+        /** PropertyDetailOut */
+        PropertyDetailOut: {
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Kind Label */
+            kind_label: string;
+            /** District */
+            district: string;
+            /** Street Name */
+            street_name: string;
+            /** Street No */
+            street_no: string;
+            /** Apartment No */
+            apartment_no: string | null;
+            /** Region Name */
+            region_name: string | null;
+            /** Rooms */
+            rooms: number;
+            /** Size */
+            size: number;
+            /** Floor */
+            floor: number | null;
+            /** Max Floor */
+            max_floor: number | null;
+            /** Floors */
+            floors: number | null;
+            /** Land Area Sqm */
+            land_area_sqm: number | null;
+            /** Days On Market */
+            days_on_market: number;
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Ad Rows */
+            ad_rows: components["schemas"]["LinkedAdOut"][];
+        };
     };
     responses: never;
     parameters: never;
@@ -680,6 +1294,234 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReactionOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_ads_table: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                deal: "rent" | "sale";
+                district?: string;
+                rooms?: number | null;
+                price_min?: number | null;
+                price_max?: number | null;
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdsTableOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_region_config: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionConfigOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_save_region_config: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegionConfigIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionConfigSavedOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_region_stats: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                date_from?: string | null;
+                date_to?: string | null;
+                deal_type?: string;
+                regions?: number[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionStatsOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_region_stats_children: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                date_from?: string | null;
+                date_to?: string | null;
+                deal_type?: string;
+            };
+            header?: never;
+            path: {
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionStatsChildrenOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_region_ads_list: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                date_from?: string | null;
+                date_to?: string | null;
+                deal_type?: string;
+                page?: number;
+            };
+            header?: never;
+            path: {
+                region_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionAdsOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_daily_sightings: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+                order?: string;
+                region?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DailySightingsOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_property_list: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                district?: string;
+                street?: string;
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyListOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_property_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+                pk: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PropertyDetailOut"];
                 };
             };
         };

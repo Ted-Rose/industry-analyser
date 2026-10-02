@@ -22,6 +22,7 @@ from django.urls import path, include
 from fetcher import views as fetcher
 from fetcher.api import router as vacancies_router
 from tv_programs.api import router as tv_router
+from classified_ads.api import router as classified_ads_router
 from accounts import views as accounts
 from scrape_jobs import views as scrape_jobs
 from industry_analyser import views as project_views
@@ -30,6 +31,10 @@ from industry_analyser.views import react_app_public
 
 api.add_router('/vacancies/', vacancies_router)
 api.add_router('/tv/', tv_router)
+# The classified_ads SPA's URL base is hyphenated /classified-ads/;
+# the router mount follows it so spa_url_for's /api/<x>/ → /<x>/
+# login-next rewrite stays correct.
+api.add_router('/classified-ads/', classified_ads_router)
 
 # The vacancies SPA owns both /vacancies/* and /companies/* — the
 # company pages are routes of the same React app (entry
