@@ -139,12 +139,14 @@ class CompletedKeysTests(TestCase):
         r3 = ScrapeJobRunner('test.job')
         self.assertEqual(r3.completed_keys, {'a', 'b'})
 
-    def test_success_run_in_cycle_means_fresh_pass(self):
+    def test_success_run_in_cycle_still_skips_done_items(self):
+        """A finished pass is not silently repeated within the
+        cycle — a deliberate same-cycle re-scrape passes --fresh."""
         _done_item(self.runner, 'a')
         self.runner.finish()  # SUCCESS
 
         r2 = ScrapeJobRunner('test.job')
-        self.assertEqual(r2.completed_keys, set())
+        self.assertEqual(r2.completed_keys, {'a'})
 
     def test_partial_run_still_resumes(self):
         """PARTIAL (some items failed) is not SUCCESS — resume."""

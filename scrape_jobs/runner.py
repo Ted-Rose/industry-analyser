@@ -9,9 +9,9 @@ One ScrapeJobRunner per command invocation. On construction it:
   ScrapeJobRunItems across all of the job's runs in this cycle —
   and creates a new RUNNING run.
 
-Resume rule: completed keys are skipped unless ``fresh`` was passed,
-the job is disabled, or a run in this cycle already reached SUCCESS
-(a finished pass means the next one starts over).
+Resume rule: completed keys are skipped for the whole cycle unless
+``fresh`` was passed or the job is disabled — a finished pass is not
+silently repeated; a deliberate same-cycle re-scrape uses ``--fresh``.
 
 Per-item failure isolation relies on ``BaseScraper.run()`` throwing
 ``scrape_portal()`` exceptions back into the ``get_search_urls()``
@@ -154,20 +154,14 @@ class ScrapeJobRunner:
     def _cycle_completed_keys(self):
         """Item keys already DONE in this cycle (the skip-set).
 
-        Empty when --fresh, when the job is disabled (a full pass is
-        the rollback mode), or when a run in this cycle already
-        reached SUCCESS — a finished pass never suppresses a new one.
+        Empty when --fresh or when the job is disabled (a full pass
+        is the rollback mode). DONE keys stay skipped for the whole
+        cycle — a SUCCESS run does not reset them; a deliberate
+        same-cycle re-scrape uses --fresh.
         """
         if self.fresh or not self.job.is_enabled:
             return set()
         cycle_runs = self.job.runs.filter(cycle_key=self.cycle_key)
-        if cycle_runs.filter(status=ScrapeJobRun.SUCCESS).exists():
-            logger.info(
-                '%s: cycle %s already has a SUCCESS run — '
-                'starting a fresh pass',
-                self.slug, self.cycle_key,
-            )
-            return set()
         keys = set(
             ScrapeJobRunItem.objects.filter(
                 run__in=cycle_runs, status=ScrapeJobRunItem.DONE,
