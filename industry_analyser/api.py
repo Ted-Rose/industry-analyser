@@ -9,7 +9,7 @@ Public read endpoints opt out per-op with auth=None.
 from urllib.parse import urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
-from django.http import Http404, JsonResponse
+from django.http import Http404
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import django_auth
