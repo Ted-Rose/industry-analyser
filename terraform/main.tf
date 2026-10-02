@@ -644,13 +644,14 @@ resource "google_cloud_scheduler_job" "trigger_sync_housing_regions" {
   ]
 }
 
-resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_vacancy" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.scrape_vacancy.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
-}
+# DISABLED: Uncomment to re-enable
+# resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_vacancy" {
+#   project  = var.project_id
+#   location = var.region
+#   name     = google_cloud_run_v2_job.scrape_vacancy.name
+#   role     = "roles/run.invoker"
+#   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+# }
 
 resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_tv" {
   project  = var.project_id
@@ -678,29 +679,30 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_tv" {
 #   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 # }
 
-resource "google_cloud_scheduler_job" "trigger_scrape_vacancy" {
-  name             = "trigger-scrape-vacancy"
-  description      = "Run scrape-vacancy job weekly (Mon 02:00 UTC)"
-  schedule         = "0 2 * * 1"
-  time_zone        = "Etc/UTC"
-  region           = var.scheduler_region
-  attempt_deadline = "600s"
-
-  http_target {
-    http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scrape_vacancy.name}:run"
-    body        = base64encode("{}")
-
-    oauth_token {
-      service_account_email = google_service_account.scheduler_invoker.email
-    }
-  }
-
-  depends_on = [
-    google_cloud_run_v2_job.scrape_vacancy,
-    google_project_service.apis,
-  ]
-}
+# DISABLED: Uncomment to re-enable
+# resource "google_cloud_scheduler_job" "trigger_scrape_vacancy" {
+#   name             = "trigger-scrape-vacancy"
+#   description      = "Run scrape-vacancy job weekly (Mon 02:00 UTC)"
+#   schedule         = "0 2 * * 1"
+#   time_zone        = "Etc/UTC"
+#   region           = var.scheduler_region
+#   attempt_deadline = "600s"
+#
+#   http_target {
+#     http_method = "POST"
+#     uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.scrape_vacancy.name}:run"
+#     body        = base64encode("{}")
+#
+#     oauth_token {
+#       service_account_email = google_service_account.scheduler_invoker.email
+#     }
+#   }
+#
+#   depends_on = [
+#     google_cloud_run_v2_job.scrape_vacancy,
+#     google_project_service.apis,
+#   ]
+# }
 
 resource "google_cloud_scheduler_job" "trigger_scrape_tv_programs" {
   name             = "trigger-scrape-tv-programs"

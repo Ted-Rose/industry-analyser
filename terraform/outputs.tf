@@ -25,7 +25,6 @@ output "cloud_run_job_names" {
 
 output "cloud_scheduler_job_names" {
   value = [
-    google_cloud_scheduler_job.trigger_scrape_vacancy.name,
     google_cloud_scheduler_job.trigger_scrape_tv_programs.name,
     google_cloud_scheduler_job.trigger_sync_apartment_regions.name,
     google_cloud_scheduler_job.trigger_sync_housing_regions.name,
