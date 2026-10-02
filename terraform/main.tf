@@ -660,8 +660,8 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_tv" {
 
 resource "google_cloud_scheduler_job" "trigger_scrape_vacancy" {
   name             = "trigger-scrape-vacancy"
-  description      = "Run scrape-vacancy job every 48h (02:00 UTC)"
-  schedule         = "0 2 */2 * *"
+  description      = "Run scrape-vacancy job weekly (Mon 02:00 UTC)"
+  schedule         = "0 2 * * 1"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"

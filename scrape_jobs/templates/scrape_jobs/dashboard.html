@@ -106,8 +106,8 @@
 
         <h1>Scrape Jobs</h1>
         <p class="subtitle">
-            Per-cycle progress and daily run statistics.
-            Current cycle: <strong>{{ cycle_key }}</strong>
+            Per-job progress over each job's latest cycle, plus
+            daily run statistics.
         </p>
 
         <h2>Jobs</h2>
@@ -117,6 +117,7 @@
                     <th>Job</th>
                     <th>Enabled</th>
                     <th class="num">Items</th>
+                    <th>Cycle</th>
                     <th>Cycle progress</th>
                     <th class="num">Failed</th>
                     <th>Status</th>
@@ -135,6 +136,11 @@
                     <td class="num">
                         {{ row.item_active }}{% if row.item_total != row.item_active %}
                         <span class="muted">/ {{ row.item_total }}</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if row.cycle_key %}{{ row.cycle_key }}
+                        {% else %}<span class="muted">&mdash;</span>
+                        {% endif %}
                     </td>
                     <td>
                         {% if row.progress_pct is not None %}
@@ -177,7 +183,7 @@
                     </td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="8" class="muted">No jobs recorded yet.</td></tr>
+                <tr><td colspan="9" class="muted">No jobs recorded yet.</td></tr>
                 {% endfor %}
             </tbody>
         </table>

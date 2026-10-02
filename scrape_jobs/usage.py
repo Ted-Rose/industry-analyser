@@ -110,13 +110,18 @@ def run_totals(date_from=None, date_to=None):
 def job_overview(cycle_key=None):
     """Per-job snapshot for the dashboard.
 
-    Returns a list of dicts: ``job``, ``item_total``/``item_active``
-    (ScrapeJobItem counts), ``cycle_done``/``cycle_failed`` (distinct
-    items DONE/FAILED across the cycle's runs — the resume
-    skip-set), ``progress_pct`` (cycle_done over active items),
-    ``running`` (a RUNNING run exists) and ``last_run``.
+    Cycle progress is scoped to each job's latest run's cycle —
+    jobs run on different cadences (daily, weekly), so a single
+    "today" key cannot cover all of them. ``cycle_key`` pins all
+    jobs to one cycle (tests).
+
+    Returns a list of dicts: ``job``, ``cycle_key``, ``item_total``/
+    ``item_active`` (ScrapeJobItem counts), ``cycle_done``/
+    ``cycle_failed`` (distinct items DONE/FAILED across the cycle's
+    runs — the resume skip-set), ``progress_pct`` (cycle_done over
+    active items), ``running`` (a RUNNING run exists) and
+    ``last_run``.
     """
-    cycle_key = cycle_key or timezone.localdate().isoformat()
     jobs = list(
         ScrapeJob.objects.order_by('slug').prefetch_related('items')
     )
@@ -133,24 +138,37 @@ def job_overview(cycle_key=None):
         ScrapeJobRun.objects.filter(status=ScrapeJobRun.RUNNING)
         .values_list('job_id', flat=True)
     )
-    cycle_counts = {
-        row['run__job_id']: row
-        for row in (
-            ScrapeJobRunItem.objects
-            .filter(run__cycle_key=cycle_key)
-            .values('run__job_id')
-            .annotate(
-                done=Count(
-                    'item', distinct=True,
-                    filter=Q(status=ScrapeJobRunItem.DONE),
-                ),
-                failed=Count(
-                    'item', distinct=True,
-                    filter=Q(status=ScrapeJobRunItem.FAILED),
-                ),
-            )
+    job_cycles = {
+        job.id: cycle_key or (
+            last_runs[job.id].cycle_key if job.id in last_runs
+            else None
         )
+        for job in jobs
     }
+    cycles_q = Q()
+    for job_id, key in job_cycles.items():
+        if key is not None:
+            cycles_q |= Q(run__job_id=job_id, run__cycle_key=key)
+    cycle_counts = {}
+    if cycles_q:
+        cycle_counts = {
+            row['run__job_id']: row
+            for row in (
+                ScrapeJobRunItem.objects
+                .filter(cycles_q)
+                .values('run__job_id')
+                .annotate(
+                    done=Count(
+                        'item', distinct=True,
+                        filter=Q(status=ScrapeJobRunItem.DONE),
+                    ),
+                    failed=Count(
+                        'item', distinct=True,
+                        filter=Q(status=ScrapeJobRunItem.FAILED),
+                    ),
+                )
+            )
+        }
     rows = []
     for job in jobs:
         items = list(job.items.all())
@@ -159,6 +177,7 @@ def job_overview(cycle_key=None):
         done = counts.get('done', 0)
         rows.append({
             'job': job,
+            'cycle_key': job_cycles[job.id],
             'item_total': len(items),
             'item_active': active,
             'cycle_done': done,

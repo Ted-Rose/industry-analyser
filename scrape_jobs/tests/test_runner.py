@@ -1,6 +1,6 @@
 """ScrapeJobRunner unit tests — no HTTP, no real scrapers."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from unittest import mock
 
 from django.test import TestCase
@@ -19,6 +19,7 @@ from scrape_jobs.runner import (
     detect_executed_by,
     detect_execution_id,
     ensure_job,
+    iso_week_cycle_key,
 )
 
 
@@ -61,6 +62,28 @@ class EnvDetectionTests(TestCase):
         with mock.patch.dict('os.environ', env, clear=True):
             self.assertEqual(detect_executed_by(), 'gcp_cloud_run')
             self.assertEqual(detect_execution_id(), 'exec-1-2')
+
+
+class IsoWeekCycleKeyTests(TestCase):
+
+    def test_format(self):
+        self.assertEqual(
+            iso_week_cycle_key(date(2026, 10, 2)), '2026-W40'
+        )
+
+    def test_rolls_over_on_monday(self):
+        self.assertEqual(
+            iso_week_cycle_key(date(2026, 1, 4)), '2026-W01'
+        )
+        self.assertEqual(
+            iso_week_cycle_key(date(2026, 1, 5)), '2026-W02'
+        )
+
+    def test_year_boundary(self):
+        # 2025-12-29 is a Monday in ISO week 1 of 2026.
+        self.assertEqual(
+            iso_week_cycle_key(date(2025, 12, 29)), '2026-W01'
+        )
 
 
 class RunnerInitTests(TestCase):

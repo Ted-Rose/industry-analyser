@@ -3,7 +3,7 @@ import traceback
 from django.core.management.base import BaseCommand, CommandError
 
 from fetcher.scraper import VacancyScrapper
-from scrape_jobs.runner import ScrapeJobRunner
+from scrape_jobs.runner import ScrapeJobRunner, iso_week_cycle_key
 
 
 class Command(BaseCommand):
@@ -15,7 +15,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--cycle', type=str, default=None,
-            help='Resume-cycle key; default today (UTC)',
+            help='Resume-cycle key; default current ISO week (UTC)',
         )
         parser.add_argument(
             '--fresh', action='store_true',
@@ -36,7 +36,7 @@ class Command(BaseCommand):
         runner = ScrapeJobRunner(
             slug=f'fetcher.vacancies.{portal_id}',
             description=f'Vacancy scrape, portal {portal_id}',
-            cycle_key=options['cycle'],
+            cycle_key=options['cycle'] or iso_week_cycle_key(),
             fresh=options['fresh'],
             resume_from=options['resume_from'],
             dry_run=options['dry_run'],

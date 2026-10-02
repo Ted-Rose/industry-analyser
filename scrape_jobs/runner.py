@@ -67,6 +67,17 @@ def detect_execution_id():
     return f'local-{socket.gethostname()}-{os.getpid()}'
 
 
+def iso_week_cycle_key(day=None):
+    """Weekly cycle key — 'YYYY-Www' (ISO 8601 week).
+
+    TIME_ZONE is UTC, so ``localdate()`` is the UTC date; the week
+    rolls over on Monday.
+    """
+    day = day or timezone.localdate()
+    iso = day.isocalendar()
+    return f'{iso.year}-W{iso.week:02d}'
+
+
 def ensure_job(slug, description=''):
     """get_or_create the ScrapeJob row for ``slug``.
 
