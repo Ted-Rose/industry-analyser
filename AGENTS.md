@@ -11,7 +11,7 @@ Start with `DOCUMENTATION_INDEX.md` for the full doc map,
 
 | Path | Purpose | Source |
 |---|---|---|
-| `fetcher/` | Job vacancy scraper; `/vacancies` UI, keyword matching | cv.lv (API), likeit.lv (HTML) |
+| `fetcher/` | Job vacancy scraper; `/vacancies` UI, keyword matching | cv.lv (Next.js public site + search API) |
 | `classified_ads/` | Apartment/house rent & sale ads; `/classified-ads/` UI | ss.com |
 | `blogs/` | Blog pages + Gemini AI theme analysis | spoki.lv |
 | `tv_programs/` | TV schedule + heuristic movie classification; `/tv/` UI | tet.lv |
@@ -201,6 +201,23 @@ Multimodal prompts ride the normal JobClient path: `PromptSpec` /
 inline `Part.from_bytes` parts, OpenAI-compatible sends `image_url`
 data-URIs, and `AIRequest.options['images']` records each image's
 sha256/mime/bytes for provenance.
+
+### Vacancy scrape: category sweep + batched writes
+
+Both portals offset-paginate the same `search_params` filter (e.g.
+`categories[]=INFORMATION_TECHNOLOGY`) — the API portal no longer
+loops `keywords[]` per `Keyword` row (a portal without
+`search_params` still falls back to the per-keyword loop). Keywords
+are applied locally to title/`positionContent`/detail/OCR text.
+Portal run order is the config `order` field (default: numeric key)
+— nextjs first so it creates and detail-enriches rows, API second
+for sighting bumps. `Vacancy.job_portal_id` records which portal
+created each row. `remove_redundant_results` dedups vacancy ids
+in-session; `create_or_update_resources` writes one bulk `last_seen`
+UPDATE plus `bulk_create(ignore_conflicts=True)` M2M through-row
+INSERTs per page. `industry_mapping` maps numeric `categories` ids
+to `Industry.name` (e.g. `"10"` → `"it"`). The legacy `/fetcher/`
+view and the likeit.lv HTML path were removed.
 
 ## Commands
 

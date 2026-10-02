@@ -19,7 +19,12 @@ from django.test import TestCase
 from django.utils import timezone
 
 from ai_providers import errors as ai_errors
-from fetcher.models import Keyword, Vacancy, VacancyFile
+from fetcher.models import (
+    Industry,
+    Keyword,
+    Vacancy,
+    VacancyFile,
+)
 from fetcher.scraper import VacancyScrapper
 
 CONFIG = {
@@ -31,6 +36,26 @@ CONFIG = {
     'vacancy_base_url': 'https://www.cv.lv',
     'vacancy_base_href': '/lv/vacancy/',
     'files_href': '/api/v1/files-service/',
+}
+
+API_CONFIG = {
+    'type': 'api',
+    'base_url': 'https://www.cv.lv',
+    'search_href': '/api/v1/vacancy-search-service/search',
+    'search_params': 'categories%5B0%5D=INFORMATION_TECHNOLOGY',
+    'page_size': 2,
+    'vacancy_base_url': 'https://www.cv.lv',
+    'vacancy_base_href': '/lv/vacancy/',
+    'files_href': '/api/v1/files-service/',
+    'industry_mapping': {'10': 'it'},
+}
+
+LEGACY_API_CONFIG = {
+    'type': 'api',
+    'base_url': 'https://www.cv.lv',
+    'search_href': '/api/v1/vacancy-search-service/search',
+    'vacancy_base_url': 'https://www.cv.lv',
+    'vacancy_base_href': '/lv/vacancy/',
 }
 
 
@@ -60,6 +85,28 @@ def search_response(vacancies, total):
         },
     }
     return response(next_data_html(payload))
+
+
+def api_response(vacancies, total):
+    return response(
+        json.dumps(
+            {'vacancies': vacancies, 'total': total}
+        ).encode('utf-8'),
+        'application/json',
+    )
+
+
+def drive_pages(scraper, pages):
+    """Drive get_search_urls() the way scrape_portal does:
+    each yielded URL is fetched and parsed, and
+    last_search_had_results is set from the parse outcome."""
+    urls = []
+    generator = scraper.get_search_urls()
+    for page in pages:
+        urls.append(next(generator))
+        results = scraper.parse_results(page)
+        scraper.last_search_had_results = bool(results)
+    return urls, generator
 
 
 def detail_response(vacancy_id, file_id=None, sections=None):
@@ -162,18 +209,6 @@ class NextJsParseResultsTests(NextJsScraperTestCase):
 
 class NextJsPaginationTests(NextJsScraperTestCase):
 
-    def feed_pages(self, pages):
-        """Drive get_search_urls() the way scrape_portal does:
-        each yielded URL is fetched and parsed, and
-        last_search_had_results is set from the parse outcome."""
-        urls = []
-        generator = self.scraper.get_search_urls()
-        for page in pages:
-            urls.append(next(generator))
-            results = self.scraper.parse_results(page)
-            self.scraper.last_search_had_results = bool(results)
-        return urls, generator
-
     def test_paginates_until_offset_reaches_total(self):
         pages = [
             search_response(
@@ -181,7 +216,7 @@ class NextJsPaginationTests(NextJsScraperTestCase):
             ),
             search_response([vacancy_result(3)], total=3),
         ]
-        urls, generator = self.feed_pages(pages)
+        urls, generator = drive_pages(self.scraper, pages)
         with self.assertRaises(StopIteration):
             next(generator)
         params = 'categories%5B0%5D=INFORMATION_TECHNOLOGY'
@@ -200,7 +235,7 @@ class NextJsPaginationTests(NextJsScraperTestCase):
             search_response([vacancy_result(1)], total=10),
             search_response([], total=10),
         ]
-        urls, generator = self.feed_pages(pages)
+        urls, generator = drive_pages(self.scraper, pages)
         with self.assertRaises(StopIteration):
             next(generator)
         self.assertEqual(len(urls), 2)
@@ -477,3 +512,188 @@ class CreateOrUpdateResourcesTests(NextJsScraperTestCase):
         stored = Vacancy.objects.get(vacancy_portal_id=43)
         self.assertIsNone(stored.detail_fetched_at)
         self.assertFalse(VacancyFile.objects.exists())
+
+
+def make_scraper(config, portal_id=1):
+    with mock.patch.object(
+        VacancyScrapper, 'load_config', return_value=config
+    ):
+        return VacancyScrapper(portal_id=portal_id)
+
+
+class ApiSweepTests(TestCase):
+    """API portals with ``search_params`` run the same
+    offset-paginated sweep as the nextjs portal."""
+
+    def setUp(self):
+        super().setUp()
+        self.scraper = make_scraper(API_CONFIG)
+
+    def test_paginates_category_sweep_until_total(self):
+        pages = [
+            api_response(
+                [vacancy_result(1), vacancy_result(2)], total=3
+            ),
+            api_response([vacancy_result(3)], total=3),
+        ]
+        urls, generator = drive_pages(self.scraper, pages)
+        with self.assertRaises(StopIteration):
+            next(generator)
+        base = (
+            'https://www.cv.lv/api/v1/vacancy-search-service/search'
+        )
+        params = 'categories%5B0%5D=INFORMATION_TECHNOLOGY'
+        self.assertEqual(
+            urls,
+            [
+                f'{base}?limit=2&offset=0&{params}',
+                f'{base}?limit=2&offset=2&{params}',
+            ],
+        )
+
+    def test_stops_on_empty_page(self):
+        pages = [
+            api_response([vacancy_result(1)], total=10),
+            api_response([], total=10),
+        ]
+        urls, generator = drive_pages(self.scraper, pages)
+        with self.assertRaises(StopIteration):
+            next(generator)
+        self.assertEqual(len(urls), 2)
+
+    def test_parse_results_records_total(self):
+        self.scraper.parse_results(
+            api_response([vacancy_result(1)], total=42)
+        )
+        self.assertEqual(self.scraper._search_total, 42)
+
+    def test_non_json_response_yields_nothing(self):
+        results = self.scraper.parse_results(
+            response(b'<html><p>oops</p></html>', 'text/html')
+        )
+        self.assertEqual(results, [])
+
+    def test_api_portal_does_not_enrich(self):
+        self.assertFalse(self.scraper.enrich_search_results)
+
+
+class ApiKeywordFallbackTests(TestCase):
+    """API portals without ``search_params`` keep the per-keyword
+    search loop."""
+
+    def test_yields_one_url_per_searchable_keyword(self):
+        Keyword.objects.create(name='python')
+        Keyword.objects.create(name='django')
+        Keyword.objects.create(name='filtered', only_filter=True)
+        scraper = make_scraper(LEGACY_API_CONFIG)
+        urls = list(scraper.get_search_urls())
+        base = (
+            'https://www.cv.lv/api/v1/vacancy-search-service/search'
+            '?limit=1000&keywords[]='
+        )
+        self.assertEqual(urls, [base + 'python', base + 'django'])
+
+
+class DedupTests(TestCase):
+
+    def test_drops_ids_seen_earlier_in_the_run(self):
+        scraper = make_scraper(API_CONFIG)
+        results = [
+            vacancy_result(1),
+            vacancy_result(2),
+            vacancy_result(1),
+        ]
+        fresh = scraper.remove_redundant_results(results)
+        self.assertEqual([r['id'] for r in fresh], [1, 2])
+        fresh = scraper.remove_redundant_results(
+            [vacancy_result(2), vacancy_result(3)]
+        )
+        self.assertEqual([r['id'] for r in fresh], [3])
+
+
+class BuildVacancyMetadataTests(TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.scraper = make_scraper(API_CONFIG, portal_id=1)
+
+    def test_stamps_job_portal_id(self):
+        vacancy = self.scraper.initiate_resource(vacancy_result(5))
+        self.assertEqual(vacancy.job_portal_id, 1)
+
+    def test_industry_mapping_maps_categories(self):
+        Industry.objects.create(name='it')
+        Industry.objects.create(name='5')
+        result = vacancy_result(5, categories=[10, 5])
+        vacancy = self.scraper.initiate_resource(result)
+        names = {i.name for i in vacancy._pending_industries}
+        self.assertEqual(names, {'it', '5'})
+
+    def test_portal_keywords_matched_by_name(self):
+        Keyword.objects.create(name='python')
+        self.scraper.keywords_list = list(Keyword.objects.all())
+        result = vacancy_result(5, keywords=['python', 'unknown'])
+        vacancy = self.scraper.initiate_resource(result)
+        names = {k.name for k in vacancy._pending_keywords}
+        self.assertIn('python', names)
+        self.assertNotIn('unknown', names)
+
+
+class BatchedPersistenceTests(TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.scraper = make_scraper(API_CONFIG, portal_id=1)
+
+    def test_unchanged_existing_vacancy_gets_sighting_bump(self):
+        existing = make_vacancy(
+            42,
+            title='Python developer',
+            company_name='Acme SIA',
+            last_seen=timezone.now() - timedelta(days=3),
+        )
+        vacancy = self.scraper.initiate_resource(
+            vacancy_result(42)
+        )
+        self.scraper.create_or_update_resources([vacancy])
+        existing.refresh_from_db()
+        self.assertGreater(
+            existing.last_seen,
+            timezone.now() - timedelta(days=1),
+        )
+        self.assertEqual(Vacancy.objects.count(), 1)
+
+    def test_existing_vacancy_gets_m2m_rows(self):
+        Keyword.objects.create(name='python')
+        self.scraper.keywords_list = list(Keyword.objects.all())
+        existing = make_vacancy(
+            42, title='Python developer',
+            company_name='Acme SIA',
+        )
+        vacancy = self.scraper.initiate_resource(
+            vacancy_result(42)
+        )
+        self.scraper.create_or_update_resources([vacancy])
+        self.assertEqual(
+            set(existing.keywords.values_list('name', flat=True)),
+            {'python'},
+        )
+
+    def test_new_vacancies_get_m2m_and_portal_stamp(self):
+        Industry.objects.create(name='it')
+        Keyword.objects.create(name='python')
+        self.scraper.keywords_list = list(Keyword.objects.all())
+        vacancy = self.scraper.initiate_resource(
+            vacancy_result(77, categories=[10])
+        )
+        self.scraper.create_or_update_resources([vacancy])
+        stored = Vacancy.objects.get(vacancy_portal_id=77)
+        self.assertEqual(stored.job_portal_id, 1)
+        self.assertEqual(
+            set(stored.industries.values_list('name', flat=True)),
+            {'it'},
+        )
+        self.assertEqual(
+            set(stored.keywords.values_list('name', flat=True)),
+            {'python'},
+        )

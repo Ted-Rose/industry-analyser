@@ -322,11 +322,11 @@ cat > fetcher/config_v2.json << 'EOF'
   "portals": {
     "1": {
       "id": "1",
+      "order": 2,
       "type": "api",
       "base_url": "https://www.cv.lv",
       "search_href": "/api/v1/vacancy-search-service/search",
-      "keywords_param": "keywords",
-      "limit_param": "limit",
+      "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
       "vacancy_base_url": "https://www.cv.lv",
       "vacancy_base_href": "/lv/vacancy/",
       "industry_mapping": {
@@ -414,39 +414,27 @@ exit()
 
 ### 4. Test the Scraper
 
-Run a test scrape with limited keywords:
+Run a dry-run scrape (fetches and parses but writes nothing):
 
 ```bash
-# Limit to just 1-2 keywords for testing
-python manage.py shell
-```
-
-```python
-from fetcher.models import Keyword
-
-# Temporarily disable most keywords
-test_keywords = ['python']
-Keyword.objects.exclude(name__in=test_keywords).update(only_filter=True)
-print(f"Active keywords: {list(Keyword.objects.filter(only_filter=False).values_list('name', flat=True))}")
-exit()
-```
-
-```bash
-# Run the scraper
-python manage.py scrape_vacancies
+python manage.py scrape_vacancies 1 --dry-run
 ```
 
 You should see output like:
 ```
-INFO Searching URL: https://www.cv.lv/api/v1/vacancy-search-service/search?limit=1000&keywords[]=python
-INFO Created 33 new vacancies.
-INFO Created or updated 33 resources
+INFO Searching URL: https://www.cv.lv/api/v1/vacancy-search-service/search?limit=1000&offset=0&categories%5B0%5D=INFORMATION_TECHNOLOGY
+INFO [dry-run] Would create N new vacancies and update M existing — no vacancy/file writes.
 ```
 
-**Restore all keywords**:
+Then a real run:
+
 ```bash
-python manage.py shell -c "from fetcher.models import Keyword; Keyword.objects.all().update(only_filter=False)"
+python manage.py scrape_vacancies
 ```
+
+Keywords are matched locally against the fetched vacancy content —
+they are no longer sent as search queries, so the search sweep is a
+fixed 1–2 requests per portal regardless of how many keywords exist.
 
 ## Verification
 

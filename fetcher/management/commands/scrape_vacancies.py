@@ -41,7 +41,17 @@ class Command(BaseCommand):
         if portal_id is not None:
             portal_ids = [portal_id]
         else:
-            portal_ids = sorted(load_portals_config(), key=int)
+            portals = load_portals_config()
+            # Portals run in `order` ascending (default: numeric
+            # key) — the nextjs portal first so it creates and
+            # detail-enriches rows, the API sweep second.
+            portal_ids = sorted(
+                portals,
+                key=lambda pid: (
+                    int(portals[pid].get('order', pid)),
+                    int(pid),
+                ),
+            )
         failed = []
         for pid in portal_ids:
             runner = ScrapeJobRunner(

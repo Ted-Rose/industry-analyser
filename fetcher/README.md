@@ -73,13 +73,30 @@ else:
   "portals": {
     "1": {
       "id": "1",
+      "order": 2,
       "type": "api",
       "base_url": "https://www.cv.lv",
       "search_href": "/api/v1/vacancy-search-service/search",
-      "keywords_param": "keywords",
-      "limit_param": "limit",
+      "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
+      "page_size": 1000,
       "vacancy_base_url": "https://www.cv.lv",
       "vacancy_base_href": "/lv/vacancy/",
+      "industry_mapping": {
+        "1": "1",
+        "10": "it"
+      }
+    },
+    "2": {
+      "id": "2",
+      "order": 1,
+      "type": "nextjs",
+      "base_url": "https://www.cv.lv",
+      "search_href": "/lv/search",
+      "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
+      "page_size": 100,
+      "vacancy_base_url": "https://www.cv.lv",
+      "vacancy_base_href": "/lv/vacancy/",
+      "files_href": "/api/v1/files-service/",
       "industry_mapping": {
         "1": "1",
         "10": "it"
@@ -94,18 +111,26 @@ else:
 | Field | Required | Description | Example |
 |-------|----------|-------------|---------|
 | `id` | Yes | Portal identifier | `"1"` |
-| `type` | No | Portal type (`"api"` or omit for HTML) | `"api"` |
+| `order` | No | Run order across portals (default: numeric key) | `1` |
+| `type` | No | `"api"` (JSON) or `"nextjs"` (SSR public pages) | `"api"` |
 | `base_url` | Yes | Base URL for the portal | `"https://www.cv.lv"` |
 | `search_href` | Yes | Search endpoint path | `"/api/v1/vacancy-search-service/search"` |
-| `keywords_param` | Yes | Query parameter name for keywords | `"keywords"` |
-| `limit_param` | Yes | Query parameter name for limit | `"limit"` |
+| `search_params` | Yes* | Query string appended to every search page (e.g. a `categories[]` filter) | `"categories%5B0%5D=INFORMATION_TECHNOLOGY"` |
+| `page_size` | No | `limit` per search page (default `1000`) | `100` |
 | `vacancy_base_url` | Yes | Base URL for vacancy detail pages | `"https://www.cv.lv"` |
 | `vacancy_base_href` | Yes | Path prefix for vacancy URLs | `"/lv/vacancy/"` |
-| `industry_mapping` | No | Maps portal industry IDs to local IDs | `{"10": "it"}` |
+| `files_href` | nextjs only | files-service path for vacancy attachments (OCR) | `"/api/v1/files-service/"` |
+| `industry_mapping` | No | Portal category id → local `Industry.name` | `{"10": "it"}` |
+
+\* An API portal without `search_params` falls back to the legacy
+per-keyword search loop (`?limit=1000&keywords[]=<keyword>` for every
+`Keyword` with `only_filter=False`).
 
 **Important**: The `type` field controls scraping behavior:
-- `"api"`: JSON API scraping (no HTML enrichment)
-- Omitted: HTML scraping with enrichment
+- `"api"`: JSON API scraping (no detail-page enrichment)
+- `"nextjs"`: server-rendered Next.js pages — the same vacancy objects
+  come embedded in `__NEXT_DATA__`, plus detail pages are fetched for
+  new/renewed ads (`standardDetails` text + OCR of attached files)
 
 ## Local Development
 
@@ -139,25 +164,18 @@ python manage.py scrape_vacancies
 python manage.py scrape_vacancies 1
 ```
 
-### Testing with Limited Keywords
+### Testing Without Writes
 
-To avoid long scraping sessions during testing:
+The search sweep is one or two requests regardless of keyword count —
+keywords are applied locally to the returned vacancy content, not sent
+as search queries. To test safely:
 
-```python
-# In Django shell
-python manage.py shell
+```bash
+# Fetch and parse but write nothing
+python manage.py scrape_vacancies --dry-run
 
-from fetcher.models import Keyword
-
-# Temporarily disable most keywords
-test_keywords = ['python', 'django']
-Keyword.objects.exclude(name__in=test_keywords).update(only_filter=True)
-
-# Run scraper (in another terminal)
-# python manage.py scrape_vacancies
-
-# Restore all keywords
-Keyword.objects.all().update(only_filter=False)
+# Or a single portal only
+python manage.py scrape_vacancies 1 --dry-run
 ```
 
 ### Local Configuration File
@@ -300,29 +318,40 @@ gcloud secrets versions access latest \
 
 | Portal ID | Name | Type | Status |
 |-----------|------|------|--------|
-| 1 | cv.lv (API) | JSON API | ✅ Working |
-| 2 | likeit.lv | HTML scraping | ⚠️ Untested |
-| 3 | cv.lv (IT category) | HTML scraping | ⚠️ URL malformed |
+| 2 | cv.lv (public site) | Next.js SSR (`__NEXT_DATA__`) | ✅ Working — detail enrichment + file OCR |
+| 1 | cv.lv (API) | JSON API category sweep | ✅ Working — discovery + sightings |
+
+Both portals read the same cv.lv vacancy namespace and the same
+`search_params` IT-category sweep. The public portal runs first
+(`order: 1`) and detail-fetches new/renewed ads; the API portal
+(`order: 2`) then bumps `last_seen` on everything it sees and creates
+rows for anything the public pages missed.
 
 ### Portal 1: cv.lv API
 
-**Type**: JSON API  
-**Endpoint**: `https://www.cv.lv/api/v1/vacancy-search-service/search`  
+**Type**: JSON API
+**Endpoint**: `https://www.cv.lv/api/v1/vacancy-search-service/search`
 **Documentation**: https://www.cv.lv/api/doc/swagger-ui/index.html
 
 **Configuration**:
 ```json
 {
   "id": "1",
+  "order": 2,
   "type": "api",
   "base_url": "https://www.cv.lv",
   "search_href": "/api/v1/vacancy-search-service/search",
-  "keywords_param": "keywords",
-  "limit_param": "limit",
+  "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
   "vacancy_base_url": "https://www.cv.lv",
-  "vacancy_base_href": "/lv/vacancy/"
+  "vacancy_base_href": "/lv/vacancy/",
+  "industry_mapping": { "10": "it" }
 }
 ```
+
+The search response carries the full `positionContent` for every
+vacancy — the `categories[]` filter replaces the old per-keyword
+search loop (~108 requests → 1–2 per run). Keywords still tag rows
+via local content matching.
 
 **API Response Structure**:
 ```json
@@ -345,16 +374,16 @@ gcloud secrets versions access latest \
 }
 ```
 
-### Portal 2: likeit.lv
+### Portal 2: cv.lv public site (Next.js)
 
-**Type**: HTML scraping  
-**Status**: Needs investigation (slow/timeout during testing)
+**Type**: `nextjs` — server-rendered `/lv/search` and
+`/lv/vacancy/{id}` pages embed the vacancy objects as JSON inside
+`<script id="__NEXT_DATA__">`.
 
-### Portal 3: cv.lv with IT Category Filter
-
-**Type**: HTML scraping  
-**Status**: URL construction bug (double `?` in URL)  
-**Issue**: `search_href` contains `?` but `get_search_urls()` adds another
+This is the enrichment portal: detail pages are fetched only for new
+or renewed ads (`renewedDate` > `detail_fetched_at`), adding
+`standardDetails` text and OCR transcription of attached image/PDF
+files (`VacancyFile`, via the `fetcher.vacancy_ocr` AI job).
 
 ## How It Works
 
@@ -362,16 +391,18 @@ gcloud secrets versions access latest \
 
 ```
 1. get_search_urls()
-   ↓ Generates URLs for each keyword
+   ↓ Offset-paginates search_params (e.g. an IT-category sweep)
+   ↓ until offset >= total — one checkpoint item per portal
    
 2. scrape_portal(url)
    ↓ Makes HTTP request
    
 3. parse_results(response)
-   ↓ Parses JSON or HTML
+   ↓ Parses __NEXT_DATA__ (nextjs) or JSON body (api)
+   ↓ Stores `total` for pagination
    
 4. remove_redundant_results(results)
-   ↓ Filters duplicates (currently no-op)
+   ↓ Drops vacancy ids already seen this run
    
 5. initiate_resources(results)
    ↓ Creates unsaved Vacancy instances
@@ -379,26 +410,27 @@ gcloud secrets versions access latest \
    ↓ Stores pending M2M relationships
    
 6. create_or_update_resources(vacancies)
-   ↓ Persists to database
-   ↓ Updates existing or creates new
-   ↓ Establishes M2M relationships
+   ↓ bulk_create new rows
+   ↓ one bulk last_seen UPDATE for unchanged sightings
+   ↓ bulk_update for rows that actually changed
+   ↓ bulk INSERT of M2M through rows (ignore_conflicts)
 ```
 
-### API vs HTML Scraping
+### API vs Next.js Scraping
 
 The scraper supports two modes controlled by the `enrich_search_results` flag:
 
 **API Mode** (`type: "api"` in config):
 - `enrich_search_results = False`
-- Parses JSON response directly
+- Parses the JSON response directly — `positionContent` is complete
 - No additional HTTP requests per vacancy
 - Faster, more reliable
 
-**HTML Mode** (no `type` field):
+**Next.js Mode** (`type: "nextjs"`):
 - `enrich_search_results = True`
-- Parses HTML search results
-- Makes additional requests to enrich data
-- Slower, fragile to HTML changes
+- Parses `__NEXT_DATA__` from SSR search pages (same vacancy objects)
+- Fetches the public detail page for new/renewed ads only
+- Detail adds `standardDetails` text and OCR of attached files
 
 ### Keyword Matching
 
@@ -422,21 +454,23 @@ keyword metadata.
 
 **Create or Update Logic**:
 ```python
-# Check if vacancy exists by vacancy_portal_id
-existing = Vacancy.objects.filter(vacancy_portal_id=id).first()
+# Materialize existing rows once, keyed by vacancy_portal_id
+existing = {v.vacancy_portal_id: v for v in Vacancy.objects.filter(
+    vacancy_portal_id__in=scraped_ids)}
 
-if existing:
-    # Update last_seen timestamp
-    existing.last_seen = now()
-    existing.save()
-else:
-    # Create new vacancy
-    Vacancy.objects.create(...)
+# New rows: one bulk_create
+# Sightings (no field changes): one bulk last_seen UPDATE
+# Changed rows (filled-in fields, fresh detail fetch): bulk_update
 ```
 
 **M2M Relationships**:
-- Industries: Matched by name from `categories` field
+- Industries: `categories` ids mapped through `industry_mapping`
+  (e.g. `"10"` → `"it"`); unmapped ids fall back to a numeric-name
+  `Industry` lookup
 - Keywords: Combined from portal keywords + content scan
+- Both are written as through-model rows (`VacancyIndustries`,
+  `VacancyContainsKeyword`) via `bulk_create(ignore_conflicts=True)`
+  — two INSERTs per page instead of per-vacancy `.add()` calls
 
 ### Date/Time Handling
 
@@ -519,8 +553,8 @@ gcloud run jobs describe scrape-vacancy --region=europe-north1
 **Symptom**: Cloud Run job exceeds timeout
 
 **Possible Causes**:
-- Too many keywords (83 keywords × 1-2s per request = 2-3 minutes)
-- Portal is slow or rate-limiting
+- Portal is slow or rate-limiting (detail-page enrichment and file
+  OCR are the slow paths, not the 1–2 search requests)
 - Network issues
 
 **Solutions**:
@@ -536,10 +570,9 @@ import logging
 logging.getLogger('fetcher').setLevel(logging.DEBUG)
 ```
 
-**Test with minimal keywords**:
-```python
-# Temporarily reduce keyword count
-Keyword.objects.exclude(name='python').update(only_filter=True)
+**Fetch without writing**:
+```bash
+python manage.py scrape_vacancies --dry-run
 ```
 
 **Inspect raw API response**:
@@ -584,8 +617,6 @@ dupes = Vacancy.objects.values('vacancy_portal_id').annotate(
 
 ### Known Issues
 
-- Portal 2 (likeit.lv): Untested, may be slow or broken
-- Portal 3 (cv.lv IT filter): URL construction bug (double `?`)
 - Cloud Run job is disabled in production (needs Terraform re-enable)
 
 ## Related Documentation

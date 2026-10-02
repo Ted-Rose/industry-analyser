@@ -80,12 +80,13 @@
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │ get_search_urls()                                          │ │
 │  │                                                             │ │
-│  │  • Query Keyword.objects.filter(only_filter=False)         │ │
-│  │  • Build URL for each keyword:                             │ │
-│  │    base_url + search_href + ?limit=1000&keywords[]=python  │ │
-│  │                                                             │ │
-│  │  Yields: https://www.cv.lv/api/v1/vacancy-search-service/  │ │
-│  │          search?limit=1000&keywords[]=python               │ │
+│  │  • Offset-paginate the configured search_params filter:    │ │
+│  │    base_url + search_href                                  │ │
+│  │    + ?limit=1000&offset=N&categories[]=INFORMATION_TECH..  │ │
+│  │  • Stop on empty page or offset >= `total`                 │ │
+│  │  • One 'search' ScrapeJobItem checkpoints the whole sweep  │ │
+│  │  • API portals without search_params fall back to the      │ │
+│  │    legacy per-keyword loop (?limit=1000&keywords[]=kw)     │ │
 │  └────────────────────┬───────────────────────────────────────┘ │
 │                       │                                          │
 │                       ▼                                          │
@@ -102,22 +103,23 @@
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │ parse_results(response)                                    │ │
 │  │                                                             │ │
-│  │  if 'application/json' in Content-Type:                    │ │
+│  │  nextjs portal:                                            │ │
+│  │      data = __NEXT_DATA__ JSON blob                        │ │
+│  │      return data.props.pageProps.searchResults.vacancies   │ │
+│  │  api portal ('application/json' Content-Type):             │ │
 │  │      data = json.loads(response.data)                      │ │
 │  │      return data['vacancies']                              │ │
-│  │  else:                                                      │ │
-│  │      soup = BeautifulSoup(response.data)                   │ │
-│  │      return soup.find_all('div', class_="...")             │ │
+│  │  both: record `total` for offset pagination                │ │
 │  └────────────────────┬───────────────────────────────────────┘ │
 │                       │                                          │
 │                       ▼                                          │
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │ extract_resources(results)                                 │ │
 │  │                                                             │ │
-│  │  if enrich_search_results:                                 │ │
-│  │      # HTML mode: enrich each result                       │ │
+│  │  if enrich_search_results:  # nextjs portal                │ │
 │  │      for result in results:                                │ │
 │  │          enriched = enrich_result(result)                  │ │
+│  │          # detail page fetched only for new/renewed ads    │ │
 │  │          resource = initiate_resource(enriched)            │ │
 │  │  else:                                                      │ │
 │  │      # API mode: direct processing                         │ │
@@ -159,31 +161,26 @@
 │  │ create_or_update_resources(vacancies)                      │ │
 │  │                                                             │ │
 │  │  # Separate new vs existing                                │ │
-│  │  existing_ids = Vacancy.objects.filter(                    │ │
-│  │      vacancy_portal_id__in=[v.id for v in vacancies]       │ │
-│  │  ).values_list('vacancy_portal_id', flat=True)             │ │
-│  │                                                             │ │
-│  │  new_vacancies = []                                        │ │
-│  │  update_vacancies = []                                     │ │
+│  │  existing = {v.vacancy_portal_id: v for v in               │ │
+│  │      Vacancy.objects.filter(                               │ │
+│  │          vacancy_portal_id__in=scraped_ids)}               │ │
 │  │                                                             │ │
 │  │  for vacancy in vacancies:                                 │ │
-│  │      if vacancy.vacancy_portal_id in existing_ids:         │ │
-│  │          # Update existing                                 │ │
-│  │          existing.last_seen = now()                        │ │
-│  │          existing.save()                                   │ │
-│  │          update_vacancies.append(existing)                 │ │
+│  │      if vacancy.vacancy_portal_id in existing:             │ │
+│  │          # sighting: last_seen bump only, or a real        │ │
+│  │          # change (filled-in fields, fresh detail fetch)   │ │
 │  │      else:                                                  │ │
 │  │          new_vacancies.append(vacancy)                     │ │
 │  │                                                             │ │
-│  │  # Bulk create new vacancies                               │ │
 │  │  Vacancy.objects.bulk_create(new_vacancies)                │ │
+│  │  Vacancy.objects.filter(pk__in=sighted).update(last_seen)  │ │
+│  │  Vacancy.objects.bulk_update(changed, [...])               │ │
 │  │                                                             │ │
-│  │  # Add M2M relationships                                   │ │
-│  │  for vacancy in new_vacancies + update_vacancies:          │ │
-│  │      for industry in vacancy._pending_industries:          │ │
-│  │          vacancy.industries.add(industry)                  │ │
-│  │      for keyword in vacancy._pending_keywords:             │ │
-│  │          vacancy.keywords.add(keyword)                     │ │
+│  │  # M2M: two bulk INSERTs of through rows                   │ │
+│  │  VacancyIndustries.objects.bulk_create(                    │ │
+│  │      rows, ignore_conflicts=True)                          │ │
+│  │  VacancyContainsKeyword.objects.bulk_create(               │ │
+│  │      rows, ignore_conflicts=True)                          │ │
 │  └────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
@@ -203,7 +200,7 @@
 └──────┬───────┘
        │
        │ HTTP GET
-       │ ?limit=1000&keywords[]=python
+       │ ?limit=1000&offset=0&categories[]=INFORMATION_TECHNOLOGY
        │
        ▼
 ┌──────────────────────────────────────┐
@@ -396,22 +393,23 @@ LOCAL DEVELOPMENT:
 │                   (fetcher/scraper.py)                       │
 │                                                              │
 │  Implements:                                                 │
-│  • get_search_urls() - Build URLs from keywords             │
-│  • parse_results() - Parse JSON or HTML                     │
-│  • remove_redundant_results() - Currently no-op             │
+│  • get_search_urls() - Offset-paginated search_params sweep │
+│  • parse_results() - Parse __NEXT_DATA__ or JSON            │
+│  • remove_redundant_results() - In-session id dedup         │
 │  • initiate_resources() - Create Vacancy instances          │
 │  • create_or_update_resources() - Persist to DB             │
 │                                                              │
 │  Additional Methods:                                         │
 │  • _extract_searchable_content() - Combine text fields      │
 │  • _find_keywords_in_content() - Regex keyword matching     │
+│  • _ocr_vacancy_file() - Transcribe attached image/PDF ads  │
 │                                                              │
 │  Properties:                                                 │
 │  • config - Portal configuration                            │
 │  • keywords - Keyword.objects manager                       │
 │  • industries - Industry.objects manager                    │
 │  • keywords_list - Cached keyword list                      │
-│  • enrich_search_results - API vs HTML mode flag            │
+│  • enrich_search_results - nextjs vs api mode flag          │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -421,8 +419,10 @@ LOCAL DEVELOPMENT:
 ┌─────────────────────────────────────────────────────────────┐
 │                      fetcher_vacancy                         │
 ├─────────────────────────────────────────────────────────────┤
-│ id                      INTEGER PRIMARY KEY                  │
+│ id                      UUID PRIMARY KEY                     │
 │ vacancy_portal_id       INTEGER UNIQUE NOT NULL              │
+│ job_portal_id           INTEGER (creating portal's key)      │
+│ detail_fetched_at       TIMESTAMP (detail page last fetched) │
 │ title                   VARCHAR(255)                         │
 │ company_name            VARCHAR(255)                         │
 │ salary_from             DECIMAL(10,2)                        │
@@ -440,7 +440,7 @@ LOCAL DEVELOPMENT:
         ▼                                     ▼
 ┌───────────────────────┐         ┌───────────────────────┐
 │ fetcher_vacancy_      │         │ fetcher_vacancy_      │
-│ industries            │         │ keywords              │
+│ industries            │         │ contains_keyword      │
 ├───────────────────────┤         ├───────────────────────┤
 │ id                    │         │ id                    │
 │ vacancy_id (FK)       │         │ vacancy_id (FK)       │

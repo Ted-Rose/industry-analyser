@@ -44,7 +44,7 @@ Visit http://127.0.0.1:8000/admin/ to access the admin interface.
 
 | Path | Purpose |
 |---|---|
-| `fetcher/` | Job vacancy scraper (cv.lv, likeit.lv) |
+| `fetcher/` | Job vacancy scraper (cv.lv public site + search API) |
 | `classified_ads/` | Apartment rental & sale scraper |
 | `blogs/` | Blog content scraper |
 | `core_scraper/` | Shared scraping base classes |

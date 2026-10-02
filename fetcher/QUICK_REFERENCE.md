@@ -22,25 +22,14 @@ source venv/bin/activate
 python manage.py scrape_vacancies
 ```
 
-### Test with Limited Keywords
+### Test Without Writes
 
 ```bash
-# Start Django shell
-python manage.py shell
-```
+# Fetch and parse but write nothing
+python manage.py scrape_vacancies --dry-run
 
-```python
-from fetcher.models import Keyword
-
-# Set only specific keywords active
-test_keywords = ['python', 'django', 'javascript']
-Keyword.objects.exclude(name__in=test_keywords).update(only_filter=True)
-
-# Exit shell and run scraper
-# python manage.py scrape_vacancies
-
-# Restore all keywords (in shell again)
-Keyword.objects.all().update(only_filter=False)
+# A single portal only
+python manage.py scrape_vacancies 1 --dry-run
 ```
 
 ### Check Configuration
@@ -95,13 +84,26 @@ cat > /tmp/portals.json << 'EOF'
 {
   "1": {
     "id": "1",
+    "order": 2,
     "type": "api",
     "base_url": "https://www.cv.lv",
     "search_href": "/api/v1/vacancy-search-service/search",
-    "keywords_param": "keywords",
-    "limit_param": "limit",
+    "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
     "vacancy_base_url": "https://www.cv.lv",
     "vacancy_base_href": "/lv/vacancy/",
+    "industry_mapping": { ... }
+  },
+  "2": {
+    "id": "2",
+    "order": 1,
+    "type": "nextjs",
+    "base_url": "https://www.cv.lv",
+    "search_href": "/lv/search",
+    "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
+    "page_size": 100,
+    "vacancy_base_url": "https://www.cv.lv",
+    "vacancy_base_href": "/lv/vacancy/",
+    "files_href": "/api/v1/files-service/",
     "industry_mapping": { ... }
   }
 }
@@ -255,13 +257,29 @@ print(f"Vacancies not seen in 90 days: {old_vacancies.count()}")
   "portals": {
     "1": {
       "id": "1",
+      "order": 2,
       "type": "api",
       "base_url": "https://www.cv.lv",
       "search_href": "/api/v1/vacancy-search-service/search",
-      "keywords_param": "keywords",
-      "limit_param": "limit",
+      "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
       "vacancy_base_url": "https://www.cv.lv",
       "vacancy_base_href": "/lv/vacancy/",
+      "industry_mapping": {
+        "1": "1",
+        "10": "it"
+      }
+    },
+    "2": {
+      "id": "2",
+      "order": 1,
+      "type": "nextjs",
+      "base_url": "https://www.cv.lv",
+      "search_href": "/lv/search",
+      "search_params": "categories%5B0%5D=INFORMATION_TECHNOLOGY",
+      "page_size": 100,
+      "vacancy_base_url": "https://www.cv.lv",
+      "vacancy_base_href": "/lv/vacancy/",
+      "files_href": "/api/v1/files-service/",
       "industry_mapping": {
         "1": "1",
         "10": "it"
@@ -274,26 +292,7 @@ print(f"Vacancies not seen in 90 days: {old_vacancies.count()}")
 ### Production Secret Structure
 
 **Important**: The secret contains **only the portals object**, not the full
-config!
-
-```json
-{
-  "1": {
-    "id": "1",
-    "type": "api",
-    "base_url": "https://www.cv.lv",
-    "search_href": "/api/v1/vacancy-search-service/search",
-    "keywords_param": "keywords",
-    "limit_param": "limit",
-    "vacancy_base_url": "https://www.cv.lv",
-    "vacancy_base_href": "/lv/vacancy/",
-    "industry_mapping": {
-      "1": "1",
-      "10": "it"
-    }
-  }
-}
-```
+config! Same shape as the `portals` object above.
 
 ### Extract Config from Local File
 
@@ -396,7 +395,7 @@ from fetcher.scraper import VacancyScrapper
 import json
 
 # Load all portals
-for portal_id in [1, 2, 3]:
+for portal_id in [1, 2]:
     try:
         scraper = VacancyScrapper(portal_id=portal_id)
         print(f"\nPortal {portal_id}:")
@@ -444,16 +443,17 @@ print(f"Duration: {duration}s")
 print(f"Rate: {new_count/duration:.2f} vacancies/second")
 ```
 
-### Test Single Keyword
+### Test a Small Search Page
 
 ```python
 from fetcher.scraper import VacancyScrapper
 
 scraper = VacancyScrapper(portal_id=1)
 
-# Build URL for single keyword
+# Build a small page of the category sweep
 base_url = scraper.config['base_url'] + scraper.config['search_href']
-test_url = base_url + "?limit=10&keywords[]=python"
+params = scraper.config['search_params']
+test_url = base_url + f"?limit=10&offset=0&{params}"
 
 print(f"Testing URL: {test_url}")
 
@@ -549,7 +549,7 @@ from fetcher.scraper import VacancyScrapper
 scraper = VacancyScrapper(portal_id=1)
 urls = list(scraper.get_search_urls())
 
-print(f"Total keywords: {len(urls)}")
+print(f"Total search pages: {len(urls)}")
 print(f"Estimated time (1s per request): {len(urls)}s")
 print(f"Estimated time (2s per request): {len(urls) * 2}s")
 ```

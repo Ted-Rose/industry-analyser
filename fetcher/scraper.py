@@ -7,7 +7,14 @@ from django.conf import settings
 from bs4 import BeautifulSoup
 import urllib3
 from .ai_jobs import VACANCY_IMAGE_OCR
-from .models import Keyword, Vacancy, VacancyFile, Industry
+from .models import (
+    Industry,
+    Keyword,
+    Vacancy,
+    VacancyContainsKeyword,
+    VacancyFile,
+    VacancyIndustries,
+)
 from typing import List
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -46,8 +53,9 @@ class VacancyScrapper(BaseScraper):
         self.industries = Industry.objects
         # Cache keywords list for content matching optimization
         self.keywords_list = list(self.keywords.all())
-        # Set enrich_search_results based on portal type
-        self.enrich_search_results = self.config.get('type') != 'api'
+        # Only nextjs portals have detail pages worth fetching;
+        # API search results already carry the full payload.
+        self.enrich_search_results = self.config.get('type') == 'nextjs'
         self.validate_result = False
         self.excluded_resources = []
         self._ai_client = None
@@ -55,19 +63,24 @@ class VacancyScrapper(BaseScraper):
         self._ocr_template = None
         self._detail_fetched_map = None
         self._search_total = None
+        # Vacancy ids already processed this run — overlapping
+        # search pages must not re-save the same rows.
+        self._seen_ids = set()
+        self._industry_cache = None
 
     def load_config(self, portal_id):
         return load_portals_config().get(str(portal_id))
 
     def get_search_urls(self):
-        if self.config.get('type') == 'nextjs':
-            yield from self._nextjs_search_urls()
+        if self.config.get('search_params'):
+            yield from self._sweep_search_urls()
             return
         yield from self._keyword_search_urls()
 
     def _keyword_search_urls(self):
-        """API portals: one search URL (and one checkpoint item)
-        per keyword."""
+        """Legacy API fallback when no ``search_params`` filter is
+        configured: one search URL (and one checkpoint item) per
+        keyword."""
         base_url = self.config['base_url'] + self.config['search_href']
         keywords = self.keywords.filter(
             only_filter=False
@@ -94,11 +107,11 @@ class VacancyScrapper(BaseScraper):
                 continue
             self.runner.item_done(item)
 
-    def _nextjs_search_urls(self):
-        """Next.js portals: the whole offset-paginated sweep is
-        one checkpoint item."""
+    def _sweep_search_urls(self):
+        """The whole offset-paginated ``search_params`` sweep is
+        one checkpoint item (nextjs and API portals alike)."""
         if self.runner is None:
-            yield from self._get_nextjs_search_urls()
+            yield from self._get_offset_search_urls()
             return
         base_url = self.config['base_url'] + self.config['search_href']
         items = self.runner.sync_items(
@@ -106,7 +119,7 @@ class VacancyScrapper(BaseScraper):
         )
         for item in self.runner.pending_items(items):
             try:
-                for url in self._get_nextjs_search_urls():
+                for url in self._get_offset_search_urls():
                     yield url
                     self.runner.touch()
             except Exception as e:
@@ -114,12 +127,10 @@ class VacancyScrapper(BaseScraper):
                 continue
             self.runner.item_done(item)
 
-    def _get_nextjs_search_urls(self):
-        """Public portal search pages (server-rendered Next.js).
-
-        Offset-paginates ``search_params`` (e.g. an IT-category
+    def _get_offset_search_urls(self):
+        """Offset-paginate ``search_params`` (e.g. an IT-category
         sweep) until a page comes back empty or ``total`` from the
-        embedded JSON has been covered.
+        response — stored by ``parse_results`` — has been covered.
         """
         base_url = self.config['base_url'] + self.config['search_href']
         params = self.config['search_params']
@@ -163,21 +174,30 @@ class VacancyScrapper(BaseScraper):
             self._search_total = search.get('total')
             return search.get('vacancies') or []
         content_type = search_response.headers.get('Content-Type', '')
-        if 'application/json' in content_type:
-            data = json.loads(search_response.data.decode('utf-8'))
-            vacancies = data.get('vacancies', [])
-            return vacancies
-        else:
-            soup = BeautifulSoup(search_response.data, 'html.parser')
-            vacancy_soup = soup.find_all('div', class_="show-expander-content")
-            return vacancy_soup
+        if 'application/json' not in content_type:
+            logger.warning(
+                f"Unexpected Content-Type {content_type!r} from "
+                f"portal {self.portal_id} — expected JSON"
+            )
+            return []
+        data = json.loads(search_response.data.decode('utf-8'))
+        self._search_total = data.get('total')
+        return data.get('vacancies', [])
 
     def remove_redundant_results(
       self,
       resources: List[Vacancy]
     ) -> List[Vacancy]:
-        # Remove already processed vacancy id's in this session
-        return resources
+        # Remove already processed vacancy id's in this session —
+        # overlapping searches must not re-save the same rows.
+        fresh = []
+        for result in resources:
+            result_id = result.get('id')
+            if result_id is not None and result_id in self._seen_ids:
+                continue
+            self._seen_ids.add(result_id)
+            fresh.append(result)
+        return fresh
 
     def get_resource_info_link(self, result):
         return (
@@ -195,8 +215,6 @@ class VacancyScrapper(BaseScraper):
         — the search payload alone already carries everything the
         Vacancy model needs.
         """
-        if self.config.get('type') != 'nextjs':
-            return super().enrich_result(result)
         if not self._needs_detail_fetch(result):
             return result
         info_link = self.get_resource_info_link(result)
@@ -407,6 +425,15 @@ class VacancyScrapper(BaseScraper):
 
         return matched_keywords
 
+    def _industry_named(self, name):
+        """Industry row by name — the table is tiny, so it is
+        cached once per run instead of queried per vacancy."""
+        if self._industry_cache is None:
+            self._industry_cache = {
+                i.name: i for i in self.industries.all()
+            }
+        return self._industry_cache.get(name)
+
     def initiate_resources(self, search_results) -> List[Vacancy]:
         vacancies = []
         for result in search_results:
@@ -446,6 +473,7 @@ class VacancyScrapper(BaseScraper):
         # Create unsaved Vacancy instance with metadata
         vacancy = Vacancy(
             vacancy_portal_id=vacancy_portal_id,
+            job_portal_id=int(self.portal_id),
             title=result.get('positionTitle'),
             company_name=result.get('employerName'),
             salary_from=result.get('salaryFrom'),
@@ -485,25 +513,26 @@ class VacancyScrapper(BaseScraper):
         vacancy._pending_industries = []
         vacancy._pending_keywords = []
 
-        # Collect industries
+        # Collect industries — numeric portal categories are mapped
+        # through the config's industry_mapping (e.g. "10" → "it"),
+        # unmapped ids keep their numeric name lookup.
+        industry_mapping = self.config.get('industry_mapping') or {}
         portal_industries = result.get('categories')
         if portal_industries:
             for portal_industry in portal_industries:
-                industry = self.industries.filter(
-                    name=portal_industry
-                ).first()
+                industry_name = industry_mapping.get(
+                    str(portal_industry), str(portal_industry)
+                )
+                industry = self._industry_named(industry_name)
                 if industry:
                     vacancy._pending_industries.append(industry)
 
         # Collect keywords from portal's explicit keyword list
+        keyword_by_name = {k.name: k for k in self.keywords_list}
         portal_keywords = result.get('keywords')
         if portal_keywords:
             for portal_keyword in portal_keywords:
-                keyword = (
-                    self.keywords.filter(
-                        name=portal_keyword
-                    ).first()
-                )
+                keyword = keyword_by_name.get(portal_keyword)
                 if keyword:
                     vacancy._pending_keywords.append(keyword)
 
@@ -526,50 +555,62 @@ class VacancyScrapper(BaseScraper):
     def create_or_update_resources(self, vacancies: List[Vacancy]):
         vacancies = [v for v in vacancies if v is not None]
         scraped_ids = {v.vacancy_portal_id for v in vacancies}
-        existing_vacancies = Vacancy.objects.filter(
-            vacancy_portal_id__in=scraped_ids
-        )
-        existing_ids = set(
-            existing_vacancies.values_list('vacancy_portal_id', flat=True)
-        )
+        # Materialize once — a keyed dict beats a per-row .get().
+        existing_by_portal_id = {
+            v.vacancy_portal_id: v
+            for v in Vacancy.objects.filter(
+                vacancy_portal_id__in=scraped_ids
+            )
+        }
 
         new_vacancies = []
-        vacancies_to_update_m2m = []
+        changed_vacancies = []
+        sighted_pks = []
+        m2m_vacancies = []
 
         for vacancy in vacancies:
-            if vacancy.vacancy_portal_id in existing_ids:
-                # Update existing vacancy
-                existing = existing_vacancies.get(
-                    vacancy_portal_id=vacancy.vacancy_portal_id
-                )
-                existing.last_seen = timezone.now()
-                if vacancy.detail_fetched_at:
-                    existing.detail_fetched_at = (
-                        vacancy.detail_fetched_at
-                    )
-                if not existing.title and vacancy.title:
-                    existing.title = vacancy.title
-                if not existing.company_name and vacancy.company_name:
-                    existing.company_name = vacancy.company_name
-                if not self.dry_run:
-                    existing.save()
-                # Transfer pending M2M data to existing instance
-                existing._pending_industries = (
-                    vacancy._pending_industries
-                )
-                existing._pending_keywords = vacancy._pending_keywords
-                existing._pending_file = getattr(
-                    vacancy, '_pending_file', None
-                )
-                vacancies_to_update_m2m.append(existing)
-            else:
+            existing = existing_by_portal_id.get(
+                vacancy.vacancy_portal_id
+            )
+            if existing is None:
                 new_vacancies.append(vacancy)
+                continue
+            # Update existing vacancy. Most sightings only bump
+            # last_seen — those go into one bulk UPDATE; rows that
+            # actually change (filled-in fields, a fresh detail
+            # fetch) get a real save via bulk_update.
+            changed = False
+            if vacancy.detail_fetched_at:
+                existing.detail_fetched_at = (
+                    vacancy.detail_fetched_at
+                )
+                changed = True
+            if not existing.title and vacancy.title:
+                existing.title = vacancy.title
+                changed = True
+            if not existing.company_name and vacancy.company_name:
+                existing.company_name = vacancy.company_name
+                changed = True
+            if changed:
+                existing.last_seen = timezone.now()
+                changed_vacancies.append(existing)
+            else:
+                sighted_pks.append(existing.pk)
+            # Transfer pending M2M data to existing instance
+            existing._pending_industries = (
+                vacancy._pending_industries
+            )
+            existing._pending_keywords = vacancy._pending_keywords
+            existing._pending_file = getattr(
+                vacancy, '_pending_file', None
+            )
+            m2m_vacancies.append(existing)
 
         if self.dry_run:
             logger.info(
                 f"[dry-run] Would create {len(new_vacancies)} "
                 f"new vacancies and update "
-                f"{len(vacancies_to_update_m2m)} existing "
+                f"{len(m2m_vacancies)} existing "
                 f"— no vacancy/file writes."
             )
             return
@@ -579,28 +620,51 @@ class VacancyScrapper(BaseScraper):
             logger.info(
                 f"Created {len(new_vacancies)} new vacancies. \n\n"
             )
-            # Add M2M relationships for new vacancies
-            for vacancy in new_vacancies:
-                for industry in vacancy._pending_industries:
-                    vacancy.industries.add(industry)
-                for keyword in vacancy._pending_keywords:
-                    vacancy.keywords.add(keyword)
 
-        if vacancies_to_update_m2m:
+        if sighted_pks:
+            Vacancy.objects.filter(pk__in=sighted_pks).update(
+                last_seen=timezone.now()
+            )
+        if changed_vacancies:
+            Vacancy.objects.bulk_update(
+                changed_vacancies,
+                [
+                    'last_seen', 'detail_fetched_at',
+                    'title', 'company_name',
+                ],
+            )
+        if m2m_vacancies:
             logger.info(
-                f"Updated {len(vacancies_to_update_m2m)} "
+                f"Updated {len(m2m_vacancies)} "
                 f"existing vacancies."
             )
-            # Update M2M relationships for existing vacancies
-            for vacancy in vacancies_to_update_m2m:
-                for industry in vacancy._pending_industries:
-                    vacancy.industries.add(industry)
-                for keyword in vacancy._pending_keywords:
-                    vacancy.keywords.add(keyword)
+
+        # M2M writes: collect every (vacancy, tag) pair across the
+        # batch and insert the through rows in one bulk INSERT per
+        # relation — unique_together makes conflicts harmless.
+        industry_rows = []
+        keyword_rows = []
+        for vacancy in (*new_vacancies, *m2m_vacancies):
+            for industry in vacancy._pending_industries:
+                industry_rows.append(VacancyIndustries(
+                    vacancy=vacancy, industry=industry,
+                ))
+            for keyword in vacancy._pending_keywords:
+                keyword_rows.append(VacancyContainsKeyword(
+                    vacancy=vacancy, keyword=keyword,
+                ))
+        if industry_rows:
+            VacancyIndustries.objects.bulk_create(
+                industry_rows, ignore_conflicts=True
+            )
+        if keyword_rows:
+            VacancyContainsKeyword.objects.bulk_create(
+                keyword_rows, ignore_conflicts=True
+            )
 
         # Persist OCR'd vacancy files (file_id is unique — a file
         # already recorded for another run is left untouched)
-        for vacancy in (*new_vacancies, *vacancies_to_update_m2m):
+        for vacancy in (*new_vacancies, *m2m_vacancies):
             vacancy_file = getattr(vacancy, '_pending_file', None)
             if vacancy_file is None:
                 continue
