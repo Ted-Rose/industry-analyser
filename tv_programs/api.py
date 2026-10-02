@@ -1,0 +1,264 @@
+"""django-ninja router for the tv SPA (mounted at /api/tv/).
+
+GET ops are public (auth=None) — the template pages they replace
+were public; the like/dislike reaction mutation keeps the default
+django_auth (session + CSRF) — a deliberate tightening vs. the old
+anonymous-write form, matching the migration README's "mutations
+keep django_auth" rule. The queryset logic mirrors the retired
+program_list view in tv_programs/views.py exactly, including the
+not_content_rating default of 'R' and the 7-day default window.
+"""
+from datetime import date, timedelta
+from decimal import Decimal
+from typing import List, Optional
+from uuid import UUID
+
+from django.db.models import Q
+from django.shortcuts import get_object_or_404
+from ninja import Query, Router, Schema
+
+from industry_analyser.api import ApiHttpError
+
+from .models import Channel, Program, Show, ShowPreference
+from .views import _fetch_spoki_page, _preference_qs
+
+router = Router()
+
+
+# --- Schemas ---
+
+
+class ShowRef(Schema):
+    """The canonical Show slice a program card needs."""
+    id: UUID
+    title_lv: str
+    title_eng: Optional[str]
+    imdb_rating: Optional[Decimal]
+    imdb_url: Optional[str]
+    pg_rating: Optional[str]
+    image_url: Optional[str]
+    title_match_ratio: float
+
+
+class ProgramOut(Schema):
+    id: UUID
+    title_lv: str
+    title_eng: Optional[str]
+    description_lv: Optional[str]
+    channel_name: str
+    start_time: str
+    image_url: Optional[str]
+    url: Optional[str]
+    pg_rating: Optional[str]
+    # Program.imdb_rating is a CharField (scraped string); the card's
+    # "Rating:" falls back to it when show.imdb_rating is falsy.
+    imdb_rating: Optional[str]
+    title_match_ratio: float
+    show: Optional[ShowRef]
+    user_reaction: Optional[str]
+
+    @staticmethod
+    def resolve_channel_name(obj):
+        return obj.channel.name
+
+    @staticmethod
+    def resolve_start_time(obj):
+        # Django's {{ program.start_time }} rendered DATETIME_FORMAT
+        # ("N j, Y, P"); the SPA formats the ISO value client-side.
+        return obj.start_time.isoformat()
+
+    @staticmethod
+    def resolve_user_reaction(obj):
+        return getattr(obj, 'user_reaction', None)
+
+
+class ProgramFiltersOut(Schema):
+    """Effective filter state — echoes the template's context
+    `filters` dict so the SPA can render the applied window."""
+    content_rating: Optional[str]
+    not_content_rating: Optional[str]
+    rating_value: Optional[float]
+    ratio: Optional[float]
+    start_date: date
+    end_date: date
+    channel_name: Optional[str]
+    exclude_channel_name: Optional[str]
+    show_disliked: bool
+
+
+class ProgramsOut(Schema):
+    """The whole program_list page payload — filtered programs plus
+    the channel option list (the template's `channels` context)."""
+    programs: List[ProgramOut]
+    channels: List[str]
+    filters: ProgramFiltersOut
+
+
+class SpokiPageOut(Schema):
+    title: str
+    content: str
+
+
+class ReactionOut(Schema):
+    success: bool
+    show_id: UUID
+    # The reaction now in effect — null when the toggle removed it.
+    reaction: Optional[str]
+    message: str
+
+
+# --- Ops ---
+
+
+@router.get('/programs/', auth=None, response=ProgramsOut)
+def list_programs(
+    request,
+    content_rating: Optional[str] = Query(None, max_length=50),
+    not_content_rating: Optional[str] = Query(None, max_length=50),
+    rating_value: Optional[float] = Query(None),
+    ratio: Optional[float] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    channel: Optional[str] = Query(None, max_length=255),
+    exclude_channel: Optional[str] = Query(None, max_length=255),
+    show_disliked: bool = False,
+):
+    """Program feed — mirrors the retired program_list view.
+
+    `not_content_rating` defaults to 'R' when the param is absent;
+    an explicit empty value (?not_content_rating=) disables the
+    exclusion, like clearing the template input did. `ratio` was a
+    declared-but-dead input in the template form — it now filters on
+    the displayed match ratio (show's, falling back to the
+    program's when no Show is linked).
+    """
+    # Default 'not_content_rating' to 'R' if not specified (verbatim
+    # from the view — an explicit empty string disables it).
+    if not_content_rating is None:
+        not_content_rating = 'R'
+
+    # Default dates to a 7-day window if not provided.
+    if end_date is None:
+        end_date = date.today()
+    if start_date is None:
+        start_date = end_date - timedelta(days=7)
+
+    query = Q()
+
+    if content_rating:
+        query &= Q(show__pg_rating=content_rating)
+    if not_content_rating:
+        query &= (
+            Q(show__isnull=True)
+            | ~Q(show__pg_rating=not_content_rating)
+        )
+    if rating_value is not None:
+        query &= Q(show__imdb_rating__gte=rating_value)
+    if ratio is not None:
+        query &= (
+            Q(show__title_match_ratio__gte=ratio)
+            | Q(show__isnull=True, title_match_ratio__gte=ratio)
+        )
+
+    query &= Q(start_time__date__gte=start_date)
+    query &= Q(start_time__date__lte=end_date)
+    if channel:
+        query &= Q(channel__name=channel)
+    if exclude_channel:
+        query &= ~Q(channel__name=exclude_channel)
+
+    programs = Program.objects.select_related('show', 'channel').filter(
+        query
+    ).order_by('channel__name')
+
+    preferences = list(
+        _preference_qs(request).select_related('show')
+    )
+    reactions = {p.show_id: p.reaction for p in preferences}
+
+    # Disliked shows (and every show sharing a disliked series_title)
+    # are hidden unless ?show_disliked=1.
+    if not show_disliked:
+        disliked_ids = {
+            p.show_id
+            for p in preferences
+            if p.reaction == ShowPreference.Reaction.DISLIKE
+        }
+        disliked_series = {
+            p.show.series_title
+            for p in preferences
+            if p.reaction == ShowPreference.Reaction.DISLIKE
+            and p.show.series_title
+        }
+        if disliked_ids:
+            programs = programs.exclude(show_id__in=disliked_ids)
+        if disliked_series:
+            programs = programs.exclude(
+                show__series_title__in=disliked_series
+            )
+
+    programs = list(programs)
+    for program in programs:
+        program.user_reaction = reactions.get(program.show_id)
+
+    return ProgramsOut(
+        programs=programs,
+        channels=[
+            c.name for c in Channel.objects.order_by('name')
+        ],
+        filters=ProgramFiltersOut(
+            content_rating=content_rating,
+            not_content_rating=not_content_rating,
+            rating_value=rating_value,
+            ratio=ratio,
+            start_date=start_date,
+            end_date=end_date,
+            channel_name=channel,
+            exclude_channel_name=exclude_channel,
+            show_disliked=show_disliked,
+        ),
+    )
+
+
+@router.get('/spoki-page/', auth=None, response=SpokiPageOut)
+def spoki_page(request):
+    """Live-fetches the hardcoded spoki.lv article and returns
+    {title, content} — the SPA renders content as HTML (same trust
+    posture as the template's |safe render)."""
+    title, content = _fetch_spoki_page()
+    return SpokiPageOut(title=title, content=content)
+
+
+@router.post('/shows/{show_id}/react/{reaction}/', response=ReactionOut)
+def react_to_show(request, show_id: UUID, reaction: str):
+    """Toggle a like/dislike on a Show — posting the same reaction
+    again removes it. Session-auth (was: anonymous form POST)."""
+    show = get_object_or_404(Show, pk=show_id)
+    if reaction not in ShowPreference.Reaction.values:
+        raise ApiHttpError(
+            400, 'unknown reaction', code='unknown_reaction'
+        )
+    pref = ShowPreference.objects.filter(
+        show=show, user=request.user
+    ).first()
+    if pref is not None and pref.reaction == reaction:
+        pref.delete()
+        new_reaction = None
+        message = f'{reaction} removed'
+    elif pref is not None:
+        pref.reaction = reaction
+        pref.save(update_fields=['reaction'])
+        new_reaction = reaction
+        message = f'reaction set to {reaction}'
+    else:
+        ShowPreference.objects.create(
+            show=show, user=request.user, reaction=reaction
+        )
+        new_reaction = reaction
+        message = f'reaction set to {reaction}'
+    return ReactionOut(
+        success=True,
+        show_id=show.pk,
+        reaction=new_reaction,
+        message=message,
+    )

@@ -2,8 +2,9 @@ import datetime
 import json
 import pathlib
 from types import SimpleNamespace
-from unittest import skipIf
+from unittest import mock, skipIf
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -477,41 +478,380 @@ class EnrichShowTests(TestCase):
         self.assertEqual(show.enrichment_status, "failed")
 
 
-class ReactViewTests(TestCase):
+def make_channel(name="ltv1_hd"):
+    return Channel.objects.create(name=name)
+
+
+def make_show(dedup_key="s1", **kwargs):
+    return Show.objects.create(
+        title_lv=kwargs.pop("title_lv", "Sirds robeža"),
+        dedup_key=dedup_key,
+        **kwargs,
+    )
+
+
+def make_program(channel=None, start_time=None, **kwargs):
+    if channel is None:
+        channel, _ = Channel.objects.get_or_create(name="ltv1_hd")
+    return Program.objects.create(
+        title_lv=kwargs.pop("title_lv", "Dienas ziņas"),
+        description_lv=kwargs.pop("description_lv", ""),
+        channel=channel,
+        start_time=start_time or timezone.now(),
+        duration_minutes=kwargs.pop("duration_minutes", 25),
+        **kwargs,
+    )
+
+
+class TvApiTests(TestCase):
+    """HTTP-layer coverage for the tv SPA API (mounted at
+    /api/tv/) and the URL cutover — the retired program_list /
+    react_to_show views' behavior is covered here at the JSON
+    boundary."""
+
+    API = "/api/tv"
+
     def setUp(self):
-        self.show = Show.objects.create(
-            title_lv="Sirds robeža", dedup_key="r1"
+        self.user = get_user_model().objects.create_user(
+            username="alice", password="pw"
         )
 
-    def _url(self, reaction):
-        return reverse(
-            "tv_programs:react_to_show",
-            args=[self.show.pk, reaction],
+    # --- URL cutover / shell ---
+
+    def test_tv_url_serves_shell(self):
+        resp = self.client.get("/tv/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="root"')
+        self.assertContains(resp, "spa-bootstrap")
+
+    def test_tv_deep_link_serves_shell(self):
+        resp = self.client.get("/tv/spoki-page/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="root"')
+
+    def test_non_get_to_spa_urls_404s(self):
+        for method in ("post", "put", "delete"):
+            resp = getattr(self.client, method)("/tv/")
+            self.assertEqual(resp.status_code, 404)
+
+    def test_retired_react_url_post_404s(self):
+        """POSTs to the old react/<uuid>/<reaction>/ form action hit
+        the catch-all shell, which only answers GET/HEAD — retired
+        mutation URLs must not answer with HTML."""
+        show = make_show()
+        resp = self.client.post(f"/tv/react/{show.pk}/like/")
+        self.assertEqual(resp.status_code, 404)
+        # ...but a GET deep link still serves the SPA shell.
+        resp = self.client.get(f"/tv/react/{show.pk}/like/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="root"')
+
+    def test_named_routes_still_reverse(self):
+        self.assertEqual(
+            reverse("tv_programs:program_list"), "/tv/"
+        )
+        self.assertEqual(
+            reverse("tv_programs:spoki_page"), "/tv/spoki-page/"
         )
 
-    def test_like_toggle(self):
-        self.client.post(self._url("like"))
-        pref = ShowPreference.objects.get(show=self.show)
+    # --- GET /api/tv/programs/ ---
+
+    def test_program_list_is_public(self):
+        make_program()
+        resp = self.client.get(f"{self.API}/programs/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(len(body["programs"]), 1)
+        self.assertIn("channels", body)
+        self.assertIn("filters", body)
+
+    def test_default_window_excludes_old_programs(self):
+        old = make_program(
+            start_time=timezone.now() - datetime.timedelta(days=30)
+        )
+        recent = make_program()
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertIn(str(recent.pk), ids)
+        self.assertNotIn(str(old.pk), ids)
+
+    def test_explicit_date_window(self):
+        ch = make_channel()
+        make_program(
+            channel=ch,
+            start_time=datetime.datetime(
+                2026, 1, 5, 12, 0, tzinfo=datetime.timezone.utc
+            ),
+        )
+        outside = make_program(
+            channel=ch,
+            start_time=datetime.datetime(
+                2026, 1, 20, 12, 0, tzinfo=datetime.timezone.utc
+            ),
+        )
+        resp = self.client.get(
+            f"{self.API}/programs/",
+            {"start_date": "2026-01-01", "end_date": "2026-01-10"},
+        )
+        body = resp.json()
+        self.assertEqual(len(body["programs"]), 1)
+        self.assertNotIn(
+            str(outside.pk),
+            [p["id"] for p in body["programs"]],
+        )
+        # Effective window is echoed back like the template's
+        # filters context.
+        self.assertEqual(body["filters"]["start_date"], "2026-01-01")
+        self.assertEqual(body["filters"]["end_date"], "2026-01-10")
+
+    def test_default_excludes_r_rated_shows(self):
+        """not_content_rating defaults to 'R' — a program linked to
+        an R-rated show is hidden; shows without a rating and
+        unlinked programs stay."""
+        r_show = make_show("r", pg_rating="R")
+        pg_show = make_show("pg", pg_rating="PG-13")
+        ch = make_channel()
+        hidden = make_program(channel=ch, show=r_show)
+        shown = make_program(channel=ch, show=pg_show)
+        unlinked = make_program(channel=ch)
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertNotIn(str(hidden.pk), ids)
+        self.assertIn(str(shown.pk), ids)
+        self.assertIn(str(unlinked.pk), ids)
+
+    def test_empty_not_content_rating_disables_exclusion(self):
+        r_show = make_show("r", pg_rating="R")
+        prog = make_program(show=r_show)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"not_content_rating": ""}
+        )
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertIn(str(prog.pk), ids)
+        self.assertEqual(
+            resp.json()["filters"]["not_content_rating"], ""
+        )
+
+    def test_content_rating_filter(self):
+        pg_show = make_show("pg", pg_rating="PG-13")
+        r_show = make_show("r", pg_rating="R")
+        ch = make_channel()
+        kept = make_program(channel=ch, show=pg_show)
+        make_program(channel=ch, show=r_show)
+        resp = self.client.get(
+            f"{self.API}/programs/",
+            {"content_rating": "PG-13"},
+        )
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertEqual(ids, [str(kept.pk)])
+
+    def test_rating_value_filters_on_show_rating(self):
+        high = make_show("h", imdb_rating=8.5)
+        low = make_show("l", imdb_rating=5.0)
+        ch = make_channel()
+        kept = make_program(channel=ch, show=high)
+        make_program(channel=ch, show=low)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"rating_value": "7.0"}
+        )
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertEqual(ids, [str(kept.pk)])
+
+    def test_channel_and_exclude_channel_filters(self):
+        ltv = make_channel("ltv1_hd")
+        other = make_channel("tv3")
+        kept = make_program(channel=ltv)
+        make_program(channel=other)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"channel": "ltv1_hd"}
+        )
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertEqual(ids, [str(kept.pk)])
+        resp = self.client.get(
+            f"{self.API}/programs/", {"exclude_channel": "tv3"}
+        )
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertEqual(ids, [str(kept.pk)])
+
+    def test_anonymous_dislike_hides_program(self):
+        """An anonymous (user-NULL) dislike hides the show — and any
+        sibling sharing its series_title — for every visitor."""
+        show = make_show("a", series_title="Seriāls")
+        sibling = make_show("b", series_title="Seriāls")
+        ch = make_channel()
+        hidden = make_program(channel=ch, show=show)
+        hidden_sibling = make_program(channel=ch, show=sibling)
+        visible = make_program(channel=ch)
+        ShowPreference.objects.create(
+            show=show, reaction="dislike", user=None
+        )
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertNotIn(str(hidden.pk), ids)
+        self.assertNotIn(str(hidden_sibling.pk), ids)
+        self.assertIn(str(visible.pk), ids)
+
+    def test_show_disliked_reveals_with_reaction_flag(self):
+        show = make_show("a")
+        prog = make_program(show=show)
+        ShowPreference.objects.create(
+            show=show, reaction="dislike", user=None
+        )
+        resp = self.client.get(
+            f"{self.API}/programs/", {"show_disliked": "1"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(prog.pk), ids)
+        row = next(
+            p for p in body["programs"] if p["id"] == str(prog.pk)
+        )
+        self.assertEqual(row["user_reaction"], "dislike")
+        self.assertTrue(body["filters"]["show_disliked"])
+
+    def test_other_users_preference_invisible_to_anonymous(self):
+        """An authenticated user's dislike must not hide the show
+        for anonymous visitors."""
+        show = make_show("a")
+        prog = make_program(show=show)
+        ShowPreference.objects.create(
+            show=show, reaction="dislike", user=self.user
+        )
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertIn(str(prog.pk), ids)
+
+    def test_authenticated_sees_own_and_anonymous_prefs(self):
+        """The logged-in view merges the anonymous bucket with the
+        user's own rows — an anon dislike still hides for them."""
+        show = make_show("a")
+        prog = make_program(show=show)
+        ShowPreference.objects.create(
+            show=show, reaction="dislike", user=None
+        )
+        self.client.force_login(self.user)
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertNotIn(str(prog.pk), ids)
+        # ...and with show_disliked=1 they see their merged reaction.
+        resp = self.client.get(
+            f"{self.API}/programs/", {"show_disliked": "1"}
+        )
+        row = resp.json()["programs"][0]
+        self.assertEqual(row["user_reaction"], "dislike")
+
+    def test_channels_option_list(self):
+        make_channel("ltv1_hd")
+        make_channel("tv3")
+        resp = self.client.get(f"{self.API}/programs/")
+        self.assertEqual(
+            resp.json()["channels"], ["ltv1_hd", "tv3"]
+        )
+
+    def test_invalid_date_param_422s(self):
+        resp = self.client.get(
+            f"{self.API}/programs/", {"start_date": "last week"}
+        )
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()["error"], "validation_error")
+
+    # --- GET /api/tv/spoki-page/ ---
+
+    def test_spoki_page_returns_title_and_content(self):
+        html = (
+            '<html><head><title>Spoki TV</title></head><body>'
+            '<div class="show-memoir__text editor-text-content">'
+            '<p>Šodien TV</p></div></body></html>'
+        )
+        fake = mock.Mock(text=html)
+        fake.raise_for_status = lambda: None
+        with mock.patch(
+            'tv_programs.views.requests.get', return_value=fake
+        ) as get:
+            resp = self.client.get(f'{self.API}/spoki-page/')
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['title'], 'Spoki TV')
+        self.assertIn('Šodien TV', body['content'])
+        get.assert_called_once()
+
+    def test_spoki_page_fetch_failure_returns_message(self):
+        import requests as _requests
+        with mock.patch(
+            'tv_programs.views.requests.get',
+            side_effect=_requests.ConnectionError('down'),
+        ):
+            resp = self.client.get(f'{self.API}/spoki-page/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('Failed', resp.json()['content'])
+
+    # --- POST /api/tv/shows/{pk}/react/{reaction}/ ---
+
+    def _react_url(self, show, reaction):
+        return f"{self.API}/shows/{show.pk}/react/{reaction}/"
+
+    def test_react_unauthenticated_401(self):
+        """The old form allowed anonymous likes; the API endpoint
+        keeps session auth — anonymous POSTs get a JSON 401 whose
+        login_url points back at the SPA, not the API URL."""
+        show = make_show()
+        resp = self.client.post(self._react_url(show, "like"))
+        self.assertEqual(resp.status_code, 401)
+        body = resp.json()
+        self.assertEqual(body["error"], "unauthenticated")
+        self.assertIn("next=%2Ftv%2F", body["login_url"])
+
+    def test_react_like_toggle(self):
+        self.client.force_login(self.user)
+        show = make_show()
+        resp = self.client.post(self._react_url(show, "like"))
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(body["reaction"], "like")
+        pref = ShowPreference.objects.get(show=show)
         self.assertEqual(pref.reaction, "like")
-        self.assertIsNone(pref.user)
-        self.client.post(self._url("like"))
+        self.assertEqual(pref.user, self.user)
+        # Same reaction again removes it (the old toggle).
+        resp = self.client.post(self._react_url(show, "like"))
+        self.assertTrue(resp.json()["success"])
+        self.assertIsNone(resp.json()["reaction"])
         self.assertFalse(
-            ShowPreference.objects.filter(show=self.show).exists()
+            ShowPreference.objects.filter(show=show).exists()
         )
 
-    def test_like_then_dislike_switches(self):
-        self.client.post(self._url("like"))
-        self.client.post(self._url("dislike"))
-        pref = ShowPreference.objects.get(show=self.show)
+    def test_react_like_then_dislike_switches(self):
+        self.client.force_login(self.user)
+        show = make_show()
+        self.client.post(self._react_url(show, "like"))
+        self.client.post(self._react_url(show, "dislike"))
+        pref = ShowPreference.objects.get(show=show)
         self.assertEqual(pref.reaction, "dislike")
 
-    def test_invalid_reaction_rejected(self):
-        resp = self.client.post(self._url("meh"))
+    def test_react_invalid_reaction_400(self):
+        self.client.force_login(self.user)
+        show = make_show()
+        resp = self.client.post(self._react_url(show, "meh"))
         self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()["code"], "unknown_reaction")
 
-    def test_react_requires_post(self):
-        resp = self.client.get(self._url("like"))
-        self.assertEqual(resp.status_code, 405)
+    def test_react_unknown_show_404s(self):
+        import uuid
+
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            f"{self.API}/shows/{uuid.uuid4()}/react/like/"
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()["error"], "not_found")
+
+    def test_react_csrf_enforced(self):
+        csrf_client = self.client.__class__(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        show = make_show()
+        resp = csrf_client.post(self._react_url(show, "like"))
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["error"], "forbidden")
 
 
 class ReclassifyCommandDataTests(TestCase):
