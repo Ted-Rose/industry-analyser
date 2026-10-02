@@ -189,6 +189,7 @@ industry-analyser/
 │
 ├── docs/
 │   ├── README.md                     # Docs index
+│   ├── react_frontend_migration/README.md  # React+Vite migration plan
 │   └── cvlv_api_integration_task.md  # Task details
 │
 └── terraform/
@@ -249,6 +250,8 @@ gcloud run jobs execute scrape-vacancy --region=europe-north1
 - **Quick reference**: `<app>/QUICK_REFERENCE.md`
 - **Task details**: `docs/<task>.md`
 - **Infrastructure**: `terraform/` comments and README
+- **Frontend migration**: `docs/react_frontend_migration/README.md` —
+  plan for rewriting Django-template UIs as per-app React+Vite SPAs
 
 ## 🎯 Documentation Checklist
 

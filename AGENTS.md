@@ -271,7 +271,14 @@ and let CI apply.
 
 ## Guardrails
 
-- **Never run migrations** (`migrate`/`makemigrations`) — ask the user.
+- **Local migrations are fully allowed** — the dev DB is the
+  gitignored SQLite `db.sqlite3`, so run `makemigrations` and
+  `migrate` freely (generate migration files after model changes,
+  apply them to verify). Do **not** migrate the production database:
+  push to `master` triggers `.github/workflows/run-migrations.yml`,
+  which executes a `run-migrations` Cloud Run job
+  (`python manage.py migrate`) when `migrations/` files changed —
+  committing the migration files is enough.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate` — all gitignored local state/secrets.
