@@ -1,13 +1,15 @@
-/** Display helpers ported from the fetcher templates. */
+/** Display helpers ported from the fetcher templates.
+ *  TIME_ZONE is 'UTC' — datetimes format in UTC like the
+ *  templates' |date did, not the browser's local zone. */
 
 /** Django `date:"Y.m.d"` — e.g. 2025.07.01; '—' for null/invalid. */
 export function formatDate(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}.${m}.${day}`;
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${d.getUTCFullYear()}.${m}.${day}`;
 }
 
 /** The salary cell: "€1 000 – €2 000" | "From €…" | "Up to €…" |

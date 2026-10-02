@@ -97,14 +97,16 @@ export function fetchRegionConfig(kind: Kind): Promise<RegionConfigOut> {
   );
 }
 
-/** POST /api/classified-ads/regions/config/ — session-auth mutation
- *  replacing the retired anonymous POST forms (401 → login bounce via
- *  the shared client's login_url handling). */
+/** POST /api/classified-ads/regions/config/?kind= — session-auth
+ *  mutation replacing the retired anonymous POST forms (401 → login
+ *  bounce via the shared client's login_url handling). `kind` rides
+ *  in the query too so the 401's `next` maps onto the per-kind SPA
+ *  config route (spa_url_for). */
 export function saveRegionConfig(
   input: RegionConfigIn,
 ): Promise<RegionConfigSavedOut> {
   return apiPost<RegionConfigSavedOut>(
-    `${API}/regions/config/`,
+    `${API}/regions/config/?kind=${input.kind}`,
     input,
   );
 }

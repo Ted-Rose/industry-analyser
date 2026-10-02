@@ -25,14 +25,17 @@ COPY . .
 COPY --from=frontend /frontend_dist /app/frontend_dist
 
 # Build-time env vars so settings import works during collectstatic —
-# the Cloud Run runtime overrides them via --update-env-vars.
+# scoped to this one RUN (not ENV) so the image carries no committed
+# SECRET_KEY/DATABASE_URL defaults: the Cloud Run deploy injects real
+# env vars via --update-env-vars, and an out-of-band run of the image
+# now fails fast instead of silently booting with a dummy secret and
+# an ephemeral SQLite DB.
 # Keep this strict: a silent failure here ships a site with no JS/CSS.
-ENV SECRET_KEY=build-time-dummy-secret
-ENV DATABASE_URL=sqlite:///db.sqlite3
-ENV DEBUG=False
-ENV BASE_URL=http://localhost
-
-RUN python manage.py collectstatic --noinput
+RUN SECRET_KEY=build-time-dummy-secret \
+    DATABASE_URL=sqlite:///db.sqlite3 \
+    DEBUG=False \
+    BASE_URL=http://localhost \
+    python manage.py collectstatic --noinput
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app

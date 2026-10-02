@@ -32,7 +32,11 @@ def _fetch_spoki_page():
         logger.warning('spoki page fetch failed: %s', exc)
         return 'Spoki', 'Failed to load the page.'
     soup = BeautifulSoup(resp.text, 'html.parser')
-    title = soup.title.string if soup.title else 'Spoki'
+    # .string is None on a multi-child/empty <title> — get_text() with
+    # an '' fallback keeps the SpokiPageOut.title: str contract intact.
+    title = (
+        soup.title.get_text(strip=True) if soup.title else ''
+    ) or 'Spoki'
     divs = soup.find_all(
         'div',
         class_=re.compile(r'show-memoir__text.*editor-text-content'),

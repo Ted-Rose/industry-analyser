@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchDashboard } from '../api';
-import { formatDateTime, formatDuration } from '../format';
+import { formatDateTime, formatDay, formatDuration } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 
 /**
@@ -11,13 +11,15 @@ import { errorDetail } from '../../shared/api/errors';
  * day x job run table. The date window lives in the URL as
  * ?from=/&to= (the retired template's param names, so old
  * bookmarks still filter); the API takes them as
- * date_from/date_to.
+ * date_from/date_to — and those names are accepted too, since a
+ * 401's login_url `next` round-trips the API-param spelling.
  */
 export default function Dashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const params = {
-    dateFrom: searchParams.get('from'),
-    dateTo: searchParams.get('to'),
+    dateFrom:
+      searchParams.get('from') ?? searchParams.get('date_from'),
+    dateTo: searchParams.get('to') ?? searchParams.get('date_to'),
   };
 
   const { data, isPending, isError, error } = useQuery({
@@ -33,8 +35,8 @@ export default function Dashboard() {
   useEffect(() => {
     const p = new URLSearchParams(paramsKey);
     setDraft({
-      dateFrom: p.get('from') ?? '',
-      dateTo: p.get('to') ?? '',
+      dateFrom: p.get('from') ?? p.get('date_from') ?? '',
+      dateTo: p.get('to') ?? p.get('date_to') ?? '',
     });
   }, [paramsKey]);
 
@@ -230,7 +232,7 @@ export default function Dashboard() {
           ) : (
             rows.map((row) => (
               <tr key={`${row.day}-${row.job_slug}`}>
-                <td>{row.day}</td>
+                <td>{formatDay(row.day)}</td>
                 <td className="job-slug">{row.job_slug}</td>
                 <td className="num">{row.run_count}</td>
                 <td className="num">{row.success_count}</td>

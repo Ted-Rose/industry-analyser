@@ -116,6 +116,20 @@ if settings.DEBUG:
         project_views.chrome_devtools_probe,
     ))
 
+# Terminal 404 drains for prefixes owned by earlier mounts. A
+# Resolver404 raised inside the 'api/' or 'admin/' mounts (or a
+# whitenoise pass-through under 'static/') falls through to the next
+# pattern — without these, misses like /api/<typo> would serve the
+# root SPA shell, and unslashed hits like /api/dashboard would lose
+# the APPEND_SLASH redirect CommonMiddleware only applies to 404s.
+# Legit routes under those prefixes resolve earlier, so order is safe.
+for _prefix in ('api', 'admin', 'static'):
+    urlpatterns.append(path(_prefix, project_views.terminal_404))
+    urlpatterns.append(path(
+        f'{_prefix}/<path:subpath>',
+        project_views.terminal_404,
+    ))
+
 # The root dashboard catch-all must be the very LAST pattern — it
 # would shadow anything appended after it (including the DEBUG-only
 # .well-known probe above). No trailing slash on <path:subpath> — it

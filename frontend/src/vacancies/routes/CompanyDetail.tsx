@@ -1,4 +1,10 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
 import { fetchCompany } from '../api';
@@ -15,12 +21,23 @@ export default function CompanyDetail() {
   const { pk } = useParams<{ pk: string }>();
   const [searchParams] = useSearchParams();
   const page = searchParams.get('page');
+  const navigate = useNavigate();
 
   const { data, isPending, isError, error } = useQuery({
     queryKey: ['vacancies', 'company', pk, page],
     queryFn: () => fetchCompany(pk!, page),
     enabled: Boolean(pk),
   });
+
+  // The API resolves a merged company to its canonical survivor —
+  // re-point the address bar to the canonical pk like the old
+  // view's 301 did (a real 301 can't work: apiFetch treats opaque
+  // redirects as auth bounces).
+  useEffect(() => {
+    if (data && pk && data.id !== pk) {
+      navigate(`/companies/${data.id}`, { replace: true });
+    }
+  }, [data, pk, navigate]);
 
   const now = new Date();
 

@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from ninja import Query, Router, Schema
 
@@ -129,8 +129,8 @@ def list_programs(
     an explicit empty value (?not_content_rating=) disables the
     exclusion, like clearing the template input did. `ratio` was a
     declared-but-dead input in the template form — it now filters on
-    the displayed match ratio (show's, falling back to the
-    program's when no Show is linked).
+    the displayed match ratio (show's when truthy, falling back to
+    the program's like the card's |default-style fallback).
     """
     # Default 'not_content_rating' to 'R' if not specified (verbatim
     # from the view — an explicit empty string disables it).
@@ -155,9 +155,20 @@ def list_programs(
     if rating_value is not None:
         query &= Q(show__imdb_rating__gte=rating_value)
     if ratio is not None:
+        # Match the card's |default-style fallback: the show's ratio
+        # wins when truthy, otherwise the program's own ratio is the
+        # displayed value — so a show ratio of 0 hands the filter to
+        # the program's ratio, not to nothing.
         query &= (
-            Q(show__title_match_ratio__gte=ratio)
-            | Q(show__isnull=True, title_match_ratio__gte=ratio)
+            Q(
+                show__title_match_ratio__gt=0,
+                show__title_match_ratio__gte=ratio,
+            )
+            | Q(
+                Q(show__isnull=True)
+                | Q(show__title_match_ratio=0),
+                title_match_ratio__gte=ratio,
+            )
         )
 
     query &= Q(start_time__date__gte=start_date)
@@ -171,24 +182,32 @@ def list_programs(
         query
     ).order_by('channel__name')
 
+    # Anonymous (user NULL) rows sort first so a user's own row
+    # overwrites the shared bucket on a per-show conflict — unordered,
+    # which row wins the dict merge is DB-row-order dependent.
     preferences = list(
-        _preference_qs(request).select_related('show')
+        _preference_qs(request)
+        .select_related('show')
+        .order_by(F('user').asc(nulls_first=True))
     )
     reactions = {p.show_id: p.reaction for p in preferences}
 
     # Disliked shows (and every show sharing a disliked series_title)
-    # are hidden unless ?show_disliked=1.
+    # are hidden unless ?show_disliked=1 — judged on the effective
+    # (post-merge) reaction, so a user's own row outranks the anon
+    # bucket here too.
     if not show_disliked:
         disliked_ids = {
-            p.show_id
-            for p in preferences
-            if p.reaction == ShowPreference.Reaction.DISLIKE
+            show_id
+            for show_id, reaction in reactions.items()
+            if reaction == ShowPreference.Reaction.DISLIKE
         }
         disliked_series = {
             p.show.series_title
             for p in preferences
-            if p.reaction == ShowPreference.Reaction.DISLIKE
-            and p.show.series_title
+            if p.show.series_title
+            and reactions.get(p.show_id)
+            == ShowPreference.Reaction.DISLIKE
         }
         if disliked_ids:
             programs = programs.exclude(show_id__in=disliked_ids)

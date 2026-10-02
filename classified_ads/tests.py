@@ -305,8 +305,12 @@ class ClassifiedAdsApiTests(TestCase):
         )
 
     def test_region_config_post_unauthenticated_401(self):
+        """The client sends ?kind= on the POST too, so the 401's
+        login_url `next` lands on the kind's SPA config page —
+        /classified-ads/regions/config/ itself is not a client
+        route."""
         resp = self.client.post(
-            f'{self.API}/regions/config/',
+            f'{self.API}/regions/config/?kind=apartment',
             data=json.dumps(
                 {'kind': 'apartment', 'regions': [self.region.url]}
             ),
@@ -316,8 +320,19 @@ class ClassifiedAdsApiTests(TestCase):
         body = resp.json()
         self.assertEqual(body['error'], 'unauthenticated')
         self.assertIn(
-            'next=%2Fclassified-ads%2Fregions%2Fconfig%2F',
+            'next=%2Fclassified-ads%2Fapartments%2Fregions'
+            '%2Fconfig%2F',
             body['login_url'],
+        )
+        # Without ?kind= the mapping degrades to the SPA index.
+        resp = self.client.post(
+            f'{self.API}/regions/config/',
+            data=json.dumps({'kind': 'house', 'regions': []}),
+            content_type='application/json',
+        )
+        self.assertEqual(
+            resp.json()['login_url'],
+            '/admin/login/?next=%2Fclassified-ads%2F',
         )
 
     def test_region_config_post_success(self):

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Offline — Industry Analyser</title>
+    <style>
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, sans-serif;
+            background: #f8f9fa;
+            color: #333;
+        }
+        .card {
+            max-width: 28rem;
+            padding: 2rem;
+            text-align: center;
+        }
+        h1 { font-size: 1.4rem; margin-bottom: .5rem; }
+        p { color: #666; }
+        a { color: #0d6efd; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>You're offline</h1>
+        <p>
+            This page isn't cached and there's no network connection.
+            Check your connection and
+            <a href="" onclick="location.reload(); return false;">
+                try again</a>.
+        </p>
+    </div>
+</body>
+</html>

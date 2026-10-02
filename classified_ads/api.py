@@ -648,7 +648,10 @@ def region_config(request, kind: Kind):
             Region.objects
             .filter(parent__isnull=True)
             .exclude(url__contains=HOUSE_REGION_URL)
-            .prefetch_related('sub_regions')
+            # Two levels deep: RegionNodeOut.sub_regions resolves
+            # each child's own sub_regions list — without the second
+            # hop every child fires one extra query.
+            .prefetch_related('sub_regions__sub_regions')
             .order_by('name')
         )
         total_count = Region.objects.exclude(
@@ -664,7 +667,7 @@ def region_config(request, kind: Kind):
                 parent__isnull=True,
                 url__contains=HOUSE_REGION_URL,
             )
-            .prefetch_related('sub_regions')
+            .prefetch_related('sub_regions__sub_regions')
             .order_by('name')
         )
         total_count = Region.objects.filter(
@@ -716,7 +719,10 @@ def region_stats(
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
     deal_type: str = Query('', max_length=10),
-    regions: List[int] = Query([]),
+    # `regions` here means parent region ids (in RegionConfigIn the
+    # same name carries region URLs — both inherited from the retired
+    # forms); bound the repeat count like the other params.
+    regions: List[int] = Query([], max_length=500),
 ):
     """Region stats page — mirrors apartment/house_region_stats.
     `regions` repeats per checked parent region; results stay null

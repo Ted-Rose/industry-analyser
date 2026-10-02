@@ -2,8 +2,12 @@
 // Rendered by Django so the cache version stays in sync with the
 // PWA_CACHE_VERSION constant in fetcher/views.py.
 const CACHE_NAME = 'industry-analyser-{{ cache_version }}';
-const PRECACHE_URLS = ['/'];
 const STATIC_URL = '{% get_static_prefix %}';
+// '/' is login_required — precaching it stored the anonymous login
+// bounce as the offline fallback. A static offline page is the
+// last-resort navigation response instead.
+const OFFLINE_URL = STATIC_URL + 'fetcher/offline.html';
+const PRECACHE_URLS = [OFFLINE_URL];
 
 // Paths the worker must never serve from cache — auth flows and, most
 // importantly, /api/ JSON (a stale API response would silently corrupt
@@ -11,24 +15,30 @@ const STATIC_URL = '{% get_static_prefix %}';
 const BYPASS_PATHS = ['/admin', '/api'];
 
 self.addEventListener('install', event => {
+    // skipWaiting inside waitUntil so installation can't report
+    // complete before the precache lands and the skip is queued.
     event.waitUntil(
-        caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE_URLS))
+        caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(PRECACHE_URLS))
+            .then(() => self.skipWaiting())
     );
-    self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
+    // clients.claim() inside waitUntil so activation isn't reported
+    // complete before existing clients are claimed.
     event.waitUntil(
-        caches.keys().then(keys =>
-            Promise.all(
-                keys.filter(k =>
-                    k.startsWith('industry-analyser-') &&
-                    k !== CACHE_NAME
-                ).map(k => caches.delete(k))
+        caches.keys()
+            .then(keys =>
+                Promise.all(
+                    keys.filter(k =>
+                        k.startsWith('industry-analyser-') &&
+                        k !== CACHE_NAME
+                    ).map(k => caches.delete(k))
+                )
             )
-        )
+            .then(() => self.clients.claim())
     );
-    self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
@@ -76,7 +86,7 @@ self.addEventListener('fetch', event => {
                 })
                 .catch(() =>
                     caches.match(req).then(
-                        cached => cached || caches.match('/')
+                        cached => cached || caches.match(OFFLINE_URL)
                     )
                 )
         );
