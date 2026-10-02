@@ -188,3 +188,10 @@ jobs:
             --image="${IMAGE}" \
             --command=python \
             --args=manage.py,sync_housing_regions
+
+          # Property linking: links unmatched ads to canonical properties,
+          # only ads first seen 3+ days ago
+          update_job_if_exists link-ads-to-properties \
+            --image="${IMAGE}" \
+            --command=python \
+            --args=manage.py,link_ads_to_properties,--older-than-days,3

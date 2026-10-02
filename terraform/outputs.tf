@@ -19,6 +19,7 @@ output "cloud_run_job_names" {
     google_cloud_run_v2_job.scrape_tv_programs.name,
     google_cloud_run_v2_job.sync_apartment_regions.name,
     google_cloud_run_v2_job.sync_housing_regions.name,
+    google_cloud_run_v2_job.link_ads_to_properties.name,
   ]
 }
 
@@ -57,6 +58,7 @@ output "alert_policies" {
     google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
     google_monitoring_alert_policy.sync_apartment_regions_failure[0].name,
     google_monitoring_alert_policy.sync_housing_regions_failure[0].name,
+    google_monitoring_alert_policy.link_ads_to_properties_failure[0].name,
   ] : []
   description = "Cloud Run job failure alert policies"
 }

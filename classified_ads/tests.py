@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from classified_ads.apartment_scraper import ApartmentAdScraper
 from classified_ads.housing_scraper import HousingAdScraper
@@ -485,3 +486,25 @@ class LinkAdsToPropertiesCommandTest(TestCase):
             ).count(),
             2,
         )
+
+    def test_older_than_days_skips_recent_ads(self):
+        seller = Seller.objects.create(phone='111')
+        old_ad = self._rent_ad('old', seller=seller)
+        new_ad = self._rent_ad('new', seller=seller)
+        # first_seen is auto_now_add — backdate via UPDATE.
+        ApartmentForRent.all_objects.filter(pk=old_ad.pk).update(
+            first_seen=timezone.now() - timedelta(days=10)
+        )
+
+        call_command(
+            'link_ads_to_properties',
+            '--type', 'apartment', '--deal', 'rent',
+            '--older-than-days', '3',
+        )
+
+        old_ad.refresh_from_db()
+        new_ad.refresh_from_db()
+        self.assertEqual(old_ad.property_match_status, 'auto')
+        self.assertIsNotNone(old_ad.property_id)
+        self.assertEqual(new_ad.property_match_status, 'unmatched')
+        self.assertIsNone(new_ad.property_id)

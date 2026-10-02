@@ -6,6 +6,7 @@ Usage:
     python manage.py link_ads_to_properties --deal rent --type apartment
     python manage.py link_ads_to_properties --auto-threshold 0.8 \
         --candidate-threshold 0.45 --batch-size 500 --limit 1000
+    python manage.py link_ads_to_properties --older-than-days 3
 
 Idempotent: a run only touches ads with match status 'unmatched'
 ('--relink' also reconsiders 'auto'-linked ads). Oldest ads are
@@ -13,9 +14,11 @@ processed first so repost chains accumulate onto one property.
 """
 import logging
 from collections import defaultdict
+from datetime import timedelta
 
 from django.core.management.base import BaseCommand
 from django.db.models import Prefetch
+from django.utils import timezone
 
 from classified_ads import property_matcher as pm
 from classified_ads.models import (
@@ -91,6 +94,13 @@ class Command(BaseCommand):
             action='store_true',
             help='Also reconsider already auto-linked ads',
         )
+        parser.add_argument(
+            '--older-than-days',
+            type=int,
+            default=None,
+            help='Only process ads whose first_seen is at least '
+                 'N days old (default: no age restriction)',
+        )
 
     def handle(self, *args, **options):
         self.dry_run = options['dry_run']
@@ -98,6 +108,7 @@ class Command(BaseCommand):
         self.candidate_threshold = options['candidate_threshold']
         self.batch_size = options['batch_size']
         self.relink = options['relink']
+        self.older_than_days = options['older_than_days']
 
         for (ptype, deal), models in MODEL_MAP.items():
             if options['deal'] and options['deal'] != deal:
@@ -118,6 +129,13 @@ class Command(BaseCommand):
             .select_related('seller')
             .order_by('first_seen', 'id')
         )
+        if self.older_than_days is not None:
+            qs = qs.filter(
+                first_seen__lte=(
+                    timezone.now()
+                    - timedelta(days=self.older_than_days)
+                )
+            )
         if limit:
             qs = qs[:limit]
 
