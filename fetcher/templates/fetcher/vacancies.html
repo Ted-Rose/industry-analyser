@@ -308,7 +308,28 @@
     </div>
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js');
+            window.addEventListener('load', function () {
+                // On localhost the worker must never run: it
+                // stale-while-revalidates /static/, which serves vite
+                // dev modules one reload late. Clean up any earlier
+                // local registration and its caches instead.
+                if (['localhost', '127.0.0.1', '[::1]']
+                        .includes(location.hostname)) {
+                    navigator.serviceWorker.getRegistrations()
+                        .then(function (regs) {
+                            regs.forEach(function (r) {
+                                r.unregister();
+                            });
+                        });
+                    caches.keys().then(function (keys) {
+                        keys.filter(function (k) {
+                            return k.indexOf('industry-analyser-') === 0;
+                        }).forEach(function (k) { caches.delete(k); });
+                    });
+                    return;
+                }
+                navigator.serviceWorker.register('/sw.js');
+            });
         }
     </script>
 </body>

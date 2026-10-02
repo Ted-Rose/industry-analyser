@@ -1,11 +1,14 @@
 [project]
 name = "industry-analyser"
 version = "0.1.0"
-dependencies = [ "asgiref==3.10.0", "beautifulsoup4==4.12.3", "bs4==0.0.2", "cffi==2.0.0", "django", "django-environ>=0.11, <1.0", "django-crontab==0.7.1", "pycparser==2.22", "soupsieve==2.5", "sqlparse==0.5.0", "typing-extensions==4.16.0", "psycopg2-binary", "lxml==6.0.2", "requests==2.32.3", "pyyaml==6.0.2", "google-genai==1.67.0", "google-api-core", "openai==3.17.0", "whitenoise==6.7.0", "gunicorn==23.0.0" ]
+dependencies = [ "asgiref==3.10.0", "beautifulsoup4==4.12.3", "bs4==0.0.2", "cffi==2.0.0", "django", "django-environ>=0.11, <1.0", "django-crontab==0.7.1", "pycparser==2.22", "soupsieve==2.5", "sqlparse==0.5.0", "typing-extensions==4.16.0", "psycopg2-binary", "lxml==6.0.2", "requests==2.32.3", "pyyaml==6.0.2", "google-genai==1.67.0", "google-api-core", "openai==3.17.0", "whitenoise==6.7.0", "gunicorn==23.0.0", "django-vite==3.2.0", "django-ninja==1.7.1" ]
 requires-python = "~=3.12.0"
 
 [tool.vercel]
 entrypoint = "industry_analyser.wsgi:application"
 
 [tool.vercel.scripts]
-build = "python industry_analyser/console_tasks/build.py && python manage.py collectstatic --noinput && python manage.py migrate --noinput"
+# Frontend first: collectstatic only ships frontend_dist/ when vite has
+# built it. --include=dev guards against NODE_ENV=production skipping
+# vite/tsc; rm node_modules keeps it out of the function bundle.
+build = "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && rm -rf frontend/node_modules && python industry_analyser/console_tasks/build.py && python manage.py collectstatic --noinput && python manage.py migrate --noinput"

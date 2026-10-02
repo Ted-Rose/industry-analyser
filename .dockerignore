@@ -13,3 +13,8 @@ terraform/*.tfstate.*
 terraform/.terraform.lock.hcl
 terraform/terraform.tfvars
 terraform/*.auto.tfvars
+
+# React frontend — always built fresh in the Dockerfile node stage
+node_modules
+frontend/node_modules
+frontend_dist
