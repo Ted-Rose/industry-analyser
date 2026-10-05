@@ -376,6 +376,34 @@ function ProgramCard({
           {show?.title_eng && (
             <span className="feed-title-eng"> {show.title_eng}</span>
           )}
+          {/* Reactions work on every card — the API lazily resolves a
+              Show for airings that don't have one yet. */}
+          <span className="feed-actions">
+            <button
+              type="button"
+              className={`reaction-btn${
+                program.user_reaction === 'like' ? ' liked' : ''
+              }`}
+              disabled={busy}
+              aria-label="Like"
+              title="Like"
+              onClick={() => onReact('like')}
+            >
+              👍
+            </button>
+            <button
+              type="button"
+              className={`reaction-btn${
+                program.user_reaction === 'dislike' ? ' disliked' : ''
+              }`}
+              disabled={busy}
+              aria-label="Dislike"
+              title="Dislike"
+              onClick={() => onReact('dislike')}
+            >
+              👎
+            </button>
+          </span>
         </div>
         <div className="feed-description">{program.description_lv}</div>
         <div className="feed-metadata">
@@ -428,30 +456,6 @@ function ProgramCard({
             ))}
           </ul>
         )}
-        {/* Reactions work on every card — the API lazily resolves a
-            Show for airings that don't have one yet. */}
-        <div className="feed-actions">
-          <button
-            type="button"
-            className={`reaction-btn${
-              program.user_reaction === 'like' ? ' liked' : ''
-            }`}
-            disabled={busy}
-            onClick={() => onReact('like')}
-          >
-            Like
-          </button>
-          <button
-            type="button"
-            className={`reaction-btn${
-              program.user_reaction === 'dislike' ? ' disliked' : ''
-            }`}
-            disabled={busy}
-            onClick={() => onReact('dislike')}
-          >
-            Dislike
-          </button>
-        </div>
       </div>
     </div>
   );
