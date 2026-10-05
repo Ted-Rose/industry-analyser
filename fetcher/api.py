@@ -73,15 +73,34 @@ class VacanciesOut(Schema):
     industries: List[str]
 
 
+# Public URL of an employer identity on its portal. cv.lv has no
+# public employer profile (GET /lv/employer/<id> → statusCode 401),
+# so the link is the portal's vacancy search filtered to that
+# employer — the closest public "company page" there is.
+PORTAL_EMPLOYER_URLS = {
+    'cv.lv': 'https://www.cv.lv/lv/search?employerId={employer_id}',
+}
+
+
 class CompanyIdentityOut(Schema):
     source: str
     employer_id: int
+    portal_url: Optional[str]
+
+    @staticmethod
+    def resolve_portal_url(obj):
+        template = PORTAL_EMPLOYER_URLS.get(obj.source)
+        if template is None:
+            return None
+        return template.format(employer_id=obj.employer_id)
 
 
 class CompanyOut(Schema):
     id: UUID
     name: str
     reg_code: Optional[str]
+    about: Optional[str]
+    webpage_url: Optional[str]
     needs_review: bool
     vacancy_count: int
     open_count: int

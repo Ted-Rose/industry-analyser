@@ -81,6 +81,45 @@ body {
   margin: 1px 2px 1px 0;
 }
 
+a.source-tag {
+  text-decoration: none;
+}
+
+a.source-tag:hover {
+  text-decoration: underline;
+  color: #0066cc;
+}
+
+/* Companies page — search input stays full-width on phones but
+   doesn't stretch the whole card on desktop. */
+.company-search-input {
+  max-width: 420px;
+}
+
+/* Company description — clamped snippet under the name (table) or
+   inside the mobile card. `about` keeps source newlines. */
+.company-about {
+  font-size: 0.8rem;
+  color: #6c757d;
+  font-weight: 400;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.company-site-link {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.company-card-meta {
+  font-size: 0.8rem;
+  color: #6c757d;
+}
+
 .vacancy-title a,
 .company-name a {
   color: #333;

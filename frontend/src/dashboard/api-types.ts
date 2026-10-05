@@ -476,6 +476,8 @@ export interface components {
             source: string;
             /** Employer Id */
             employer_id: number;
+            /** Portal Url */
+            portal_url: string | null;
         };
         /** CompanyOut */
         CompanyOut: {
@@ -488,6 +490,10 @@ export interface components {
             name: string;
             /** Reg Code */
             reg_code: string | null;
+            /** About */
+            about: string | null;
+            /** Webpage Url */
+            webpage_url: string | null;
             /** Needs Review */
             needs_review: boolean;
             /** Vacancy Count */
