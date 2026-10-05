@@ -11,4 +11,4 @@ entrypoint = "industry_analyser.wsgi:application"
 # Frontend first: collectstatic only ships frontend_dist/ when vite has
 # built it. --include=dev guards against NODE_ENV=production skipping
 # vite/tsc; rm node_modules keeps it out of the function bundle.
-build = "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && rm -rf frontend/node_modules && python industry_analyser/console_tasks/build.py && python manage.py collectstatic --noinput && python manage.py migrate --noinput"
+build = "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && rm -rf frontend/node_modules && python industry_analyser/console_tasks/build.py && python manage.py collectstatic --noinput"
