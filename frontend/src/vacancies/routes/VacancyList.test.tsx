@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import {
   fireEvent,
   render,
@@ -8,16 +15,28 @@ import {
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import VacancyList from './VacancyList';
-import { apiGet } from '../../shared/api/client';
-import type { VacanciesOut, VacancyOut } from '../api';
+import {
+  apiDelete,
+  apiGet,
+  apiPost,
+} from '../../shared/api/client';
+import type {
+  SavedFilterOut,
+  VacanciesOut,
+  VacancyOut,
+} from '../api';
 
 vi.mock('../../shared/api/client', () => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  apiPatch: vi.fn(),
+  apiDelete: vi.fn(),
   getCsrfToken: () => undefined,
 }));
 
 const mockedApiGet = vi.mocked(apiGet);
+const mockedApiPost = vi.mocked(apiPost);
+const mockedApiDelete = vi.mocked(apiDelete);
 
 function makeVacancy(overrides: Partial<VacancyOut> = {}): VacancyOut {
   return {
@@ -55,6 +74,45 @@ function makeVacancies(
   };
 }
 
+function makeSavedFilter(
+  overrides: Partial<SavedFilterOut> = {},
+): SavedFilterOut {
+  return {
+    id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    name: 'Python IT',
+    include_keywords: ['python'],
+    exclude_keywords: ['senior'],
+    include_industries: ['it'],
+    show_active_only: true,
+    ...overrides,
+  };
+}
+
+/** The shell's #spa-bootstrap json_script — must exist before
+ *  render; useBootstrap() reads it once at mount. */
+function setBootstrap(payload: unknown) {
+  let el = document.getElementById('spa-bootstrap');
+  if (!el) {
+    el = document.createElement('script');
+    el.id = 'spa-bootstrap';
+    el.setAttribute('type', 'application/json');
+    document.body.appendChild(el);
+  }
+  el.textContent = JSON.stringify(payload);
+}
+
+/** apiGet router: the filters list for the authed URL, the vacancy
+ *  payload for everything else. */
+function mockAuthedGet(filters: SavedFilterOut[]) {
+  mockedApiGet.mockImplementation((url) =>
+    Promise.resolve(
+      String(url).startsWith('/api/vacancies/filters/')
+        ? filters
+        : makeVacancies(),
+    ),
+  );
+}
+
 function renderList(entry = '/vacancies') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -76,6 +134,14 @@ function calledUrls(): string[] {
 beforeEach(() => {
   mockedApiGet.mockReset();
   mockedApiGet.mockResolvedValue(makeVacancies());
+  mockedApiPost.mockReset();
+  mockedApiDelete.mockReset();
+  // No stale bootstrap between tests — anonymous is the default.
+  document.getElementById('spa-bootstrap')?.remove();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('VacancyList', () => {
@@ -149,6 +215,137 @@ describe('VacancyList', () => {
     expect(link).toHaveAttribute(
       'href',
       '/companies/22222222-2222-2222-2222-222222222222',
+    );
+  });
+});
+
+describe('VacancyList saved filters', () => {
+  it('hides the bar (and never calls the authed API) when the bootstrap user is null', async () => {
+    setBootstrap({ user: null });
+    renderList('/vacancies');
+    await screen.findByText('Python developer');
+    expect(
+      screen.queryByLabelText('Saved filters'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Save current' }),
+    ).not.toBeInTheDocument();
+    // The only GET fired is the public vacancy list — an authed
+    // /filters/ call would 401 and bounce the page to login.
+    for (const url of calledUrls()) {
+      expect(url).not.toContain('/api/vacancies/filters/');
+    }
+  });
+
+  it('writes the preset params into the URL on select', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([makeSavedFilter()]);
+    renderList('/vacancies?page=2');
+    await screen.findByText('Python developer');
+    await waitFor(() =>
+      expect(calledUrls()).toContain('/api/vacancies/filters/'),
+    );
+
+    fireEvent.change(screen.getByLabelText('Saved filters'), {
+      target: { value: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
+    });
+
+    await waitFor(() =>
+      expect(
+        calledUrls().some((u) =>
+          u.includes('include_keywords=python'),
+        ),
+      ).toBe(true),
+    );
+    const applied = calledUrls().find((u) =>
+      u.includes('include_keywords=python'),
+    )!;
+    expect(applied).toContain('exclude_keywords=senior');
+    expect(applied).toContain('include_industries=it');
+    expect(applied).toContain('show_active_only=1');
+    // Selecting a preset lands on page 1 — the stale ?page=2 goes.
+    expect(applied).not.toContain('page=');
+
+    // The staged checkboxes re-sync from the rewritten URL (once
+    // the refetch lands — the list shows "Loading…" meanwhile).
+    await waitFor(() =>
+      expect(screen.getAllByLabelText('python')[0]).toBeChecked(),
+    );
+    const [, excludePython] = screen.getAllByLabelText('python');
+    expect(excludePython).not.toBeChecked();
+    const [includeDjango] = screen.getAllByLabelText('django');
+    expect(includeDjango).not.toBeChecked();
+    expect(screen.getByLabelText('it')).toBeChecked();
+    expect(screen.getByLabelText('Active only')).toBeChecked();
+    // …and the select itself shows the matching preset.
+    expect(screen.getByLabelText('Saved filters')).toHaveValue(
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    );
+  });
+
+  it('deletes the selected preset', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([makeSavedFilter()]);
+    mockedApiDelete.mockResolvedValue(undefined);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    // Entry params match the preset — derived selection shows it,
+    // so the per-preset buttons render.
+    renderList(
+      '/vacancies?include_keywords=python' +
+        '&exclude_keywords=senior&include_industries=it' +
+        '&show_active_only=1',
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Delete' }),
+    );
+    await waitFor(() =>
+      expect(mockedApiDelete).toHaveBeenCalledWith(
+        '/api/vacancies/filters/' +
+          'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa/',
+      ),
+    );
+    // Invalidation refetches the preset list.
+    await waitFor(() =>
+      expect(
+        calledUrls().filter((u) => u === '/api/vacancies/filters/'),
+      ).toHaveLength(2),
+    );
+  });
+
+  it('saves the applied URL params, not the staged draft', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([]);
+    mockedApiPost.mockResolvedValue(
+      makeSavedFilter({
+        id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        name: 'My filter',
+      }),
+    );
+    vi.spyOn(window, 'prompt').mockReturnValue('My filter');
+    renderList(
+      '/vacancies?include_keywords=python&show_active_only=1&page=3',
+    );
+    await screen.findByText('Python developer');
+
+    // Stage an extra keyword without pressing Search — it must NOT
+    // be part of the saved preset.
+    const [includeDjango] = screen.getAllByLabelText('django');
+    fireEvent.click(includeDjango);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save current' }),
+    );
+
+    await waitFor(() => expect(mockedApiPost).toHaveBeenCalled());
+    expect(mockedApiPost).toHaveBeenCalledWith(
+      '/api/vacancies/filters/',
+      {
+        name: 'My filter',
+        include_keywords: ['python'],
+        exclude_keywords: [],
+        include_industries: [],
+        show_active_only: true,
+      },
     );
   });
 });

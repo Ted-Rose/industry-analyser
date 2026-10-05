@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
+import SavedFiltersBar from '../components/SavedFiltersBar';
 import { fetchVacancies } from '../api';
 import { deadlineClass, formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
+import { useBootstrap } from '../../shared/hooks/useBootstrap';
 
 interface Draft {
   includeKeywords: string[];
@@ -25,6 +27,10 @@ function toggleValue(list: string[], value: string, on: boolean) {
  * resets ?page= back to the first page.
  */
 export default function VacancyList() {
+  // Saved filters are session-authed — render the bar (and fire its
+  // query) only for logged-in users, or an anonymous visitor's 401
+  // would bounce the whole page to /admin/login/.
+  const { user } = useBootstrap();
   const [searchParams, setSearchParams] = useSearchParams();
   const params = {
     includeKeywords: searchParams.getAll('include_keywords'),
@@ -105,6 +111,16 @@ export default function VacancyList() {
       {/* Filters */}
       <div className="card filter-card mb-4">
         <div className="card-body">
+          {user && (
+            <SavedFiltersBar
+              applied={{
+                includeKeywords: params.includeKeywords,
+                excludeKeywords: params.excludeKeywords,
+                includeIndustries: params.includeIndustries,
+                showActiveOnly: params.showActiveOnly,
+              }}
+            />
+          )}
           <form onSubmit={applyFilters}>
             {data && data.industries.length > 0 && (
               <div className="mb-3">

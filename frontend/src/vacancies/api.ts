@@ -1,4 +1,9 @@
-import { apiGet, apiPost } from '../shared/api/client';
+import {
+  apiDelete,
+  apiGet,
+  apiPatch,
+  apiPost,
+} from '../shared/api/client';
 import type { components } from './api-types';
 
 /** Type aliases over the generated OpenAPI schemas (api-types.ts). */
@@ -15,6 +20,9 @@ export type CompanyIdentityOut =
 export type KeywordIn = components['schemas']['KeywordIn'];
 export type KeywordSavedOut =
   components['schemas']['KeywordSavedOut'];
+export type SavedFilterIn = components['schemas']['SavedFilterIn'];
+export type SavedFilterOut =
+  components['schemas']['SavedFilterOut'];
 
 /** Filter/page state of the vacancy list, parsed from the URL. */
 export interface VacancyParams {
@@ -89,4 +97,36 @@ export function fetchCompany(
 /** POST /api/vacancies/keywords/ — session-auth mutation. */
 export function addKeyword(input: KeywordIn): Promise<KeywordSavedOut> {
   return apiPost<KeywordSavedOut>('/api/vacancies/keywords/', input);
+}
+
+/* Saved vacancy filters — all session-authed (per-user), so callers
+ * must only fire them when the bootstrap says a user is logged in;
+ * an anonymous 401 bounces the whole page to /admin/login/. */
+
+/** GET /api/vacancies/filters/ — the caller's presets. */
+export function fetchSavedFilters(): Promise<SavedFilterOut[]> {
+  return apiGet<SavedFilterOut[]>('/api/vacancies/filters/');
+}
+
+/** POST /api/vacancies/filters/ */
+export function createSavedFilter(
+  input: SavedFilterIn,
+): Promise<SavedFilterOut> {
+  return apiPost<SavedFilterOut>('/api/vacancies/filters/', input);
+}
+
+/** PATCH /api/vacancies/filters/<id>/ — rename and/or new criteria. */
+export function updateSavedFilter(
+  id: string,
+  input: SavedFilterIn,
+): Promise<SavedFilterOut> {
+  return apiPatch<SavedFilterOut>(
+    `/api/vacancies/filters/${id}/`,
+    input,
+  );
+}
+
+/** DELETE /api/vacancies/filters/<id>/ */
+export function deleteSavedFilter(id: string): Promise<void> {
+  return apiDelete<void>(`/api/vacancies/filters/${id}/`);
 }

@@ -32,6 +32,7 @@ from fetcher.models import (
     CompanyIdentity,
     Industry,
     Keyword,
+    SavedVacancyFilter,
     Vacancy,
     VacancyContainsKeyword,
     VacancyFile,
@@ -1454,6 +1455,189 @@ class VacanciesApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(resp.json()['error'], 'forbidden')
+
+
+class SavedFiltersApiTests(TestCase):
+    """Per-user saved vacancy filters — /api/vacancies/filters/.
+    Every op keeps the default django_auth (they are the caller's
+    own presets)."""
+
+    API = '/api/vacancies/filters'
+
+    def setUp(self):
+        User = get_user_model()
+        self.user = User.objects.create_user(
+            username='alice', password='pw'
+        )
+        self.other = User.objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(self.user)
+        Keyword.objects.create(name='python')
+        Industry.objects.create(name='it')
+
+    def payload(self, **overrides):
+        data = {
+            'name': 'python-it',
+            'include_keywords': ['python'],
+            'exclude_keywords': [],
+            'include_industries': ['it'],
+            'show_active_only': True,
+        }
+        data.update(overrides)
+        return data
+
+    def post(self, payload):
+        return self.client.post(
+            f'{self.API}/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def patch(self, pk, payload):
+        return self.client.patch(
+            f'{self.API}/{pk}/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def create(self, **overrides):
+        resp = self.post(self.payload(**overrides))
+        self.assertEqual(resp.status_code, 201)
+        return resp.json()
+
+    def test_unauthenticated_401(self):
+        self.client.logout()
+        resp = self.client.get(f'{self.API}/')
+        self.assertEqual(resp.status_code, 401)
+        self.assertEqual(resp.json()['error'], 'unauthenticated')
+
+    def test_unauthenticated_writes_401(self):
+        body = self.create()
+        self.client.logout()
+        for resp in (
+            self.post(self.payload()),
+            self.patch(body['id'], self.payload()),
+            self.client.delete(f"{self.API}/{body['id']}/"),
+        ):
+            self.assertEqual(resp.status_code, 401)
+            self.assertEqual(resp.json()['error'], 'unauthenticated')
+            # login_url points at the vacancy list page — the SPA
+            # owns no /vacancies/filters/ route.
+            self.assertTrue(
+                resp.json()['login_url'].endswith(
+                    'next=%2Fvacancies%2F'
+                )
+            )
+        self.assertEqual(SavedVacancyFilter.objects.count(), 1)
+
+    def test_filters_post_csrf_enforced(self):
+        csrf_client = self.client.__class__(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        resp = csrf_client.post(
+            f'{self.API}/',
+            data=json.dumps(self.payload()),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()['error'], 'forbidden')
+
+    def test_crud_round_trip(self):
+        body = self.create()
+        self.assertEqual(body['name'], 'python-it')
+        self.assertEqual(body['include_keywords'], ['python'])
+        self.assertEqual(body['include_industries'], ['it'])
+        self.assertTrue(body['show_active_only'])
+
+        listing = self.client.get(f'{self.API}/').json()
+        self.assertEqual(len(listing), 1)
+        self.assertEqual(listing[0]['id'], body['id'])
+
+        updated = self.patch(
+            body['id'], self.payload(name='renamed')
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()['name'], 'renamed')
+
+        deleted = self.client.delete(f"{self.API}/{body['id']}/")
+        self.assertEqual(deleted.status_code, 204)
+        self.assertEqual(
+            self.client.get(f'{self.API}/').json(), []
+        )
+
+    def test_other_users_filters_are_invisible(self):
+        body = self.create()
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(f'{self.API}/').json(), [])
+        resp = self.client.delete(f"{self.API}/{body['id']}/")
+        self.assertEqual(resp.status_code, 404)
+        resp = self.patch(body['id'], self.payload(name='hijack'))
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(SavedVacancyFilter.objects.count(), 1)
+
+    def test_duplicate_name_409(self):
+        self.create()
+        resp = self.post(self.payload())
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(resp.json()['error'], 'conflict')
+
+    def test_rename_to_existing_name_409(self):
+        self.create(name='taken')
+        second = self.create(name='second')
+        resp = self.patch(
+            second['id'], self.payload(name='taken')
+        )
+        self.assertEqual(resp.status_code, 409)
+
+    def test_unknown_keyword_name_400(self):
+        resp = self.post(
+            self.payload(include_keywords=['nosuchkeyword'])
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('nosuchkeyword', resp.json()['detail'])
+
+    def test_unknown_industry_name_400(self):
+        resp = self.post(
+            self.payload(include_industries=['nosuchindustry'])
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('nosuchindustry', resp.json()['detail'])
+
+    def test_patch_unknown_name_400(self):
+        body = self.create()
+        resp = self.patch(
+            body['id'], self.payload(include_keywords=['gone'])
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_per_user_limit_400(self):
+        SavedVacancyFilter.objects.bulk_create([
+            SavedVacancyFilter(user=self.user, name=f'f{i}')
+            for i in range(50)
+        ])
+        resp = self.post(self.payload())
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()['code'], 'saved_filter_limit')
+
+    def test_whitespace_only_name_422(self):
+        resp = self.post(self.payload(name='   '))
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()['error'], 'validation_error')
+        self.assertEqual(SavedVacancyFilter.objects.count(), 0)
+
+    def test_name_is_stripped(self):
+        body = self.create(name='  python-it  ')
+        self.assertEqual(body['name'], 'python-it')
+
+    def test_unknown_name_in_include_and_exclude_listed_once(self):
+        resp = self.post(
+            self.payload(
+                include_keywords=['gone'],
+                exclude_keywords=['gone'],
+            )
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()['detail'].count('gone'), 1)
 
 
 def refetch_detail(vacancy_id, **overrides):

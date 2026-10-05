@@ -13,16 +13,23 @@ from typing import List, Optional
 from uuid import UUID
 
 from django.core.paginator import Paginator
+from django.db import IntegrityError
 from django.db.models import Count, F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from ninja import Query, Router, Schema
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from industry_analyser.api import ApiHttpError
 
 from .forms import KeywordForm
-from .models import Company, Industry, Keyword, Vacancy
+from .models import (
+    Company,
+    Industry,
+    Keyword,
+    SavedVacancyFilter,
+    Vacancy,
+)
 from .views import _file_url
 
 router = Router()
@@ -30,6 +37,9 @@ router = Router()
 # Same per-page sizes the template views used.
 VACANCIES_PER_PAGE = 300
 COMPANIES_PER_PAGE = 100
+# Per-user cap on saved filter presets — keeps the presets table and
+# the dropdown UI bounded.
+MAX_SAVED_FILTERS_PER_USER = 50
 
 
 # --- Schemas ---
@@ -178,6 +188,34 @@ class KeywordIn(Schema):
 class KeywordSavedOut(Schema):
     success: bool
     message: str
+
+
+class SavedFilterIn(Schema):
+    """A vacancy-list URL-params snapshot, stored under a name."""
+    name: str = Field(min_length=1, max_length=100)
+    include_keywords: List[str] = []
+    exclude_keywords: List[str] = []
+    include_industries: List[str] = []
+    show_active_only: bool = False
+
+    @field_validator('name')
+    @classmethod
+    def _strip_name(cls, v: str) -> str:
+        # '   ' slips past min_length — store names stripped and
+        # reject empty-after-strip as a validation error (422).
+        v = v.strip()
+        if not v:
+            raise ValueError('name must not be blank')
+        return v
+
+
+class SavedFilterOut(Schema):
+    id: UUID
+    name: str
+    include_keywords: List[str]
+    exclude_keywords: List[str]
+    include_industries: List[str]
+    show_active_only: bool
 
 
 # --- Ops ---
@@ -360,3 +398,119 @@ def add_keyword(request, payload: KeywordIn):
         success=True,
         message=f"Keyword '{keyword.name}' added.",
     )
+
+
+# --- Saved vacancy filters (per-user — default django_auth) ---
+
+
+def _check_saved_filter_names(payload: SavedFilterIn) -> None:
+    """Reject names that match no Keyword/Industry row — a preset
+    referencing a deleted/renamed name would silently match nothing,
+    so surface it at save time instead."""
+    keyword_names = (
+        payload.include_keywords + payload.exclude_keywords
+    )
+    known_keywords = set(
+        Keyword.objects
+        .filter(name__in=keyword_names)
+        .values_list('name', flat=True)
+    )
+    known_industries = set(
+        Industry.objects
+        .filter(name__in=payload.include_industries)
+        .values_list('name', flat=True)
+    )
+    unknown = list(dict.fromkeys(
+        [n for n in keyword_names if n not in known_keywords]
+        + [
+            n for n in payload.include_industries
+            if n not in known_industries
+        ]
+    ))
+    if unknown:
+        raise ApiHttpError(
+            400,
+            'Unknown keyword/industry names: ' + ', '.join(unknown),
+            code='unknown_filter_names',
+        )
+
+
+def _apply_saved_filter(
+    saved: SavedVacancyFilter, payload: SavedFilterIn
+) -> None:
+    saved.name = payload.name
+    saved.include_keywords = payload.include_keywords
+    saved.exclude_keywords = payload.exclude_keywords
+    saved.include_industries = payload.include_industries
+    saved.show_active_only = payload.show_active_only
+
+
+def _duplicate_name_error(name: str) -> ApiHttpError:
+    return ApiHttpError(
+        409,
+        f"A saved filter named '{name}' already exists.",
+        code='duplicate_name',
+    )
+
+
+@router.get('/filters/', response=List[SavedFilterOut])
+def list_saved_filters(request):
+    """The caller's saved filter presets (name-ordered via Meta)."""
+    return SavedVacancyFilter.objects.filter(user=request.user)
+
+
+@router.post('/filters/', response={201: SavedFilterOut})
+def create_saved_filter(request, payload: SavedFilterIn):
+    _check_saved_filter_names(payload)
+    filters = SavedVacancyFilter.objects.filter(user=request.user)
+    if filters.count() >= MAX_SAVED_FILTERS_PER_USER:
+        raise ApiHttpError(
+            400,
+            f'Saved filter limit reached '
+            f'({MAX_SAVED_FILTERS_PER_USER}).',
+            code='saved_filter_limit',
+        )
+    if filters.filter(name=payload.name).exists():
+        raise _duplicate_name_error(payload.name)
+    saved = SavedVacancyFilter(user=request.user)
+    _apply_saved_filter(saved, payload)
+    try:
+        saved.save()
+    except IntegrityError:
+        # unique_together(user, name) is the backstop for races.
+        raise _duplicate_name_error(payload.name)
+    return 201, saved
+
+
+@router.patch('/filters/{pk}/', response=SavedFilterOut)
+def update_saved_filter(
+    request, pk: UUID, payload: SavedFilterIn
+):
+    """Rename and/or replace a preset's criteria — the client sends
+    the full state, so PATCH is a whole-preset update."""
+    saved = get_object_or_404(
+        SavedVacancyFilter, pk=pk, user=request.user
+    )
+    _check_saved_filter_names(payload)
+    if (
+        SavedVacancyFilter.objects
+        .filter(user=request.user, name=payload.name)
+        .exclude(pk=pk)
+        .exists()
+    ):
+        raise _duplicate_name_error(payload.name)
+    _apply_saved_filter(saved, payload)
+    try:
+        saved.save()
+    except IntegrityError:
+        raise _duplicate_name_error(payload.name)
+    return saved
+
+
+@router.delete('/filters/{pk}/', response={204: None})
+def delete_saved_filter(request, pk: UUID):
+    saved = get_object_or_404(
+        SavedVacancyFilter, pk=pk, user=request.user
+    )
+    saved.delete()
+    return 204, None

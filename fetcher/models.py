@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 import uuid
@@ -263,3 +264,36 @@ class VacancyContainsKeyword(models.Model):
     class Meta:
         unique_together = (('vacancy', 'keyword'),)
         db_table = 'fetcher_vacancy_contains_keyword'
+
+
+class SavedVacancyFilter(models.Model):
+    """A named URL-params snapshot for the vacancy list page.
+
+    Stores keyword/industry *names* (not FKs) because both the URL
+    params and the list API filter by name — a preset is literally a
+    bookmarkable query string. If a keyword is deleted later the name
+    stays and simply matches nothing.
+    """
+    id = models.UUIDField(
+        primary_key=True, default=uuid.uuid4, editable=False
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='saved_vacancy_filters',
+    )
+    name = models.CharField(max_length=100)
+    include_keywords = models.JSONField(default=list)   # keyword names
+    exclude_keywords = models.JSONField(default=list)
+    include_industries = models.JSONField(default=list)  # industry names
+    show_active_only = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'fetcher_saved_vacancy_filter'
+        unique_together = (('user', 'name'),)
+        ordering = ('name',)
+
+    def __str__(self):
+        return f'{self.user}:{self.name}'

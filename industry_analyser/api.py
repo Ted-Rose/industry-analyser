@@ -63,6 +63,12 @@ def error_slug(status_code):
 # root, so /api/dashboard/... 401s must send the user back to '/', not
 # '/dashboard/'.
 SPA_BASES = {'dashboard': '/'}
+# Sub-path remaps, keyed by (api app, first path segment): authed ops
+# whose mechanical /<app>/<sub>/ rewrite would land on a route the SPA
+# doesn't own. The saved-filters CRUD lives on the vacancy list page,
+# so /api/vacancies/filters/… 401s send the user back to /vacancies/,
+# not the nonexistent /vacancies/filters/….
+SPA_SUBPATHS = {('vacancies', 'filters'): '/vacancies/'}
 # Dormant trap: the vacancies SPA also owns /companies/*, so an authed
 # op under /api/vacancies/companies/* would rewrite to the nonexistent
 # /vacancies/companies/… — add a sub-path mapping here if such an
@@ -91,7 +97,10 @@ def spa_url_for(request):
                 )
             return '/classified-ads/'
         app, _, sub = path[len(prefix):].partition('/')
-        if app in SPA_BASES:
+        mapped = SPA_SUBPATHS.get((app, sub.partition('/')[0]))
+        if mapped is not None:
+            path = mapped
+        elif app in SPA_BASES:
             path = SPA_BASES[app] + sub
         else:
             path = f'/{app}/{sub}'

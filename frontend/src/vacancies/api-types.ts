@@ -90,6 +90,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/vacancies/filters/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Saved Filters
+         * @description The caller's saved filter presets (name-ordered via Meta).
+         */
+        get: operations["fetcher_api_list_saved_filters"];
+        put?: never;
+        /** Create Saved Filter */
+        post: operations["fetcher_api_create_saved_filter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vacancies/filters/{pk}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Saved Filter */
+        delete: operations["fetcher_api_delete_saved_filter"];
+        options?: never;
+        head?: never;
+        /**
+         * Update Saved Filter
+         * @description Rename and/or replace a preset's criteria — the client sends
+         *     the full state, so PATCH is a whole-preset update.
+         */
+        patch: operations["fetcher_api_update_saved_filter"];
+        trace?: never;
+    };
     "/api/tv/programs/": {
         parameters: {
             query?: never;
@@ -618,6 +661,52 @@ export interface components {
              * @default true
              */
             only_filter: boolean;
+        };
+        /** SavedFilterOut */
+        SavedFilterOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Include Keywords */
+            include_keywords: string[];
+            /** Exclude Keywords */
+            exclude_keywords: string[];
+            /** Include Industries */
+            include_industries: string[];
+            /** Show Active Only */
+            show_active_only: boolean;
+        };
+        /**
+         * SavedFilterIn
+         * @description A vacancy-list URL-params snapshot, stored under a name.
+         */
+        SavedFilterIn: {
+            /** Name */
+            name: string;
+            /**
+             * Include Keywords
+             * @default []
+             */
+            include_keywords: string[];
+            /**
+             * Exclude Keywords
+             * @default []
+             */
+            exclude_keywords: string[];
+            /**
+             * Include Industries
+             * @default []
+             */
+            include_industries: string[];
+            /**
+             * Show Active Only
+             * @default false
+             */
+            show_active_only: boolean;
         };
         /**
          * ProgramFiltersOut
@@ -1391,6 +1480,96 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KeywordSavedOut"];
+                };
+            };
+        };
+    };
+    fetcher_api_list_saved_filters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedFilterOut"][];
+                };
+            };
+        };
+    };
+    fetcher_api_create_saved_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedFilterIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedFilterOut"];
+                };
+            };
+        };
+    };
+    fetcher_api_delete_saved_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pk: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fetcher_api_update_saved_filter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pk: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedFilterIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedFilterOut"];
                 };
             };
         };
