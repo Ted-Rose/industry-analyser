@@ -3,8 +3,11 @@
 
 Unlike the incremental scrape — which only fills empty fields and
 only ever *adds* keyword links — this command performs a true
-refresh per selected vacancy: mutable fields are overwritten from
-the fresh detail payload, keyword/industry links that no longer
+refresh per selected vacancy: the detail payload is normalized
+into search-result shape (``position`` → ``positionTitle``,
+``highlights.salary*`` → ``salary*``, ``settings.dateTo`` →
+``application_deadline`` …), mutable fields are overwritten when
+the payload actually reports them, keyword links that no longer
 match are removed, and the linked Company is re-enriched
 (about/contacts/reg_code) via ``company_linking``.
 
@@ -26,6 +29,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from fetcher import company_linking
 from fetcher.management.commands.link_vacancies_to_companies import (
@@ -44,11 +48,15 @@ logger = logging.getLogger('fetcher')
 
 # Scalar fields overwritten only when the fresh payload carries a
 # value — a partial detail object must not blank identity fields.
-KEEP_IF_EMPTY = ('title', 'company_name', 'first_seen')
-# Scalar fields overwritten unconditionally: the detail payload is
-# the source of truth, so a salary/deadline the ad no longer
-# reports must be cleared.
-ALWAYS_OVERWRITE = (
+# (first_seen is deliberately absent: it records when *we* first
+# saw the ad, not the portal's publish date.)
+KEEP_IF_EMPTY = ('title', 'company_name')
+# Scalar fields overwritten only when the detail payload actually
+# carried the source key (``_overwritable_fields``): an explicit
+# null clears the stored value, but a missing key means "the
+# portal didn't report it this time" and the stored value is
+# kept.
+OVERWRITE_IF_PRESENT = (
     'salary_from', 'salary_to', 'application_deadline'
 )
 
@@ -97,6 +105,17 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if options['batch_size'] < 1:
             raise CommandError('--batch-size must be >= 1.')
+        if options['limit'] is not None and options['limit'] < 1:
+            raise CommandError('--limit must be >= 1.')
+        if options['ids'] and (
+            options['keyword_id'] is not None
+            or options['exclude_keywords']
+        ):
+            raise CommandError(
+                '--ids bypasses keyword selection — do not '
+                'combine it with --keyword-id or '
+                '--exclude-keywords.'
+            )
         if not options['ids'] and options['keyword_id'] is None:
             raise CommandError(
                 '--keyword-id is required unless --ids is given.'
@@ -183,6 +202,7 @@ class Command(BaseCommand):
             'refreshed': 0,
             'no_employer': 0,
             'fetch_failed': 0,
+            'no_next_data': 0,
             'no_detail': 0,
             'error': 0,
             'companies': 0,
@@ -222,6 +242,9 @@ class Command(BaseCommand):
             if response is None:
                 return 'fetch_failed'
             data = scraper._extract_next_data(response.data)
+            if data is None:
+                # Malformed page — no __NEXT_DATA__ blob at all.
+                return 'no_next_data'
             detail = company_linking.extract_vacancy_detail(
                 data, vacancy.vacancy_portal_id
             )
@@ -232,8 +255,6 @@ class Command(BaseCommand):
             if (details.get('fileDetails') or {}).get('fileId'):
                 counts['files_seen'] += 1
             fresh = self._build_fresh(scraper, vacancy, detail)
-            if fresh is None:
-                return 'error'
             with transaction.atomic():
                 return self._apply_fresh(
                     vacancy, fresh, timezone.now(), counts
@@ -245,21 +266,76 @@ class Command(BaseCommand):
             )
             return 'error'
 
+    @staticmethod
+    def _aware_iso(value):
+        """Re-serialize a portal date string as aware ISO — detail
+        dates are date-only ('2026-10-10') and parse naive, but
+        Vacancy datetimes must be timezone-aware."""
+        if not value:
+            return None
+        parsed = parse_datetime(str(value))
+        if parsed is None:
+            return None
+        if timezone.is_naive(parsed):
+            parsed = timezone.make_aware(parsed)
+        return parsed.isoformat()
+
     def _build_fresh(self, scraper, vacancy, detail):
-        """Run the fresh detail payload through
-        ``VacancyScrapper._build_vacancy`` so keyword matching, OCR
-        staging, industry mapping and employer slicing are identical
-        to a live scrape. Returns an unsaved Vacancy."""
+        """Normalize the detail payload into search-result shape,
+        then run it through ``VacancyScrapper._build_vacancy`` so
+        keyword matching, OCR staging, industry mapping and
+        employer slicing are identical to a live scrape. Returns
+        an unsaved Vacancy.
+
+        The detail object nests what the search payload keeps
+        flat: the title under ``position``, salaries under
+        ``highlights``, the deadline under ``settings.dateTo``,
+        declared keywords as ``settings.keywords`` {id, value}
+        dicts and categories as ``settings.categories`` enum
+        names. ``fresh._overwritable_fields`` records which
+        OVERWRITE_IF_PRESENT sources the payload actually
+        carried — key *presence*, not truthiness, is what allows
+        a stored value to be cleared.
+        """
+        highlights = detail.get('highlights') or {}
+        portal_settings = detail.get('settings') or {}
         result = dict(detail)
         result['id'] = vacancy.vacancy_portal_id
-        # Seed stored values for fields the detail object may not
-        # carry — they still feed keyword matching.
-        if not result.get('positionTitle'):
-            result['positionTitle'] = vacancy.title
-        if not result.get('employerName'):
-            result['employerName'] = vacancy.company_name
+        # Seed stored values as fallbacks — they still feed
+        # keyword matching when the payload lacks a field.
+        result['positionTitle'] = (
+            detail.get('position') or highlights.get('position')
+            or vacancy.title
+        )
+        result['employerName'] = (
+            detail.get('employerName') or vacancy.company_name
+        )
+        result['salaryFrom'] = highlights.get('salaryFrom')
+        result['salaryTo'] = highlights.get('salaryTo')
+        result['expirationDate'] = self._aware_iso(
+            portal_settings.get('dateTo')
+        )
+        # Categories arrive as enum names ('INFORMATION_TECHNOLOGY'),
+        # not the numeric ids industry_mapping understands — they
+        # only link when the mapping/Industry rows know them.
+        result['categories'] = (
+            portal_settings.get('categories') or []
+        )
+        result['keywords'] = [
+            keyword['value']
+            for keyword in portal_settings.get('keywords') or []
+            if keyword.get('value')
+        ]
         result['_detail'] = detail
-        return scraper.initiate_resource(result)
+        fresh = scraper.initiate_resource(result)
+        fresh._overwritable_fields = set()
+        if 'salaryFrom' in highlights:
+            fresh._overwritable_fields.add('salary_from')
+        if 'salaryTo' in highlights:
+            fresh._overwritable_fields.add('salary_to')
+        if 'dateTo' in portal_settings:
+            fresh._overwritable_fields.add('application_deadline')
+        return fresh
 
     def _apply_fresh(self, vacancy, fresh, now, counts):
         """Rewrite ``vacancy`` from the freshly built row inside
@@ -285,8 +361,10 @@ class Command(BaseCommand):
             value = getattr(fresh, field)
             if value is not None:
                 setattr(vacancy, field, value)
-        for field in ALWAYS_OVERWRITE:
-            setattr(vacancy, field, getattr(fresh, field))
+        overwritable = getattr(fresh, '_overwritable_fields', ())
+        for field in OVERWRITE_IF_PRESENT:
+            if field in overwritable:
+                setattr(vacancy, field, getattr(fresh, field))
         vacancy.last_seen = now
         vacancy.detail_fetched_at = now
         vacancy.save()
@@ -295,10 +373,16 @@ class Command(BaseCommand):
             {k.id for k in getattr(fresh, '_pending_keywords', [])},
         ):
             counts['keywords_changed'] += 1
-        if self._replace_links(
+        pending_industries = {
+            i.id for i in getattr(fresh, '_pending_industries', [])
+        }
+        # Detail categories are enum names industry_mapping can't
+        # resolve, so a detail fetch normally yields no industries
+        # — only swap links when fresh ones were actually
+        # produced, otherwise the stored set stays.
+        if pending_industries and self._replace_links(
             vacancy, VacancyIndustries, 'industry_id',
-            {i.id for i in
-             getattr(fresh, '_pending_industries', [])},
+            pending_industries,
         ):
             counts['industries_changed'] += 1
         vacancy_file = getattr(fresh, '_pending_file', None)

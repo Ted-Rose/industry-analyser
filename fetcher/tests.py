@@ -1457,16 +1457,27 @@ class VacanciesApiTests(TestCase):
 
 
 def refetch_detail(vacancy_id, **overrides):
-    """Detail-page vacancy payload carrying both the employer
-    slices and the searchable fields ``_build_vacancy`` reads."""
+    """Real-shaped detail-page payload — verified against
+    props.pageProps.vacancy["1655039"] on cv.lv: the title lives
+    under ``position``, salaries under ``highlights``, and the
+    deadline/categories/keywords under ``settings`` (categories
+    as enum names, keywords as {id, value} dicts)."""
     detail = employer_page_detail()
     detail.update({
-        'positionTitle': 'Fresh python developer',
-        'positionContent': 'We write python daily',
-        'salaryFrom': 3000,
-        'salaryTo': 4500,
-        'expirationDate': '2026-01-15T00:00:00+02:00',
-        'publishDate': '2025-06-01T10:00:00+03:00',
+        'position': 'Fresh python developer',
+        'firstPublishDate': '2025-06-01',
+        'highlights': {
+            'address': 'Marijas iela 2a',
+            'position': 'Fresh python developer',
+            'salaryFrom': 3000,
+            'salaryTo': 4500,
+        },
+        'settings': {
+            'applyingUrl': 'https://ats.example/apply',
+            'dateTo': '2026-01-15',
+            'categories': ['INFORMATION_TECHNOLOGY'],
+            'keywords': [{'id': 1, 'value': 'python'}],
+        },
         'details': {
             'standardDetails': [
                 {'title': 'About the job',
@@ -1597,6 +1608,14 @@ class RefetchVacanciesTests(TestCase):
         self.assertEqual(vacancy.title, 'Fresh python developer')
         self.assertEqual(vacancy.salary_from, 3000)
         self.assertEqual(vacancy.salary_to, 4500)
+        # settings.dateTo is date-only — stored aware.
+        self.assertFalse(
+            timezone.is_naive(vacancy.application_deadline)
+        )
+        self.assertEqual(
+            vacancy.application_deadline.date().isoformat(),
+            '2026-01-15',
+        )
         self.assertIsNotNone(vacancy.detail_fetched_at)
         # True refresh: the stale 'java' link is removed, the
         # still-matching 'python' link is kept.
@@ -1690,3 +1709,106 @@ class RefetchVacanciesTests(TestCase):
             set(vacancy.keywords.values_list('name', flat=True)),
             {'python', 'ocrword'},
         )
+
+    def test_absent_salary_or_categories_keeps_stored(self):
+        """A detail payload that omits salary/categories must not
+        wipe stored values — absent ≠ removed (key presence, not
+        truthiness, allows a clear)."""
+        industry = Industry.objects.create(name='it')
+        vacancy = make_vacancy(
+            42, salary_from=111, salary_to=222,
+            application_deadline=timezone.now(),
+        )
+        VacancyIndustries.objects.create(
+            vacancy=vacancy, industry=industry
+        )
+        detail = refetch_detail(
+            42,
+            highlights={
+                'position': 'Fresh python developer',
+            },
+            settings={
+                'applyingUrl': 'https://ats.example/apply',
+            },
+        )
+        self._run('--ids', '42', response_obj=detail)
+        vacancy.refresh_from_db()
+        self.assertEqual(vacancy.salary_from, 111)
+        self.assertEqual(vacancy.salary_to, 222)
+        self.assertIsNotNone(vacancy.application_deadline)
+        self.assertEqual(
+            set(
+                vacancy.industries.values_list('name', flat=True)
+            ),
+            {'it'},
+        )
+        self.assertEqual(vacancy.title, 'Fresh python developer')
+
+    def test_present_but_null_keys_clear_stored_values(self):
+        vacancy = make_vacancy(
+            42, salary_from=111, salary_to=222,
+        )
+        detail = refetch_detail(
+            42,
+            highlights={
+                'position': 'Fresh python developer',
+                'salaryFrom': None,
+                'salaryTo': None,
+            },
+        )
+        self._run('--ids', '42', response_obj=detail)
+        vacancy.refresh_from_db()
+        self.assertIsNone(vacancy.salary_from)
+        self.assertIsNone(vacancy.salary_to)
+
+    def test_no_employer_still_refreshes_vacancy(self):
+        vacancy = make_vacancy(42, title='Stale title')
+        out = io.StringIO()
+        self._run(
+            '--ids', '42',
+            response_obj=refetch_detail(
+                42, employerId=None, employer={},
+            ),
+            stdout=out,
+        )
+        vacancy.refresh_from_db()
+        self.assertEqual(vacancy.title, 'Fresh python developer')
+        self.assertIsNotNone(vacancy.detail_fetched_at)
+        self.assertIsNone(vacancy.company_id)
+        self.assertIn('no_employer=1', out.getvalue())
+        self.assertFalse(Company.objects.exists())
+
+    def test_limit_caps_processed_vacancies(self):
+        kw = Keyword.objects.create(name='python')
+        for portal_id in (1, 2, 3):
+            self._link(make_vacancy(portal_id), kw)
+        request = self._run(
+            '--keyword-id', str(kw.id), '--limit', '2',
+            response_obj=refetch_detail(1),
+        )
+        self.assertEqual(len(self._fetched_urls(request)), 2)
+
+    def test_limit_must_be_positive(self):
+        with self.assertRaises(CommandError):
+            self._run('--ids', '1', '--limit', '0')
+
+    def test_ids_rejects_keyword_selection_args(self):
+        kw = Keyword.objects.create(name='python')
+        with self.assertRaises(CommandError):
+            self._run(
+                '--ids', '1', '--keyword-id', str(kw.id)
+            )
+        with self.assertRaises(CommandError):
+            self._run(
+                '--ids', '1', '--exclude-keywords', str(kw.id)
+            )
+
+    def test_malformed_page_is_counted_no_next_data(self):
+        make_vacancy(42)
+        out = io.StringIO()
+        self._run(
+            '--ids', '42',
+            response_obj=response(b'<html><p>oops</p></html>'),
+            stdout=out,
+        )
+        self.assertIn('no_next_data=1', out.getvalue())
