@@ -28,6 +28,29 @@ def normalize_reg_code(value):
     return code or None
 
 
+def clip_field(model, value, field_name):
+    """Coerce ``value`` to stripped str bounded by the model
+    field's max_length; falsy -> None.
+
+    cv.lv payloads occasionally exceed our varchar bounds — an
+    unclipped assignment raises StringDataRightTruncation on save
+    and rolls back the whole page's writes.
+    """
+    if not value:
+        return None
+    value = str(value).strip()
+    if not value:
+        return None
+    max_len = model._meta.get_field(field_name).max_length
+    if max_len and len(value) > max_len:
+        logger.warning(
+            f"{model.__name__}.{field_name} truncated from "
+            f"{len(value)} to {max_len} chars"
+        )
+        value = value[:max_len]
+    return value
+
+
 def extract_vacancy_detail(next_data, vacancy_id):
     """Return ``props.pageProps.vacancy[str(vacancy_id)]`` from a
     parsed ``__NEXT_DATA__`` blob, or None."""
@@ -79,7 +102,7 @@ def strip_html(html):
 def observe_alias(company, kind, value, now=None):
     """get_or_create a (company, kind, value) alias row and bump
     ``last_seen`` on repeats."""
-    value = (value or '').strip()
+    value = clip_field(CompanyAlias, value, 'value') or ''
     if not value:
         return
     now = now or timezone.now()
@@ -101,6 +124,7 @@ def resolve_company(employer_id, employer_name=None,
     alias + updated display name — routine, no review flag).
     """
     now = now or timezone.now()
+    name = clip_field(Company, employer_name, 'name') or ''
     identity = (
         CompanyIdentity.objects
         .filter(source=source, employer_id=employer_id)
@@ -109,7 +133,7 @@ def resolve_company(employer_id, employer_name=None,
     )
     if identity is None:
         company = Company.objects.create(
-            name=(employer_name or '').strip(),
+            name=name,
             first_seen=now,
             last_seen=now,
         )
@@ -124,8 +148,6 @@ def resolve_company(employer_id, employer_name=None,
             company = company.canonical()
         identity.last_seen = now
         identity.save(update_fields=['last_seen'])
-
-    name = (employer_name or '').strip()
     if name:
         observe_alias(company, CompanyAlias.KIND_NAME, name, now)
     update_fields = ['last_seen']
@@ -151,13 +173,20 @@ def apply_employer_detail(company, detail_slice, now=None):
             f"({company.name}) keeps empty about/contacts"
         )
 
-    name = (detail_slice.get('employer_name') or '').strip()
+    name = (
+        clip_field(Company, detail_slice.get('employer_name'),
+                   'name') or ''
+    )
     if name:
         observe_alias(company, CompanyAlias.KIND_NAME, name, now)
         if company.name != name:
             company.name = name
 
-    reg_code = normalize_reg_code(employer.get('regCode'))
+    reg_code = clip_field(
+        Company,
+        normalize_reg_code(employer.get('regCode')),
+        'reg_code',
+    )
     if reg_code:
         observe_alias(
             company, CompanyAlias.KIND_REG_CODE, reg_code, now
@@ -197,24 +226,44 @@ def apply_employer_detail(company, detail_slice, now=None):
             company.reg_code = reg_code
 
     contacts = detail_slice.get('contacts') or {}
-    contact_name = ' '.join(
-        part for part in (
-            (contacts.get('firstName') or '').strip(),
-            (contacts.get('lastName') or '').strip(),
-        ) if part
-    ) or None
+    contact_name = clip_field(
+        Company,
+        ' '.join(
+            part for part in (
+                (contacts.get('firstName') or '').strip(),
+                (contacts.get('lastName') or '').strip(),
+            ) if part
+        ),
+        'contact_name',
+    )
 
     company.about = strip_html(employer.get('about')) or None
-    company.webpage_url = employer.get('webpageUrl') or None
-    company.video_url = employer.get('videoUrl') or None
-    company.logo_file_id = employer.get('logoFileId') or None
-    company.cover_file_id = employer.get('coverFileId') or None
+    company.webpage_url = clip_field(
+        Company, employer.get('webpageUrl'), 'webpage_url'
+    )
+    company.video_url = clip_field(
+        Company, employer.get('videoUrl'), 'video_url'
+    )
+    company.logo_file_id = clip_field(
+        Company, employer.get('logoFileId'), 'logo_file_id'
+    )
+    company.cover_file_id = clip_field(
+        Company, employer.get('coverFileId'), 'cover_file_id'
+    )
     company.gallery = employer.get('gallery') or []
     company.contact_name = contact_name
-    company.contact_email = contacts.get('email') or None
-    company.contact_phone = contacts.get('phone') or None
-    company.applying_url = detail_slice.get('applying_url') or None
-    company.address = detail_slice.get('address') or None
+    company.contact_email = clip_field(
+        Company, contacts.get('email'), 'contact_email'
+    )
+    company.contact_phone = clip_field(
+        Company, contacts.get('phone'), 'contact_phone'
+    )
+    company.applying_url = clip_field(
+        Company, detail_slice.get('applying_url'), 'applying_url'
+    )
+    company.address = clip_field(
+        Company, detail_slice.get('address'), 'address'
+    )
     company.raw_employer = employer or None
     company.detail_fetched_at = now
     company.last_seen = now

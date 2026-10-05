@@ -501,8 +501,12 @@ class VacancyScrapper(BaseScraper):
         vacancy = Vacancy(
             vacancy_portal_id=vacancy_portal_id,
             job_portal_id=int(self.portal_id),
-            title=result.get('positionTitle'),
-            company_name=result.get('employerName'),
+            title=company_linking.clip_field(
+                Vacancy, result.get('positionTitle'), 'title'
+            ),
+            company_name=company_linking.clip_field(
+                Vacancy, result.get('employerName'), 'company_name'
+            ),
             salary_from=result.get('salaryFrom'),
             salary_to=result.get('salaryTo'),
             url=url,
@@ -803,7 +807,11 @@ class VacancyScrapper(BaseScraper):
             if employer_id in identities:
                 continue
             company = Company(
-                name=(name or '').strip(),
+                name=(
+                    company_linking.clip_field(
+                        Company, name, 'name'
+                    ) or ''
+                ),
                 first_seen=now, last_seen=now,
             )
             new_companies.append(company)
@@ -838,9 +846,17 @@ class VacancyScrapper(BaseScraper):
             company = companies.get(employer_id)
             if company is None:
                 continue
-            company_linking.apply_employer_detail(
-                company, detail, now=now
-            )
+            try:
+                company_linking.apply_employer_detail(
+                    company, detail, now=now
+                )
+            except Exception:
+                logger.exception(
+                    f"apply_employer_detail failed for "
+                    f"employer_id {employer_id} (company "
+                    f"{company.pk}) — continuing batch"
+                )
+                continue
             detailed_pks.add(company.pk)
             if company.about:
                 about_pks.add(company.pk)
@@ -861,7 +877,10 @@ class VacancyScrapper(BaseScraper):
             company = companies[employer_id]
             if company.pk in detailed_pks:
                 continue
-            name = (name or '').strip()
+            name = (
+                company_linking.clip_field(Company, name, 'name')
+                or ''
+            )
             if name and company.name != name:
                 company.name = name
                 renamed[company.pk] = company
@@ -882,9 +901,15 @@ class VacancyScrapper(BaseScraper):
         # 'name' alias sightings — bulk INSERT the new ones, one
         # grouped UPDATE bumps last_seen on pre-existing rows.
         observed = {
-            (companies[eid].pk, (name or '').strip())
+            (
+                companies[eid].pk,
+                company_linking.clip_field(
+                    CompanyAlias, name, 'value'
+                ),
+            )
             for eid, name in employers.items() if name
         }
+        observed = {pair for pair in observed if pair[1]}
         if observed:
             existing = set(
                 CompanyAlias.objects.filter(
