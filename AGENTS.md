@@ -247,6 +247,7 @@ python manage.py refetch_apartment_ads --filter "post_date__isnull=True" --dry-r
 python manage.py validate_sightings
 python manage.py link_ads_to_properties [--deal rent|sale] [--type apartment|house] [--dry-run] [--relink]
 python manage.py link_vacancies_to_companies [--ids …] [--limit N] [--dry-run] [--employers-only]
+python manage.py refetch_vacancies --keyword-id K [--exclude-keywords …] [--no-ocr] [--dry-run]  # see docs/vacancy_refetch_usage.md
 python manage.py reclassify_tv_programs
 ```
 
