@@ -3,11 +3,17 @@ description: "Local migrations allowed; prod migrated by CI"
 trigger: always_on
 ---
 
-Migrations are fully allowed **locally**: the dev database is the
-gitignored SQLite file `db.sqlite3`, so run `python manage.py
-makemigrations` and `python manage.py migrate` freely — generate
-migration files after every model change and apply them to verify,
-no need to ask the user.
+Generate migration files freely — `python manage.py makemigrations`
+touches no database. But **the local `.env` `DATABASE_URL` points at
+the production Aiven PostgreSQL by default**, so apply migrations
+only against SQLite:
+
+```bash
+DATABASE_URL=sqlite:///db.sqlite3 python manage.py migrate
+```
+
+Same override for tests — the test runner creates a database on
+whatever `DATABASE_URL` targets.
 
 Do **not** run migrations against the production database. Production
 migrations are applied by `.github/workflows/run-migrations.yml`: after

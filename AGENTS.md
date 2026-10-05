@@ -255,9 +255,18 @@ python manage.py reclassify_tv_programs
 - `.env` via `django-environ`: `SECRET_KEY`, `DEBUG`, `DATABASE_URL`,
   `BASE_URL`, `HARD_CODED_PASSWORD`, `GEMINI_API_KEY`, `OMDB_KEY`,
   `ALLOWED_HOST_IP`, `DB_SSL_CERT` (or `capem`).
-- DB: `DATABASE_URL=sqlite:///db.sqlite3` locally; PostgreSQL in prod
-  (SSL CA written to `/tmp/industry-analyser-postgres-ca.pem` from
-  `DB_SSL_CERT` env or `ca.pem` file fallback).
+- DB: this checkout's `.env` points `DATABASE_URL` at the
+  **production Aiven PostgreSQL** (`industryanalyser` @
+  `*.aivencloud.com`) — every `manage.py` command hits prod by
+  default, which is exactly what you want when the user asks to
+  query/analyze real data. For tests, `migrate`, and any
+  scratch/seed writes, override to SQLite:
+  `DATABASE_URL=sqlite:///db.sqlite3 python manage.py …` (Django's
+  test runner creates a database on whatever `DATABASE_URL` targets
+  — never run tests against the default). `db.sqlite3` is dormant
+  unless overridden this way. Prod SSL CA is written to
+  `/tmp/industry-analyser-postgres-ca.pem` from `DB_SSL_CERT` env or
+  `ca.pem` file fallback.
 - Fetcher portals config: `FETCHER_PORTALS_JSON` env (prod, from Secret
   Manager) or `fetcher/config_v2.json` (local). On Cloud Run,
   `scripts/materialize_fetcher_config_and_scrape.py` materializes
@@ -292,12 +301,17 @@ and let CI apply.
 
 ## Guardrails
 
-- **Local migrations are fully allowed** — the dev DB is the
-  gitignored SQLite `db.sqlite3`, so run `makemigrations` and
-  `migrate` freely (generate migration files after model changes,
-  apply them to verify). Do **not** migrate the production database:
-  push to `master` triggers `.github/workflows/run-migrations.yml`,
-  which executes a `run-migrations` Cloud Run job
+- **The default DB is production** — `.env`'s `DATABASE_URL` targets
+  the live Aiven PostgreSQL, so `migrate`, scrapers and fix scripts
+  run locally write straight to prod. Read-only queries against the
+  default are fine (that's how real-data analysis works); for
+  anything that writes, or for tests, prefix with
+  `DATABASE_URL=sqlite:///db.sqlite3`.
+- **Migrations**: generate files freely (`makemigrations` touches no
+  DB) and apply them only against the SQLite override above — never
+  `migrate` against the default prod connection. Production
+  migrations are applied by `.github/workflows/run-migrations.yml`:
+  push to `master` executes a `run-migrations` Cloud Run job
   (`python manage.py migrate`) when `migrations/` files changed —
   committing the migration files is enough.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
