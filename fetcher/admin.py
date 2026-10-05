@@ -3,7 +3,12 @@ from django.db.models import Count
 from django.template.response import TemplateResponse
 
 from .company_linking import merge_companies
-from .models import Company, CompanyAlias, CompanyIdentity
+from .models import (
+    Company,
+    CompanyAlias,
+    CompanyIdentity,
+    CompanyPreference,
+)
 
 
 class CompanyIdentityInline(admin.TabularInline):
@@ -156,3 +161,14 @@ class CompanyAliasAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(CompanyPreference)
+class CompanyPreferenceAdmin(admin.ModelAdmin):
+    list_display = [
+        'user', 'company', 'preference', 'updated_at',
+    ]
+    list_filter = ['preference']
+    search_fields = ['user__username', 'company__name']
+    raw_id_fields = ['user', 'company']
+    readonly_fields = ['created_at', 'updated_at']

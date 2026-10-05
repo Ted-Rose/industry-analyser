@@ -3,7 +3,9 @@ import {
   addKeyword,
   createSavedFilter,
   deleteSavedFilter,
+  setCompanyPreference,
   updateSavedFilter,
+  type CompanyPreference,
   type KeywordIn,
   type SavedFilterIn,
   type SavedFilterOut,
@@ -20,6 +22,25 @@ export function useAddKeyword() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: KeywordIn) => addKeyword(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['vacancies'] });
+    },
+  });
+}
+
+/** Company like/dislike — the preference surfaces on the vacancy
+ *  list rows, the companies list and the company detail card, so
+ *  invalidate the whole `['vacancies']` root. */
+export function useSetCompanyPreference() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      companyId,
+      preference,
+    }: {
+      companyId: string;
+      preference: CompanyPreference;
+    }) => setCompanyPreference(companyId, preference),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['vacancies'] });
     },

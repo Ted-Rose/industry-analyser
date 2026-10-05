@@ -10,9 +10,15 @@ import logging
 import re
 
 from bs4 import BeautifulSoup
+from django.db import transaction
 from django.utils import timezone
 
-from .models import Company, CompanyAlias, CompanyIdentity
+from .models import (
+    Company,
+    CompanyAlias,
+    CompanyIdentity,
+    CompanyPreference,
+)
 
 logger = logging.getLogger('fetcher')
 
@@ -272,35 +278,49 @@ def apply_employer_detail(company, detail_slice, now=None):
 
 
 def merge_companies(target, sources):
-    """Repoint identities, vacancies and aliases from ``sources``
-    onto ``target``, then soft-redirect the losers via
-    ``merged_into``. Clears ``needs_review`` on both sides."""
+    """Repoint identities, vacancies, aliases and preferences
+    from ``sources`` onto ``target``, then soft-redirect the
+    losers via ``merged_into``. Clears ``needs_review`` on both
+    sides."""
     for source in sources:
         if source.pk == target.pk:
             continue
-        CompanyIdentity.objects.filter(
-            company=source
-        ).update(company=target)
-        source.vacancies.update(company=target)
-        for alias in source.aliases.all():
-            existing = target.aliases.filter(
-                kind=alias.kind, value=alias.value
-            ).first()
-            if existing is None:
-                alias.company = target
-                alias.save(update_fields=['company'])
-                continue
-            if alias.first_seen < existing.first_seen:
-                existing.first_seen = alias.first_seen
-            if alias.last_seen > existing.last_seen:
-                existing.last_seen = alias.last_seen
-            existing.save()
-            alias.delete()
-        source.merged_into = target
-        source.needs_review = False
-        source.save(
-            update_fields=['merged_into', 'needs_review']
-        )
+        # Atomic per source — a mid-merge failure must not leave a
+        # half-repointed company (identities moved, merged_into unset).
+        with transaction.atomic():
+            CompanyIdentity.objects.filter(
+                company=source
+            ).update(company=target)
+            source.vacancies.update(company=target)
+            for alias in source.aliases.all():
+                existing = target.aliases.filter(
+                    kind=alias.kind, value=alias.value
+                ).first()
+                if existing is None:
+                    alias.company = target
+                    alias.save(update_fields=['company'])
+                    continue
+                if alias.first_seen < existing.first_seen:
+                    existing.first_seen = alias.first_seen
+                if alias.last_seen > existing.last_seen:
+                    existing.last_seen = alias.last_seen
+                existing.save()
+                alias.delete()
+            # Per-user like/dislike rows follow the survivor. A
+            # user who marked both keeps the target's pref — the
+            # (user, company) unique_together forbids a duplicate.
+            source_prefs = CompanyPreference.objects.filter(
+                company=source
+            )
+            source_prefs.filter(
+                user__in=target.preferences.values('user')
+            ).delete()
+            source_prefs.update(company=target)
+            source.merged_into = target
+            source.needs_review = False
+            source.save(
+                update_fields=['merged_into', 'needs_review']
+            )
     if target.needs_review:
         target.needs_review = False
         target.save(update_fields=['needs_review'])

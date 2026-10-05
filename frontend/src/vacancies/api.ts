@@ -3,6 +3,7 @@ import {
   apiGet,
   apiPatch,
   apiPost,
+  apiPut,
 } from '../shared/api/client';
 import type { components } from './api-types';
 
@@ -23,6 +24,19 @@ export type KeywordSavedOut =
 export type SavedFilterIn = components['schemas']['SavedFilterIn'];
 export type SavedFilterOut =
   components['schemas']['SavedFilterOut'];
+export type CompanyPreferenceIn =
+  components['schemas']['CompanyPreferenceIn'];
+export type CompanyPreferenceOut =
+  components['schemas']['CompanyPreferenceOut'];
+
+/** The caller's like/dislike for a company — `null` is neutral. */
+export type CompanyPreference =
+  CompanyPreferenceIn['preference'];
+/** Values of the vacancy list's ?company_filter= param (and of
+ *  SavedVacancyFilter.company_filter — one vocabulary). */
+export type CompanyFilter = NonNullable<
+  SavedFilterIn['company_filter']
+>;
 
 /** Filter/page state of the vacancy list, parsed from the URL. */
 export interface VacancyParams {
@@ -30,6 +44,7 @@ export interface VacancyParams {
   excludeKeywords: string[];
   includeIndustries: string[];
   showActiveOnly: boolean;
+  companyFilter: CompanyFilter;
   page?: string | null;
 }
 
@@ -56,6 +71,9 @@ export function fetchVacancies(
     qs.append('include_industries', i),
   );
   if (params.showActiveOnly) qs.set('show_active_only', '1');
+  if (params.companyFilter && params.companyFilter !== 'all') {
+    qs.set('company_filter', params.companyFilter);
+  }
   appendPage(qs, params.page);
   const suffix = qs.toString();
   return apiGet<VacanciesOut>(
@@ -91,6 +109,18 @@ export function fetchCompany(
   const suffix = qs.toString();
   return apiGet<CompanyDetailOut>(
     `/api/vacancies/companies/${pk}/${suffix ? `?${suffix}` : ''}`,
+  );
+}
+
+/** PUT /api/vacancies/companies/<pk>/preference/ — session-auth
+ *  mutation; `preference: null` clears back to neutral. */
+export function setCompanyPreference(
+  pk: string,
+  preference: CompanyPreference,
+): Promise<CompanyPreferenceOut> {
+  return apiPut<CompanyPreferenceOut>(
+    `/api/vacancies/companies/${pk}/preference/`,
+    { preference },
   );
 }
 

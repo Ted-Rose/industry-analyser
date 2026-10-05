@@ -29,6 +29,7 @@ import type {
 vi.mock('../../shared/api/client', () => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  apiPut: vi.fn(),
   apiPatch: vi.fn(),
   apiDelete: vi.fn(),
   getCsrfToken: () => undefined,
@@ -45,6 +46,7 @@ function makeVacancy(overrides: Partial<VacancyOut> = {}): VacancyOut {
     url: 'https://www.cv.lv/lv/vacancy/1',
     company_id: '22222222-2222-2222-2222-222222222222',
     company_name: 'Acme SIA',
+    company_preference: null,
     salary_from: 1000,
     salary_to: 2000,
     application_deadline: '2030-07-01T10:00:00+03:00',
@@ -84,6 +86,7 @@ function makeSavedFilter(
     exclude_keywords: ['senior'],
     include_industries: ['it'],
     show_active_only: true,
+    company_filter: 'all',
     ...overrides,
   };
 }
@@ -217,6 +220,89 @@ describe('VacancyList', () => {
       '/companies/22222222-2222-2222-2222-222222222222',
     );
   });
+
+  it('renders a badge next to liked/disliked company names', async () => {
+    mockedApiGet.mockResolvedValue(
+      makeVacancies({
+        vacancies: [
+          makeVacancy({ company_preference: 'like' }),
+          makeVacancy({
+            id: '33333333-3333-3333-3333-333333333333',
+            title: 'Java developer',
+            company_name: 'Bad Corp',
+            company_preference: 'dislike',
+          }),
+        ],
+      }),
+    );
+    renderList('/vacancies');
+    expect(await screen.findByText('liked')).toBeInTheDocument();
+    expect(screen.getByText('disliked')).toBeInTheDocument();
+  });
+});
+
+describe('VacancyList company filter', () => {
+  it('hides the Companies selector for anonymous users', async () => {
+    renderList('/vacancies?company_filter=liked');
+    await screen.findByText('Python developer');
+    expect(
+      screen.queryByLabelText('Companies'),
+    ).not.toBeInTheDocument();
+    // The param still goes to the API — the server ignores it for
+    // anonymous requests (treated as 'all').
+    expect(calledUrls()[0]).toContain('company_filter=liked');
+  });
+
+  it('stages the selector and applies it on Search', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([]);
+    renderList('/vacancies');
+    await screen.findByText('Python developer');
+
+    const select = screen.getByLabelText('Companies');
+    fireEvent.change(select, { target: { value: 'liked' } });
+    // Staged — no refetch until Search.
+    expect(
+      calledUrls().some((u) => u.includes('company_filter')),
+    ).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() =>
+      expect(
+        calledUrls().some((u) =>
+          u.includes('company_filter=liked'),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it('drops the param when the selector goes back to all', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([]);
+    renderList('/vacancies?company_filter=disliked');
+    await screen.findByText('Python developer');
+    const listCalls = () =>
+      calledUrls().filter((u) => !u.includes('/filters/'));
+    expect(listCalls()[0]).toContain('company_filter=disliked');
+
+    fireEvent.change(screen.getByLabelText('Companies'), {
+      target: { value: 'all' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() =>
+      expect(listCalls().length).toBeGreaterThan(1),
+    );
+    expect(listCalls()[1]).not.toContain('company_filter');
+  });
+
+  it('falls back to all on an invalid param value', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([]);
+    renderList('/vacancies?company_filter=bogus');
+    await screen.findByText('Python developer');
+    expect(calledUrls()[0]).not.toContain('company_filter');
+    expect(screen.getByLabelText('Companies')).toHaveValue('all');
+  });
 });
 
 describe('VacancyList saved filters', () => {
@@ -345,7 +431,31 @@ describe('VacancyList saved filters', () => {
         exclude_keywords: [],
         include_industries: [],
         show_active_only: true,
+        company_filter: 'all',
       },
     );
+  });
+
+  it('writes a preset company_filter into the URL on select', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([makeSavedFilter({ company_filter: 'liked' })]);
+    renderList('/vacancies');
+    await screen.findByText('Python developer');
+    await waitFor(() =>
+      expect(calledUrls()).toContain('/api/vacancies/filters/'),
+    );
+
+    fireEvent.change(screen.getByLabelText('Saved filters'), {
+      target: { value: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa' },
+    });
+
+    await waitFor(() =>
+      expect(
+        calledUrls().some((u) =>
+          u.includes('company_filter=liked'),
+        ),
+      ).toBe(true),
+    );
+    expect(screen.getByLabelText('Companies')).toHaveValue('liked');
   });
 });

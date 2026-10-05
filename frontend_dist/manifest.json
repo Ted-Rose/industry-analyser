@@ -1,70 +1,70 @@
 {
-  "_queryClient.B86DCVUJ.js": {
-    "file": "shared/queryClient.B86DCVUJ.js",
+  "_queryClient.DwvlsYN7.js": {
+    "file": "shared/queryClient.DwvlsYN7.js",
     "name": "queryClient"
   },
-  "_useBootstrap.Czydk1vu.js": {
-    "file": "shared/useBootstrap.Czydk1vu.js",
+  "_useBootstrap.DwAwjiUh.js": {
+    "file": "shared/useBootstrap.DwAwjiUh.js",
     "name": "useBootstrap",
     "imports": [
-      "_queryClient.B86DCVUJ.js"
+      "_queryClient.DwvlsYN7.js"
     ]
   },
-  "_useMutation.B_k_dpFc.js": {
-    "file": "shared/useMutation.B_k_dpFc.js",
+  "_useMutation.CCZbXQjZ.js": {
+    "file": "shared/useMutation.CCZbXQjZ.js",
     "name": "useMutation",
     "imports": [
-      "_queryClient.B86DCVUJ.js"
+      "_queryClient.DwvlsYN7.js"
     ]
   },
   "src/classified_ads/main.tsx": {
-    "file": "classified_ads/classified_ads.ndon_f6p.js",
+    "file": "classified_ads/classified_ads.OBUkh41Z.js",
     "name": "classified_ads",
     "src": "src/classified_ads/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.B86DCVUJ.js",
-      "_useMutation.B_k_dpFc.js",
-      "_useBootstrap.Czydk1vu.js"
+      "_queryClient.DwvlsYN7.js",
+      "_useMutation.CCZbXQjZ.js",
+      "_useBootstrap.DwAwjiUh.js"
     ],
     "css": [
       "classified_ads/classified_ads.D626iJKb.css"
     ]
   },
   "src/dashboard/main.tsx": {
-    "file": "dashboard/dashboard.BSr7R-Cq.js",
+    "file": "dashboard/dashboard.DbNJTA0m.js",
     "name": "dashboard",
     "src": "src/dashboard/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.B86DCVUJ.js"
+      "_queryClient.DwvlsYN7.js"
     ],
     "css": [
       "dashboard/dashboard.D2nn-dgU.css"
     ]
   },
   "src/tv/main.tsx": {
-    "file": "tv/tv.C8kQoyai.js",
+    "file": "tv/tv.D1bDB5Vx.js",
     "name": "tv",
     "src": "src/tv/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.B86DCVUJ.js",
-      "_useMutation.B_k_dpFc.js"
+      "_queryClient.DwvlsYN7.js",
+      "_useMutation.CCZbXQjZ.js"
     ],
     "css": [
       "tv/tv.YqnPDMHD.css"
     ]
   },
   "src/vacancies/main.tsx": {
-    "file": "vacancies/vacancies.D45QCC-Y.js",
+    "file": "vacancies/vacancies.CCWlCLmb.js",
     "name": "vacancies",
     "src": "src/vacancies/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.B86DCVUJ.js",
-      "_useMutation.B_k_dpFc.js",
-      "_useBootstrap.Czydk1vu.js"
+      "_queryClient.DwvlsYN7.js",
+      "_useMutation.CCZbXQjZ.js",
+      "_useBootstrap.DwAwjiUh.js"
     ],
     "css": [
       "vacancies/vacancies.CaAELB06.css"

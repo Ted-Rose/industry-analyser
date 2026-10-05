@@ -147,6 +147,39 @@ class CompanyAlias(models.Model):
         return f'{self.kind}:{self.value}'
 
 
+class CompanyPreference(models.Model):
+    """A user's like/dislike for a company — feeds the vacancy
+    list's ``company_filter`` and the preference badges/buttons in
+    the SPA. Per-user, so anonymous visitors never see one."""
+    LIKE = 'like'
+    DISLIKE = 'dislike'
+    PREFERENCE_CHOICES = (
+        (LIKE, 'Liked'),
+        (DISLIKE, 'Disliked'),
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='company_preferences',
+    )
+    company = models.ForeignKey(
+        Company, on_delete=models.CASCADE,
+        related_name='preferences',
+    )
+    preference = models.CharField(
+        max_length=8, choices=PREFERENCE_CHOICES
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'fetcher_company_preference'
+        unique_together = (('user', 'company'),)
+
+    def __str__(self):
+        return f'{self.user}:{self.company}:{self.preference}'
+
+
 class Vacancy(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     company_name = models.CharField(null=True, max_length=255)
@@ -287,6 +320,9 @@ class SavedVacancyFilter(models.Model):
     exclude_keywords = models.JSONField(default=list)
     include_industries = models.JSONField(default=list)  # industry names
     show_active_only = models.BooleanField(default=False)
+    # 'all' | 'liked' | 'not_disliked' | 'disliked' — mirrors the
+    # vacancy list's ?company_filter= param.
+    company_filter = models.CharField(max_length=16, default='all')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

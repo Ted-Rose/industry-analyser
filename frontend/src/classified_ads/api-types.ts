@@ -14,7 +14,10 @@ export interface paths {
         /**
          * List Vacancies
          * @description Vacancy list page payload — mirrors the retired
-         *     find_vacancies view's filtering exactly.
+         *     find_vacancies view's filtering exactly. ``company_filter``
+         *     applies the caller's company likes/dislikes; anonymous
+         *     visitors have no preferences, so the param is ignored for them
+         *     (treated as ``all``).
          */
         get: operations["fetcher_api_list_vacancies"];
         put?: never;
@@ -61,6 +64,29 @@ export interface paths {
          */
         get: operations["fetcher_api_company_detail"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/vacancies/companies/{pk}/preference/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Company Preference
+         * @description Set or clear the caller's like/dislike for a company —
+         *     session-authed like the saved-filters ops. A merged row
+         *     resolves to its canonical survivor (same as company_detail)
+         *     so the preference lands on the company the SPA displays.
+         */
+        put: operations["fetcher_api_set_company_preference"];
         post?: never;
         delete?: never;
         options?: never;
@@ -477,6 +503,8 @@ export interface components {
             company_id: string | null;
             /** Company Name */
             company_name: string | null;
+            /** Company Preference */
+            company_preference: ("like" | "dislike") | null;
             /** Salary From */
             salary_from: number | null;
             /** Salary To */
@@ -539,6 +567,8 @@ export interface components {
             webpage_url: string | null;
             /** Needs Review */
             needs_review: boolean;
+            /** Preference */
+            preference: ("like" | "dislike") | null;
             /** Vacancy Count */
             vacancy_count: number;
             /** Open Count */
@@ -582,6 +612,8 @@ export interface components {
             contact_phone: string | null;
             /** Needs Review */
             needs_review: boolean;
+            /** Preference */
+            preference: ("like" | "dislike") | null;
             /**
              * First Seen
              * Format: date-time
@@ -645,6 +677,19 @@ export interface components {
             /** Last Seen */
             last_seen: string | null;
         };
+        /** CompanyPreferenceOut */
+        CompanyPreferenceOut: {
+            /** Preference */
+            preference: ("like" | "dislike") | null;
+        };
+        /**
+         * CompanyPreferenceIn
+         * @description The like/dislike toggle — ``null`` clears back to neutral.
+         */
+        CompanyPreferenceIn: {
+            /** Preference */
+            preference: ("like" | "dislike") | null;
+        };
         /** KeywordSavedOut */
         KeywordSavedOut: {
             /** Success */
@@ -679,6 +724,11 @@ export interface components {
             include_industries: string[];
             /** Show Active Only */
             show_active_only: boolean;
+            /**
+             * Company Filter
+             * @enum {string}
+             */
+            company_filter: "all" | "liked" | "not_disliked" | "disliked";
         };
         /**
          * SavedFilterIn
@@ -707,6 +757,12 @@ export interface components {
              * @default false
              */
             show_active_only: boolean;
+            /**
+             * Company Filter
+             * @default all
+             * @enum {string}
+             */
+            company_filter: "all" | "liked" | "not_disliked" | "disliked";
         };
         /**
          * ProgramFiltersOut
@@ -1394,6 +1450,7 @@ export interface operations {
                 exclude_keywords?: string[];
                 include_industries?: string[];
                 show_active_only?: boolean;
+                company_filter?: "all" | "liked" | "not_disliked" | "disliked";
                 page?: number;
             };
             header?: never;
@@ -1456,6 +1513,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompanyDetailOut"];
+                };
+            };
+        };
+    };
+    fetcher_api_set_company_preference: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pk: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyPreferenceIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyPreferenceOut"];
                 };
             };
         };

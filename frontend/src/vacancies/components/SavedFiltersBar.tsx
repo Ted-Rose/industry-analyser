@@ -1,7 +1,11 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { fetchSavedFilters, type SavedFilterOut } from '../api';
+import {
+  fetchSavedFilters,
+  type CompanyFilter,
+  type SavedFilterOut,
+} from '../api';
 import {
   useCreateSavedFilter,
   useDeleteSavedFilter,
@@ -16,6 +20,7 @@ interface AppliedFilters {
   excludeKeywords: string[];
   includeIndustries: string[];
   showActiveOnly: boolean;
+  companyFilter: CompanyFilter;
 }
 
 interface SavedFiltersBarProps {
@@ -30,6 +35,7 @@ function toSearchParams(filter: {
   exclude_keywords: string[];
   include_industries: string[];
   show_active_only: boolean;
+  company_filter: CompanyFilter;
 }): URLSearchParams {
   const next = new URLSearchParams();
   filter.include_keywords.forEach((k) =>
@@ -42,6 +48,9 @@ function toSearchParams(filter: {
     next.append('include_industries', i),
   );
   if (filter.show_active_only) next.set('show_active_only', '1');
+  if (filter.company_filter !== 'all') {
+    next.set('company_filter', filter.company_filter);
+  }
   // Deliberately no `page` — applying a preset lands on page 1.
   return next;
 }
@@ -105,7 +114,8 @@ export default function SavedFiltersBar({
       sameNames(f.include_keywords, applied.includeKeywords) &&
       sameNames(f.exclude_keywords, applied.excludeKeywords) &&
       sameNames(f.include_industries, applied.includeIndustries) &&
-      f.show_active_only === applied.showActiveOnly,
+      f.show_active_only === applied.showActiveOnly &&
+      f.company_filter === applied.companyFilter,
   );
   const mutationError = (err: unknown) => setError(errorDetail(err));
 
@@ -114,6 +124,7 @@ export default function SavedFiltersBar({
     exclude_keywords: applied.excludeKeywords,
     include_industries: applied.includeIndustries,
     show_active_only: applied.showActiveOnly,
+    company_filter: applied.companyFilter,
   });
 
   const onSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -172,6 +183,7 @@ export default function SavedFiltersBar({
           exclude_keywords: selected.exclude_keywords,
           include_industries: selected.include_industries,
           show_active_only: selected.show_active_only,
+          company_filter: selected.company_filter,
         },
       },
       { onError: mutationError },

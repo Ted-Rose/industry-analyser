@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
 import SavedFiltersBar from '../components/SavedFiltersBar';
-import { fetchVacancies } from '../api';
+import { fetchVacancies, type CompanyFilter } from '../api';
 import { deadlineClass, formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 import { useBootstrap } from '../../shared/hooks/useBootstrap';
@@ -13,6 +13,22 @@ interface Draft {
   excludeKeywords: string[];
   includeIndustries: string[];
   showActiveOnly: boolean;
+  companyFilter: CompanyFilter;
+}
+
+const COMPANY_FILTERS = new Set<CompanyFilter>([
+  'all',
+  'liked',
+  'not_disliked',
+  'disliked',
+]);
+
+/** A stray ?company_filter= value falls back to 'all' — the API
+ *  would 422 on anything outside the enum. */
+function toCompanyFilter(raw: string | null): CompanyFilter {
+  return COMPANY_FILTERS.has(raw as CompanyFilter)
+    ? (raw as CompanyFilter)
+    : 'all';
 }
 
 function toggleValue(list: string[], value: string, on: boolean) {
@@ -37,6 +53,9 @@ export default function VacancyList() {
     excludeKeywords: searchParams.getAll('exclude_keywords'),
     includeIndustries: searchParams.getAll('include_industries'),
     showActiveOnly: searchParams.get('show_active_only') === '1',
+    companyFilter: toCompanyFilter(
+      searchParams.get('company_filter'),
+    ),
     page: searchParams.get('page'),
   };
 
@@ -54,6 +73,7 @@ export default function VacancyList() {
     excludeKeywords: params.excludeKeywords,
     includeIndustries: params.includeIndustries,
     showActiveOnly: params.showActiveOnly,
+    companyFilter: params.companyFilter,
   });
   useEffect(() => {
     const p = new URLSearchParams(paramsKey);
@@ -62,6 +82,7 @@ export default function VacancyList() {
       excludeKeywords: p.getAll('exclude_keywords'),
       includeIndustries: p.getAll('include_industries'),
       showActiveOnly: p.get('show_active_only') === '1',
+      companyFilter: toCompanyFilter(p.get('company_filter')),
     });
   }, [paramsKey]);
 
@@ -78,6 +99,9 @@ export default function VacancyList() {
       next.append('include_industries', i),
     );
     if (draft.showActiveOnly) next.set('show_active_only', '1');
+    if (draft.companyFilter !== 'all') {
+      next.set('company_filter', draft.companyFilter);
+    }
     // Filters changed — land back on page 1.
     setSearchParams(next);
   };
@@ -118,6 +142,7 @@ export default function VacancyList() {
                 excludeKeywords: params.excludeKeywords,
                 includeIndustries: params.includeIndustries,
                 showActiveOnly: params.showActiveOnly,
+                companyFilter: params.companyFilter,
               }}
             />
           )}
@@ -222,6 +247,35 @@ export default function VacancyList() {
                 </div>
               </div>
               <div className="col-md-2 mb-2 d-flex flex-column justify-content-end">
+                {user && (
+                  <div className="mb-3">
+                    <label
+                      className="filter-label d-block mb-1"
+                      htmlFor="company_filter"
+                    >
+                      Companies
+                    </label>
+                    <select
+                      id="company_filter"
+                      className="form-select form-select-sm"
+                      value={draft.companyFilter}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          companyFilter: e.target
+                            .value as CompanyFilter,
+                        }))
+                      }
+                    >
+                      <option value="all">All companies</option>
+                      <option value="liked">Liked only</option>
+                      <option value="not_disliked">
+                        Hide disliked
+                      </option>
+                      <option value="disliked">Disliked only</option>
+                    </select>
+                  </div>
+                )}
                 <div className="form-check mb-3">
                   <input
                     className="form-check-input"
@@ -313,6 +367,16 @@ export default function VacancyList() {
                           </Link>
                         ) : (
                           vacancy.company_name || '—'
+                        )}
+                        {vacancy.company_preference === 'like' && (
+                          <span className="badge bg-success ms-1">
+                            liked
+                          </span>
+                        )}
+                        {vacancy.company_preference === 'dislike' && (
+                          <span className="badge bg-danger ms-1">
+                            disliked
+                          </span>
                         )}
                       </td>
                       <td className="salary-cell">

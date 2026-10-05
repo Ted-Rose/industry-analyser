@@ -30,6 +30,7 @@ from fetcher.models import (
     Company,
     CompanyAlias,
     CompanyIdentity,
+    CompanyPreference,
     Industry,
     Keyword,
     SavedVacancyFilter,
@@ -1132,6 +1133,42 @@ class MergeCompaniesTests(TestCase):
             .exists()
         )
 
+    def test_merge_repoints_preferences(self):
+        user = get_user_model().objects.create_user(
+            username='alice', password='pw'
+        )
+        target = make_company('Target')
+        loser = make_company('Loser')
+        CompanyPreference.objects.create(
+            user=user, company=loser,
+            preference=CompanyPreference.LIKE,
+        )
+        company_linking.merge_companies(target, [loser])
+        pref = CompanyPreference.objects.get()
+        self.assertEqual(pref.company_id, target.pk)
+        self.assertEqual(pref.preference, CompanyPreference.LIKE)
+
+    def test_merge_keeps_target_preference_on_conflict(self):
+        # A user who marked both rows keeps the target's pref —
+        # the loser's would violate unique_together(user, company).
+        user = get_user_model().objects.create_user(
+            username='alice', password='pw'
+        )
+        target = make_company('Target')
+        loser = make_company('Loser')
+        CompanyPreference.objects.create(
+            user=user, company=loser,
+            preference=CompanyPreference.DISLIKE,
+        )
+        CompanyPreference.objects.create(
+            user=user, company=target,
+            preference=CompanyPreference.LIKE,
+        )
+        company_linking.merge_companies(target, [loser])
+        pref = CompanyPreference.objects.get()
+        self.assertEqual(pref.company_id, target.pk)
+        self.assertEqual(pref.preference, CompanyPreference.LIKE)
+
     def test_canonical_follows_chain(self):
         target = Company.objects.create(
             name='T', first_seen=timezone.now(),
@@ -1457,6 +1494,264 @@ class VacanciesApiTests(TestCase):
         self.assertEqual(resp.json()['error'], 'forbidden')
 
 
+class CompanyPreferenceApiTests(TestCase):
+    """PUT /api/vacancies/companies/{pk}/preference/ — the
+    session-authed like/dislike toggle — plus the preference
+    fields on the public GETs and the vacancy list's
+    ``company_filter`` param."""
+
+    API = '/api/vacancies'
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='alice', password='pw'
+        )
+        self.liked = make_company('Liked Co')
+        self.disliked = make_company('Disliked Co')
+        self.plain = make_company('Plain Co')
+
+    def put(self, pk, payload):
+        return self.client.put(
+            f'{self.API}/companies/{pk}/preference/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def _set_prefs(self):
+        CompanyPreference.objects.create(
+            user=self.user, company=self.liked,
+            preference=CompanyPreference.LIKE,
+        )
+        CompanyPreference.objects.create(
+            user=self.user, company=self.disliked,
+            preference=CompanyPreference.DISLIKE,
+        )
+
+    # --- PUT .../preference/ ---
+
+    def test_put_unauthenticated_401(self):
+        resp = self.put(self.liked.pk, {'preference': 'like'})
+        self.assertEqual(resp.status_code, 401)
+        self.assertEqual(resp.json()['error'], 'unauthenticated')
+        # login_url points at the SPA's /companies/ page — the SPA
+        # owns no /vacancies/companies/ route.
+        self.assertIn(
+            'next=%2Fcompanies%2F', resp.json()['login_url']
+        )
+
+    def test_put_creates_updates_and_clears(self):
+        self.client.force_login(self.user)
+        resp = self.put(self.plain.pk, {'preference': 'like'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['preference'], 'like')
+        pref = CompanyPreference.objects.get(
+            user=self.user, company=self.plain
+        )
+        self.assertEqual(pref.preference, 'like')
+
+        resp = self.put(self.plain.pk, {'preference': 'dislike'})
+        self.assertEqual(resp.json()['preference'], 'dislike')
+        self.assertEqual(CompanyPreference.objects.count(), 1)
+
+        resp = self.put(self.plain.pk, {'preference': None})
+        self.assertIsNone(resp.json()['preference'])
+        self.assertFalse(CompanyPreference.objects.exists())
+
+    def test_put_invalid_value_422(self):
+        self.client.force_login(self.user)
+        resp = self.put(self.plain.pk, {'preference': 'meh'})
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(resp.json()['error'], 'validation_error')
+
+    def test_put_404s_unknown_company(self):
+        import uuid
+        self.client.force_login(self.user)
+        resp = self.put(uuid.uuid4(), {'preference': 'like'})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_put_merged_company_lands_on_canonical(self):
+        loser = make_company('Loser', merged_into=self.plain)
+        self.client.force_login(self.user)
+        resp = self.put(loser.pk, {'preference': 'like'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(
+            CompanyPreference.objects.filter(
+                user=self.user, company=self.plain
+            ).exists()
+        )
+
+    def test_put_csrf_enforced(self):
+        csrf_client = self.client.__class__(enforce_csrf_checks=True)
+        csrf_client.force_login(self.user)
+        resp = csrf_client.put(
+            f'{self.API}/companies/{self.plain.pk}/preference/',
+            data=json.dumps({'preference': 'like'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()['error'], 'forbidden')
+
+    def test_preferences_are_per_user(self):
+        self._set_prefs()
+        other = get_user_model().objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(other)
+        body = self.client.get(f'{self.API}/companies/').json()
+        self.assertTrue(
+            all(
+                c['preference'] is None for c in body['companies']
+            )
+        )
+
+    # --- preference fields on the public GETs ---
+
+    def test_companies_list_includes_preference(self):
+        self._set_prefs()
+        self.client.force_login(self.user)
+        body = self.client.get(f'{self.API}/companies/').json()
+        prefs = {
+            c['name']: c['preference'] for c in body['companies']
+        }
+        self.assertEqual(
+            prefs,
+            {
+                'Disliked Co': 'dislike',
+                'Liked Co': 'like',
+                'Plain Co': None,
+            },
+        )
+
+    def test_companies_list_anonymous_preference_null(self):
+        self._set_prefs()
+        body = self.client.get(f'{self.API}/companies/').json()
+        self.assertTrue(
+            all(
+                c['preference'] is None for c in body['companies']
+            )
+        )
+
+    def test_company_detail_includes_preference(self):
+        self._set_prefs()
+        self.client.force_login(self.user)
+        body = self.client.get(
+            f'{self.API}/companies/{self.liked.pk}/'
+        ).json()
+        self.assertEqual(body['preference'], 'like')
+
+    def test_company_detail_anonymous_preference_null(self):
+        self._set_prefs()
+        body = self.client.get(
+            f'{self.API}/companies/{self.liked.pk}/'
+        ).json()
+        self.assertIsNone(body['preference'])
+
+    def test_vacancy_list_company_preference_field(self):
+        self._set_prefs()
+        liked_v = make_vacancy(1, company=self.liked)
+        plain_v = make_vacancy(2, company=self.plain)
+        self.client.force_login(self.user)
+        body = self.client.get(f'{self.API}/').json()
+        prefs = {
+            v['id']: v['company_preference']
+            for v in body['vacancies']
+        }
+        self.assertEqual(prefs[str(liked_v.pk)], 'like')
+        self.assertIsNone(prefs[str(plain_v.pk)])
+
+    # --- GET /api/vacancies/?company_filter= ---
+
+    def test_company_filter_modes(self):
+        self._set_prefs()
+        liked_v = make_vacancy(1, company=self.liked)
+        disliked_v = make_vacancy(2, company=self.disliked)
+        plain_v = make_vacancy(3, company=self.plain)
+        no_company_v = make_vacancy(4)
+        self.client.force_login(self.user)
+
+        def ids(params):
+            body = self.client.get(f'{self.API}/', params).json()
+            return {v['id'] for v in body['vacancies']}
+
+        self.assertEqual(
+            ids({'company_filter': 'liked'}), {str(liked_v.pk)}
+        )
+        self.assertEqual(
+            ids({'company_filter': 'disliked'}),
+            {str(disliked_v.pk)},
+        )
+        # not_disliked keeps unmarked and company-less rows.
+        self.assertEqual(
+            ids({'company_filter': 'not_disliked'}),
+            {
+                str(liked_v.pk),
+                str(plain_v.pk),
+                str(no_company_v.pk),
+            },
+        )
+        self.assertEqual(len(ids({'company_filter': 'all'})), 4)
+
+    def test_not_disliked_with_exclude_keywords(self):
+        """company_filter=not_disliked and exclude_keywords stack —
+        both are .exclude() passes, and the kept row's two keyword
+        joins exercise the trailing distinct()."""
+        self._set_prefs()
+        java = Keyword.objects.create(name='java')
+        python = Keyword.objects.create(name='python')
+        react = Keyword.objects.create(name='react')
+        kept = make_vacancy(1, company=self.plain)
+        VacancyContainsKeyword.objects.create(
+            vacancy=kept, keyword=python
+        )
+        VacancyContainsKeyword.objects.create(
+            vacancy=kept, keyword=react
+        )
+        kw_excluded = make_vacancy(2, company=self.liked)
+        VacancyContainsKeyword.objects.create(
+            vacancy=kw_excluded, keyword=java
+        )
+        make_vacancy(3, company=self.disliked)
+        self.client.force_login(self.user)
+        body = self.client.get(
+            f'{self.API}/',
+            {
+                'company_filter': 'not_disliked',
+                'exclude_keywords': ['java'],
+            },
+        ).json()
+        # One kept row, once — not once per keyword join.
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(
+            [v['id'] for v in body['vacancies']], [str(kept.pk)]
+        )
+        self.assertCountEqual(
+            body['vacancies'][0]['keywords'], ['python', 'react']
+        )
+
+    def test_company_filter_anonymous_ignored(self):
+        self._set_prefs()
+        for i, company in enumerate(
+            (self.liked, self.disliked, self.plain), start=1
+        ):
+            make_vacancy(i, company=company)
+        body = self.client.get(
+            f'{self.API}/', {'company_filter': 'liked'}
+        ).json()
+        self.assertEqual(body['total_count'], 3)
+        self.assertTrue(
+            all(
+                v['company_preference'] is None
+                for v in body['vacancies']
+            )
+        )
+
+    def test_company_filter_invalid_422(self):
+        resp = self.client.get(
+            f'{self.API}/', {'company_filter': 'bogus'}
+        )
+        self.assertEqual(resp.status_code, 422)
+
+
 class SavedFiltersApiTests(TestCase):
     """Per-user saved vacancy filters — /api/vacancies/filters/.
     Every op keeps the default django_auth (they are the caller's
@@ -1618,6 +1913,32 @@ class SavedFiltersApiTests(TestCase):
         resp = self.post(self.payload())
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()['code'], 'saved_filter_limit')
+
+    def test_company_filter_round_trips(self):
+        body = self.create(company_filter='liked')
+        self.assertEqual(body['company_filter'], 'liked')
+        saved = SavedVacancyFilter.objects.get(pk=body['id'])
+        self.assertEqual(saved.company_filter, 'liked')
+
+        listing = self.client.get(f'{self.API}/').json()
+        self.assertEqual(listing[0]['company_filter'], 'liked')
+
+        updated = self.patch(
+            body['id'],
+            self.payload(company_filter='not_disliked'),
+        )
+        self.assertEqual(
+            updated.json()['company_filter'], 'not_disliked'
+        )
+
+    def test_company_filter_defaults_to_all(self):
+        body = self.create()
+        self.assertEqual(body['company_filter'], 'all')
+
+    def test_company_filter_invalid_422(self):
+        resp = self.post(self.payload(company_filter='bogus'))
+        self.assertEqual(resp.status_code, 422)
+        self.assertFalse(SavedVacancyFilter.objects.exists())
 
     def test_whitespace_only_name_422(self):
         resp = self.post(self.payload(name='   '))

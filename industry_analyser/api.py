@@ -68,11 +68,13 @@ SPA_BASES = {'dashboard': '/'}
 # doesn't own. The saved-filters CRUD lives on the vacancy list page,
 # so /api/vacancies/filters/… 401s send the user back to /vacancies/,
 # not the nonexistent /vacancies/filters/….
-SPA_SUBPATHS = {('vacancies', 'filters'): '/vacancies/'}
-# Dormant trap: the vacancies SPA also owns /companies/*, so an authed
-# op under /api/vacancies/companies/* would rewrite to the nonexistent
-# /vacancies/companies/… — add a sub-path mapping here if such an
-# endpoint ever appears (all company reads are public today).
+# The vacancies SPA also owns /companies/*, so the authed
+# PUT /api/vacancies/companies/<pk>/preference/ 401s send the user
+# back to /companies/, not the nonexistent /vacancies/companies/….
+SPA_SUBPATHS = {
+    ('vacancies', 'filters'): '/vacancies/',
+    ('vacancies', 'companies'): '/companies/',
+}
 
 
 def spa_url_for(request):

@@ -2,14 +2,16 @@
 /api/vacancies/ — the public URL base, not the app name).
 
 GET ops are public (auth=None) — the template pages they replace
-were public. POST /keywords/ keeps the default django_auth
-(session + CSRF): a deliberate tightening vs. the retired
-HARD_CODED_PASSWORD form (README §2 decision 2). Query logic
-mirrors the retired views in fetcher/views.py — same filters,
-same ordering, same per-page sizes.
+were public. The write and per-user ops keep the default
+django_auth (session + CSRF): POST /keywords/, PUT
+companies/{pk}/preference/ and the /filters/ CRUD — a deliberate
+tightening vs. the retired HARD_CODED_PASSWORD form (README §2
+decision 2). Query logic mirrors the retired views in
+fetcher/views.py — same filters, same ordering, same per-page
+sizes.
 """
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from uuid import UUID
 
 from django.core.paginator import Paginator
@@ -25,6 +27,7 @@ from industry_analyser.api import ApiHttpError
 from .forms import KeywordForm
 from .models import (
     Company,
+    CompanyPreference,
     Industry,
     Keyword,
     SavedVacancyFilter,
@@ -41,6 +44,12 @@ COMPANIES_PER_PAGE = 100
 # the dropdown UI bounded.
 MAX_SAVED_FILTERS_PER_USER = 50
 
+# Values of the vacancy list's ?company_filter= param — also the
+# SavedVacancyFilter.company_filter vocabulary.
+CompanyFilter = Literal['all', 'liked', 'not_disliked', 'disliked']
+# Stored values of CompanyPreference.preference.
+PreferenceValue = Literal['like', 'dislike']
+
 
 # --- Schemas ---
 
@@ -51,6 +60,9 @@ class VacancyOut(Schema):
     url: str
     company_id: Optional[UUID]
     company_name: Optional[str]
+    # The caller's like/dislike for the vacancy's company — null
+    # for anonymous users and unmarked companies.
+    company_preference: Optional[PreferenceValue]
     salary_from: Optional[float]
     salary_to: Optional[float]
     application_deadline: Optional[datetime]
@@ -58,6 +70,12 @@ class VacancyOut(Schema):
     days_open: Optional[int]
     keywords: List[str]
     industries: List[str]
+
+    @staticmethod
+    def resolve_company_preference(obj):
+        # Stashed per page by list_vacancies (one query, not one
+        # per row).
+        return getattr(obj, '_pref', None)
 
     @staticmethod
     def resolve_keywords(obj):
@@ -112,10 +130,18 @@ class CompanyOut(Schema):
     about: Optional[str]
     webpage_url: Optional[str]
     needs_review: bool
+    # The caller's like/dislike — null for anonymous users and
+    # unmarked companies.
+    preference: Optional[PreferenceValue]
     vacancy_count: int
     open_count: int
     last_seen: datetime
     identities: List[CompanyIdentityOut]
+
+    @staticmethod
+    def resolve_preference(obj):
+        # Stashed per page by list_companies.
+        return getattr(obj, '_pref', None)
 
     @staticmethod
     def resolve_identities(obj):
@@ -160,6 +186,9 @@ class CompanyDetailOut(Schema):
     contact_email: Optional[str]
     contact_phone: Optional[str]
     needs_review: bool
+    # The caller's like/dislike — null for anonymous users and
+    # unmarked companies.
+    preference: Optional[PreferenceValue]
     first_seen: datetime
     last_seen: datetime
     logo_url: Optional[str]
@@ -176,6 +205,15 @@ class CompanyDetailOut(Schema):
     end_index: int
     has_next: bool
     has_previous: bool
+
+
+class CompanyPreferenceIn(Schema):
+    """The like/dislike toggle — ``null`` clears back to neutral."""
+    preference: Optional[PreferenceValue]
+
+
+class CompanyPreferenceOut(Schema):
+    preference: Optional[PreferenceValue]
 
 
 class KeywordIn(Schema):
@@ -197,6 +235,7 @@ class SavedFilterIn(Schema):
     exclude_keywords: List[str] = []
     include_industries: List[str] = []
     show_active_only: bool = False
+    company_filter: CompanyFilter = 'all'
 
     @field_validator('name')
     @classmethod
@@ -216,9 +255,24 @@ class SavedFilterOut(Schema):
     exclude_keywords: List[str]
     include_industries: List[str]
     show_active_only: bool
+    company_filter: CompanyFilter
 
 
 # --- Ops ---
+
+
+def _preference_map(user, company_ids) -> dict:
+    """{company_id: 'like'|'dislike'} for the caller — one query per
+    page of results, then stashed on each row as ``._pref`` so the
+    schema resolvers don't hit the DB per object."""
+    ids = {cid for cid in company_ids if cid is not None}
+    if not ids:
+        return {}
+    return dict(
+        CompanyPreference.objects
+        .filter(user=user, company_id__in=ids)
+        .values_list('company_id', 'preference')
+    )
 
 
 @router.get('/', auth=None, response=VacanciesOut)
@@ -228,10 +282,14 @@ def list_vacancies(
     exclude_keywords: List[str] = Query([]),
     include_industries: List[str] = Query([]),
     show_active_only: bool = False,
+    company_filter: CompanyFilter = 'all',
     page: int = 1,
 ):
     """Vacancy list page payload — mirrors the retired
-    find_vacancies view's filtering exactly."""
+    find_vacancies view's filtering exactly. ``company_filter``
+    applies the caller's company likes/dislikes; anonymous
+    visitors have no preferences, so the param is ignored for them
+    (treated as ``all``)."""
     vacancies = Vacancy.objects.filter(
         **{
             'industries__name__in': include_industries
@@ -253,6 +311,32 @@ def list_vacancies(
             application_deadline__gte=timezone.now()
         )
 
+    if (
+        request.user.is_authenticated
+        and company_filter != 'all'
+    ):
+        prefs = CompanyPreference.objects.filter(
+            user=request.user
+        )
+        if company_filter == 'liked':
+            vacancies = vacancies.filter(
+                company_id__in=prefs.filter(
+                    preference=CompanyPreference.LIKE
+                ).values('company_id')
+            )
+        elif company_filter == 'disliked':
+            vacancies = vacancies.filter(
+                company_id__in=prefs.filter(
+                    preference=CompanyPreference.DISLIKE
+                ).values('company_id')
+            )
+        else:  # not_disliked — keep NULL-company rows too
+            vacancies = vacancies.exclude(
+                company_id__in=prefs.filter(
+                    preference=CompanyPreference.DISLIKE
+                ).values('company_id')
+            )
+
     vacancies = vacancies.distinct().order_by(
         F('application_deadline').desc(nulls_last=True), '-last_seen'
     ).prefetch_related('keywords', 'industries')
@@ -260,8 +344,17 @@ def list_vacancies(
     paginator = Paginator(vacancies, VACANCIES_PER_PAGE)
     vacancies_page = paginator.get_page(page)
 
+    vacancies_list = list(vacancies_page.object_list)
+    if request.user.is_authenticated:
+        pref_map = _preference_map(
+            request.user,
+            [v.company_id for v in vacancies_list],
+        )
+        for v in vacancies_list:
+            v._pref = pref_map.get(v.company_id)
+
     return VacanciesOut(
-        vacancies=list(vacancies_page.object_list),
+        vacancies=vacancies_list,
         page=vacancies_page.number,
         num_pages=paginator.num_pages,
         total_count=paginator.count,
@@ -309,8 +402,15 @@ def list_companies(
         )
     paginator = Paginator(companies, COMPANIES_PER_PAGE)
     companies_page = paginator.get_page(page)
+    companies_list = list(companies_page.object_list)
+    if request.user.is_authenticated:
+        pref_map = _preference_map(
+            request.user, [c.pk for c in companies_list]
+        )
+        for c in companies_list:
+            c._pref = pref_map.get(c.pk)
     return CompaniesOut(
-        companies=list(companies_page.object_list),
+        companies=companies_list,
         page=companies_page.number,
         num_pages=paginator.num_pages,
         total_count=paginator.count,
@@ -330,6 +430,10 @@ def company_detail(request, pk: UUID, page: int = 1):
     company = get_object_or_404(Company, pk=pk)
     if company.merged_into_id is not None:
         company = company.canonical()
+    if request.user.is_authenticated:
+        company._pref = _preference_map(
+            request.user, [company.pk]
+        ).get(company.pk)
     vacancies = (
         company.vacancies
         .all()
@@ -354,6 +458,7 @@ def company_detail(request, pk: UUID, page: int = 1):
         contact_email=company.contact_email,
         contact_phone=company.contact_phone,
         needs_review=company.needs_review,
+        preference=getattr(company, '_pref', None),
         first_seen=company.first_seen,
         last_seen=company.last_seen,
         logo_url=_file_url(company.logo_file_id),
@@ -377,6 +482,31 @@ def company_detail(request, pk: UUID, page: int = 1):
         has_next=vacancies_page.has_next(),
         has_previous=vacancies_page.has_previous(),
     )
+
+
+@router.put(
+    '/companies/{pk}/preference/', response=CompanyPreferenceOut
+)
+def set_company_preference(
+    request, pk: UUID, payload: CompanyPreferenceIn
+):
+    """Set or clear the caller's like/dislike for a company —
+    session-authed like the saved-filters ops. A merged row
+    resolves to its canonical survivor (same as company_detail)
+    so the preference lands on the company the SPA displays."""
+    company = get_object_or_404(Company, pk=pk)
+    if company.merged_into_id is not None:
+        company = company.canonical()
+    if payload.preference is None:
+        CompanyPreference.objects.filter(
+            user=request.user, company=company
+        ).delete()
+        return CompanyPreferenceOut(preference=None)
+    obj, _ = CompanyPreference.objects.update_or_create(
+        user=request.user, company=company,
+        defaults={'preference': payload.preference},
+    )
+    return CompanyPreferenceOut(preference=obj.preference)
 
 
 @router.post('/keywords/', response=KeywordSavedOut)
@@ -443,6 +573,7 @@ def _apply_saved_filter(
     saved.exclude_keywords = payload.exclude_keywords
     saved.include_industries = payload.include_industries
     saved.show_active_only = payload.show_active_only
+    saved.company_filter = payload.company_filter
 
 
 def _duplicate_name_error(name: str) -> ApiHttpError:

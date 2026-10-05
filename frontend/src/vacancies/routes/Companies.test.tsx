@@ -8,16 +8,20 @@ import {
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Companies from './Companies';
-import { apiGet } from '../../shared/api/client';
+import { apiGet, apiPut } from '../../shared/api/client';
 import type { CompaniesOut, CompanyOut } from '../api';
 
 vi.mock('../../shared/api/client', () => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
+  apiPut: vi.fn(),
+  apiPatch: vi.fn(),
+  apiDelete: vi.fn(),
   getCsrfToken: () => undefined,
 }));
 
 const mockedApiGet = vi.mocked(apiGet);
+const mockedApiPut = vi.mocked(apiPut);
 
 function makeCompany(overrides: Partial<CompanyOut> = {}): CompanyOut {
   return {
@@ -27,6 +31,7 @@ function makeCompany(overrides: Partial<CompanyOut> = {}): CompanyOut {
     about: 'We build payment infrastructure.',
     webpage_url: 'https://www.acme.example',
     needs_review: false,
+    preference: null,
     vacancy_count: 5,
     open_count: 2,
     last_seen: '2025-06-15T10:00:00+03:00',
@@ -58,6 +63,19 @@ function makeCompanies(
   };
 }
 
+/** The shell's #spa-bootstrap json_script — must exist before
+ *  render; useBootstrap() reads it once at mount. */
+function setBootstrap(payload: unknown) {
+  let el = document.getElementById('spa-bootstrap');
+  if (!el) {
+    el = document.createElement('script');
+    el.id = 'spa-bootstrap';
+    el.setAttribute('type', 'application/json');
+    document.body.appendChild(el);
+  }
+  el.textContent = JSON.stringify(payload);
+}
+
 function renderList(entry = '/companies') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -79,6 +97,9 @@ function calledUrls(): string[] {
 beforeEach(() => {
   mockedApiGet.mockReset();
   mockedApiGet.mockResolvedValue(makeCompanies());
+  mockedApiPut.mockReset();
+  // No stale bootstrap between tests — anonymous is the default.
+  document.getElementById('spa-bootstrap')?.remove();
 });
 
 describe('Companies', () => {
@@ -164,6 +185,68 @@ describe('Companies', () => {
     expect(
       container.querySelector('.d-none.d-md-block table'),
     ).toBeInTheDocument();
+  });
+
+  it('hides the preference buttons for anonymous users', async () => {
+    renderList('/companies');
+    await screen.findAllByText('Acme SIA');
+    expect(
+      screen.queryByRole('button', { name: 'Like' }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Dislike' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('PUTs a like when a logged-in user clicks Like', async () => {
+    setBootstrap({ user: 'alice' });
+    renderList('/companies');
+    // Both the desktop table and the mobile card render a pair.
+    const likeButtons = await screen.findAllByRole('button', {
+      name: 'Like',
+    });
+    expect(likeButtons.length).toBeGreaterThan(0);
+
+    fireEvent.click(likeButtons[0]);
+    await waitFor(() =>
+      expect(mockedApiPut).toHaveBeenCalledWith(
+        '/api/vacancies/companies/' +
+          '22222222-2222-2222-2222-222222222222/preference/',
+        { preference: 'like' },
+      ),
+    );
+  });
+
+  it('clears the preference when the active button is clicked', async () => {
+    setBootstrap({ user: 'alice' });
+    mockedApiGet.mockResolvedValue(
+      makeCompanies({
+        companies: [makeCompany({ preference: 'like' })],
+      }),
+    );
+    renderList('/companies');
+    const likeButtons = await screen.findAllByRole('button', {
+      name: 'Like',
+    });
+    fireEvent.click(likeButtons[0]);
+    await waitFor(() =>
+      expect(mockedApiPut).toHaveBeenCalledWith(
+        expect.any(String),
+        { preference: null },
+      ),
+    );
+  });
+
+  it('shows an inline error when the preference PUT fails', async () => {
+    setBootstrap({ user: 'alice' });
+    mockedApiPut.mockRejectedValue(new Error('fetch failed'));
+    renderList('/companies');
+    const likeButtons = await screen.findAllByRole('button', {
+      name: 'Like',
+    });
+    fireEvent.click(likeButtons[0]);
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Network error');
   });
 
   it('links the company name to its detail route', async () => {

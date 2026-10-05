@@ -8,9 +8,11 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
 import IdentityTag from '../components/IdentityTag';
+import CompanyPreferenceButtons from '../components/CompanyPreferenceButtons';
 import { fetchCompany } from '../api';
 import { deadlineClass, formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
+import { useBootstrap } from '../../shared/hooks/useBootstrap';
 
 /**
  * React port of company_detail.html — the company card (identities,
@@ -20,6 +22,9 @@ import { errorDetail } from '../../shared/api/errors';
  */
 export default function CompanyDetail() {
   const { pk } = useParams<{ pk: string }>();
+  // Preference buttons are session-authed — render only for
+  // logged-in users.
+  const { user } = useBootstrap();
   const [searchParams] = useSearchParams();
   const page = searchParams.get('page');
   const navigate = useNavigate();
@@ -77,6 +82,14 @@ export default function CompanyDetail() {
                       </span>
                     )}
                   </h2>
+                  {user && (
+                    <div className="mb-2">
+                      <CompanyPreferenceButtons
+                        companyId={data.id}
+                        preference={data.preference}
+                      />
+                    </div>
+                  )}
                   <div className="mb-2">
                     {data.identities.map((identity) => (
                       <IdentityTag

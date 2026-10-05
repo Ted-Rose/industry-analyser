@@ -3,9 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
 import IdentityTag from '../components/IdentityTag';
+import CompanyPreferenceButtons from '../components/CompanyPreferenceButtons';
 import { fetchCompanies } from '../api';
 import { formatDate } from '../format';
 import { errorDetail } from '../../shared/api/errors';
+import { useBootstrap } from '../../shared/hooks/useBootstrap';
 import type { CompanyOut } from '../api';
 
 /**
@@ -18,6 +20,9 @@ import type { CompanyOut } from '../api';
  * that — seven columns don't fit a phone.
  */
 export default function Companies() {
+  // Preference buttons are session-authed — render them (and the
+  // Preference column) only for logged-in users.
+  const { user } = useBootstrap();
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') ?? '';
   const page = searchParams.get('page');
@@ -131,13 +136,14 @@ export default function Companies() {
                   <th>Open</th>
                   <th>Review</th>
                   <th>Last seen</th>
+                  {user && <th>Preference</th>}
                 </tr>
               </thead>
               <tbody>
                 {empty ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={user ? 8 : 7}
                       className="text-center text-muted py-5"
                     >
                       No companies found.
@@ -188,6 +194,14 @@ export default function Companies() {
                       <td className="text-muted">
                         {formatDate(company.last_seen)}
                       </td>
+                      {user && (
+                        <td>
+                          <CompanyPreferenceButtons
+                            companyId={company.id}
+                            preference={company.preference}
+                          />
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -207,7 +221,11 @@ export default function Companies() {
           </div>
         ) : (
           companies.map((company) => (
-            <CompanyCard key={company.id} company={company} />
+            <CompanyCard
+              key={company.id}
+              company={company}
+              showPreference={Boolean(user)}
+            />
           ))
         )}
       </div>
@@ -226,7 +244,13 @@ export default function Companies() {
 
 /** Stacked company card for <md viewports — same fields as the
  *  desktop table's row, reflowed vertically. */
-function CompanyCard({ company }: { company: CompanyOut }) {
+function CompanyCard({
+  company,
+  showPreference,
+}: {
+  company: CompanyOut;
+  showPreference: boolean;
+}) {
   return (
     <div className="card filter-card mb-3">
       <div className="card-body">
@@ -272,6 +296,14 @@ function CompanyCard({ company }: { company: CompanyOut }) {
           </div>
           <div>Last seen {formatDate(company.last_seen)}</div>
         </div>
+        {showPreference && (
+          <div className="mt-2">
+            <CompanyPreferenceButtons
+              companyId={company.id}
+              preference={company.preference}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
