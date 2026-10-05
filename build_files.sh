@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e # Exit immediately if a command exits with a non-zero status.
 
-# NOTE: Vercel no longer invokes this file — the build is driven by
-# [tool.vercel.scripts] build in pyproject.toml (auto-detected Django
-# project, uv-installed deps). This script is kept as a documented,
-# manually-runnable equivalent of that pipeline.
+# NOTE: invoked via vercel.json "buildCommand". The pyproject
+# [tool.vercel.scripts] build only runs under framework-preset
+# detection, which this project doesn't get — the deployment ships
+# file-based api/ functions instead. This script is the shared entry
+# for both paths; keep it in sync with pyproject.toml.
 #
 # Vercel's build image uses a uv-managed Python (PEP 668), which refuses
 # pip installs into the system environment — build inside a venv instead.
@@ -35,6 +36,6 @@ rm -rf frontend/node_modules
 # Collect static files
 python3 manage.py collectstatic --noinput
 
-python3 manage.py makemigrations
-python3 manage.py migrate
-timeout 3m python3 manage.py scrape_vacancies
+# No migrate/scrape here: production migrations run via the
+# run-migrations GitHub workflow, and scraping during a web deploy
+# would hammer portals on every push.

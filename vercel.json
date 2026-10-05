@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm ci --prefix frontend --include=dev && npm run build --prefix frontend && rm -rf frontend/node_modules && python3 industry_analyser/console_tasks/build.py && python3 manage.py collectstatic --noinput",
+  "buildCommand": "bash build_files.sh",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ]
