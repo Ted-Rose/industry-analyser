@@ -161,7 +161,7 @@ describe('VacancyList', () => {
 
   it('checks the filters named in the URL', async () => {
     renderList('/vacancies?include_keywords=python');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     // Both the include and the exclude list render 'python'; the
     // include one comes first in DOM order.
     const [includeBox, excludeBox] =
@@ -173,7 +173,7 @@ describe('VacancyList', () => {
 
   it('stages checkbox changes until Search is pressed', async () => {
     renderList('/vacancies');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     expect(mockedApiGet).toHaveBeenCalledTimes(1);
 
     // Toggling a checkbox alone must not refetch — the template form
@@ -212,13 +212,49 @@ describe('VacancyList', () => {
 
   it('links a vacancy to its company detail route', async () => {
     renderList('/vacancies');
-    const link = await screen.findByRole('link', {
+    // Both the desktop table and the mobile card render the link.
+    const links = await screen.findAllByRole('link', {
       name: 'Acme SIA',
     });
-    expect(link).toHaveAttribute(
-      'href',
-      '/companies/22222222-2222-2222-2222-222222222222',
-    );
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link).toHaveAttribute(
+        'href',
+        '/companies/22222222-2222-2222-2222-222222222222',
+      );
+    }
+  });
+
+  it('renders the mobile card layout alongside the table', async () => {
+    const { container } = renderList('/vacancies');
+    await screen.findAllByText('Python developer');
+    expect(
+      container.querySelector('.d-md-none'),
+    ).toBeInTheDocument();
+    expect(
+      container.querySelector('.d-none.d-md-block table'),
+    ).toBeInTheDocument();
+  });
+
+  it('collapses and reopens the filter card', async () => {
+    const { container } = renderList('/vacancies');
+    await screen.findAllByText('Python developer');
+    const toggle = screen.getByRole('button', { name: 'Filters' });
+    // Open by default.
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // jsdom ignores d-none — assert the class lands on the body.
+    expect(
+      container.querySelector('.filter-card > .card-body'),
+    ).toHaveClass('d-none');
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(
+      container.querySelector('.filter-card > .card-body'),
+    ).not.toHaveClass('d-none');
   });
 
   it('renders a badge next to liked/disliked company names', async () => {
@@ -236,15 +272,16 @@ describe('VacancyList', () => {
       }),
     );
     renderList('/vacancies');
-    expect(await screen.findByText('liked')).toBeInTheDocument();
-    expect(screen.getByText('disliked')).toBeInTheDocument();
+    // One badge per layout — desktop table row and mobile card.
+    expect(await screen.findAllByText('liked')).toHaveLength(2);
+    expect(screen.getAllByText('disliked')).toHaveLength(2);
   });
 });
 
 describe('VacancyList company filter', () => {
   it('hides the Companies selector for anonymous users', async () => {
     renderList('/vacancies?company_filter=liked');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     expect(
       screen.queryByLabelText('Companies'),
     ).not.toBeInTheDocument();
@@ -257,7 +294,7 @@ describe('VacancyList company filter', () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([]);
     renderList('/vacancies');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
 
     const select = screen.getByLabelText('Companies');
     fireEvent.change(select, { target: { value: 'liked' } });
@@ -280,7 +317,7 @@ describe('VacancyList company filter', () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([]);
     renderList('/vacancies?company_filter=disliked');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     const listCalls = () =>
       calledUrls().filter((u) => !u.includes('/filters/'));
     expect(listCalls()[0]).toContain('company_filter=disliked');
@@ -299,7 +336,7 @@ describe('VacancyList company filter', () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([]);
     renderList('/vacancies?company_filter=bogus');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     expect(calledUrls()[0]).not.toContain('company_filter');
     expect(screen.getByLabelText('Companies')).toHaveValue('all');
   });
@@ -309,7 +346,7 @@ describe('VacancyList saved filters', () => {
   it('hides the bar (and never calls the authed API) when the bootstrap user is null', async () => {
     setBootstrap({ user: null });
     renderList('/vacancies');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     expect(
       screen.queryByLabelText('Saved filters'),
     ).not.toBeInTheDocument();
@@ -327,7 +364,7 @@ describe('VacancyList saved filters', () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([makeSavedFilter()]);
     renderList('/vacancies?page=2');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     await waitFor(() =>
       expect(calledUrls()).toContain('/api/vacancies/filters/'),
     );
@@ -411,7 +448,7 @@ describe('VacancyList saved filters', () => {
     renderList(
       '/vacancies?include_keywords=python&show_active_only=1&page=3',
     );
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
 
     // Stage an extra keyword without pressing Search — it must NOT
     // be part of the saved preset.
@@ -440,7 +477,7 @@ describe('VacancyList saved filters', () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([makeSavedFilter({ company_filter: 'liked' })]);
     renderList('/vacancies');
-    await screen.findByText('Python developer');
+    await screen.findAllByText('Python developer');
     await waitFor(() =>
       expect(calledUrls()).toContain('/api/vacancies/filters/'),
     );

@@ -16,6 +16,35 @@ body {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
 }
 
+/* Collapsible filter card — full-width clickable header row. */
+.filter-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  border-radius: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.filter-toggle:hover {
+  background-color: #f1f3f5;
+}
+
+.filter-chevron {
+  display: inline-block;
+  color: #6c757d;
+  font-size: 0.8rem;
+  transition: transform 0.15s ease-in-out;
+}
+
+.filter-chevron.open {
+  transform: rotate(180deg);
+}
+
 .table thead th {
   background-color: #343a40;
   color: #fff;
@@ -115,7 +144,8 @@ a.source-tag:hover {
   white-space: nowrap;
 }
 
-.company-card-meta {
+.company-card-meta,
+.vacancy-card-meta {
   font-size: 0.8rem;
   color: #6c757d;
 }

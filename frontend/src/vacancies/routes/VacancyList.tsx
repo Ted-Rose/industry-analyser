@@ -3,7 +3,11 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
 import SavedFiltersBar from '../components/SavedFiltersBar';
-import { fetchVacancies, type CompanyFilter } from '../api';
+import {
+  fetchVacancies,
+  type CompanyFilter,
+  type VacancyOut,
+} from '../api';
 import { deadlineClass, formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 import { useBootstrap } from '../../shared/hooks/useBootstrap';
@@ -41,6 +45,10 @@ function toggleValue(list: string[], value: string, on: boolean) {
  * pages stay bookmarkable; like the template form, checkbox changes
  * are staged locally and applied to the URL on Search — which also
  * resets ?page= back to the first page.
+ *
+ * Renders as a table on ≥md viewports and a stacked card list below
+ * that — seven columns don't fit a phone. The filter card is
+ * collapsible (open by default) on all viewport sizes.
  */
 export default function VacancyList() {
   // Saved filters are session-authed — render the bar (and fire its
@@ -106,6 +114,10 @@ export default function VacancyList() {
     setSearchParams(next);
   };
 
+  // The filter card is tall on a phone — collapsible everywhere,
+  // open by default.
+  const [filtersOpen, setFiltersOpen] = useState(true);
+
   const now = new Date();
   const vacancies = data?.vacancies ?? [];
 
@@ -134,7 +146,23 @@ export default function VacancyList() {
 
       {/* Filters */}
       <div className="card filter-card mb-4">
-        <div className="card-body">
+        <button
+          type="button"
+          className="filter-toggle"
+          onClick={() => setFiltersOpen((open) => !open)}
+          aria-expanded={filtersOpen}
+        >
+          <span className="filter-label">Filters</span>
+          <span
+            className={`filter-chevron${filtersOpen ? ' open' : ''}`}
+            aria-hidden="true"
+          >
+            ▾
+          </span>
+        </button>
+        <div
+          className={filtersOpen ? 'card-body' : 'card-body d-none'}
+        >
           {user && (
             <SavedFiltersBar
               applied={{
@@ -322,8 +350,8 @@ export default function VacancyList() {
         </span>
       </div>
 
-      {/* Table */}
-      <div className="card filter-card">
+      {/* Table — desktop */}
+      <div className="card filter-card d-none d-md-block">
         <div className="card-body p-0">
           <div className="table-responsive">
             <table className="table table-hover table-sm mb-0">
@@ -428,6 +456,25 @@ export default function VacancyList() {
         </div>
       </div>
 
+      {/* Cards — mobile */}
+      <div className="d-md-none">
+        {vacancies.length === 0 && !isPending ? (
+          <div className="card filter-card">
+            <div className="card-body text-center text-muted py-5">
+              No vacancies found. Try adjusting your filters.
+            </div>
+          </div>
+        ) : (
+          vacancies.map((vacancy) => (
+            <VacancyCard
+              key={vacancy.id}
+              vacancy={vacancy}
+              now={now}
+            />
+          ))
+        )}
+      </div>
+
       {data && (
         <Pagination
           page={data.page}
@@ -436,6 +483,68 @@ export default function VacancyList() {
           hasNext={data.has_next}
         />
       )}
+    </div>
+  );
+}
+
+/** Stacked vacancy card for <md viewports — only the fields that
+ *  matter at a glance: wrapping title and company, salary and
+ *  deadline. Keywords/industries/last-seen stay desktop-only. */
+function VacancyCard({
+  vacancy,
+  now,
+}: {
+  vacancy: VacancyOut;
+  now: Date;
+}) {
+  return (
+    <div className="card filter-card mb-3">
+      <div className="card-body">
+        <div className="vacancy-title mb-1">
+          <a
+            href={vacancy.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {vacancy.title || '(no title)'}
+          </a>
+        </div>
+        <div className="mb-2">
+          {vacancy.company_id ? (
+            <Link to={`/companies/${vacancy.company_id}`}>
+              {vacancy.company_name || '—'}
+            </Link>
+          ) : (
+            vacancy.company_name || '—'
+          )}
+          {vacancy.company_preference === 'like' && (
+            <span className="badge bg-success ms-1">liked</span>
+          )}
+          {vacancy.company_preference === 'dislike' && (
+            <span className="badge bg-danger ms-1">disliked</span>
+          )}
+        </div>
+        <div className="vacancy-card-meta">
+          <div>
+            {formatSalary(vacancy.salary_from, vacancy.salary_to)}
+          </div>
+          <div>
+            Deadline:{' '}
+            {vacancy.application_deadline ? (
+              <span
+                className={deadlineClass(
+                  vacancy.application_deadline,
+                  now,
+                )}
+              >
+                {formatDate(vacancy.application_deadline)}
+              </span>
+            ) : (
+              '—'
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
