@@ -28,10 +28,16 @@ python3 industry_analyser/console_tasks/build.py create_ca_pem
 # so collectstatic ships it to the CDN below).
 # --include=dev: build envs may set NODE_ENV=production, which would
 # skip devDependencies (vite/tsc) and break the build below.
-npm ci --prefix frontend --include=dev
-npm run build --prefix frontend
-# Keep node_modules (~67MB) out of any serverless function bundle.
-rm -rf frontend/node_modules
+# Python-runtime build images may lack Node entirely — skip rather
+# than fail the deploy (SPAs render a manifest diagnostic instead).
+if command -v npm >/dev/null 2>&1; then
+  npm ci --prefix frontend --include=dev
+  npm run build --prefix frontend
+  # Keep node_modules (~67MB) out of any serverless function bundle.
+  rm -rf frontend/node_modules
+else
+  echo "npm not available in build env — skipping frontend build"
+fi
 
 # Collect static files
 python3 manage.py collectstatic --noinput
