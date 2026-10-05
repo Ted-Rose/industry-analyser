@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchPrograms, type ProgramOut } from '../api';
-import { useReactToShow } from '../mutations';
+import { useReactToProgram } from '../mutations';
 import { displayRating, formatStartTime } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 
@@ -157,7 +157,7 @@ export default function ProgramList() {
     setSearchParams(next);
   };
 
-  const reactMutation = useReactToShow();
+  const reactMutation = useReactToProgram();
   const groups = useMemo(
     () => groupPrograms(data?.programs ?? []),
     [data],
@@ -323,19 +323,16 @@ export default function ProgramList() {
           <ProgramCard
             key={group.key}
             airings={group.airings}
-            pendingShowId={
+            pendingProgramId={
               reactMutation.isPending
-                ? (reactMutation.variables?.showId ?? null)
+                ? (reactMutation.variables?.programId ?? null)
                 : null
             }
             onReact={(reaction) => {
-              const show = group.airings[0].show;
-              if (show) {
-                reactMutation.mutate({
-                  showId: show.id,
-                  reaction,
-                });
-              }
+              reactMutation.mutate({
+                programId: group.airings[0].id,
+                reaction,
+              });
             }}
           />
         ))
@@ -347,11 +344,11 @@ export default function ProgramList() {
 
 function ProgramCard({
   airings,
-  pendingShowId,
+  pendingProgramId,
   onReact,
 }: {
   airings: ProgramOut[];
-  pendingShowId: string | null;
+  pendingProgramId: string | null;
   onReact: (reaction: 'like' | 'dislike') => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -368,7 +365,7 @@ function ProgramCard({
   const imdbHref = show?.imdb_url || program.url;
   const rating = displayRating(show?.imdb_rating, program.imdb_rating);
   const pgRating = show?.pg_rating || program.pg_rating;
-  const busy = pendingShowId === show?.id;
+  const busy = pendingProgramId === program.id;
 
   return (
     <div className="feed-card">
@@ -431,30 +428,30 @@ function ProgramCard({
             ))}
           </ul>
         )}
-        {show && (
-          <div className="feed-actions">
-            <button
-              type="button"
-              className={`reaction-btn${
-                program.user_reaction === 'like' ? ' liked' : ''
-              }`}
-              disabled={busy}
-              onClick={() => onReact('like')}
-            >
-              Like
-            </button>
-            <button
-              type="button"
-              className={`reaction-btn${
-                program.user_reaction === 'dislike' ? ' disliked' : ''
-              }`}
-              disabled={busy}
-              onClick={() => onReact('dislike')}
-            >
-              Dislike
-            </button>
-          </div>
-        )}
+        {/* Reactions work on every card — the API lazily resolves a
+            Show for airings that don't have one yet. */}
+        <div className="feed-actions">
+          <button
+            type="button"
+            className={`reaction-btn${
+              program.user_reaction === 'like' ? ' liked' : ''
+            }`}
+            disabled={busy}
+            onClick={() => onReact('like')}
+          >
+            Like
+          </button>
+          <button
+            type="button"
+            className={`reaction-btn${
+              program.user_reaction === 'dislike' ? ' disliked' : ''
+            }`}
+            disabled={busy}
+            onClick={() => onReact('dislike')}
+          >
+            Dislike
+          </button>
+        </div>
       </div>
     </div>
   );

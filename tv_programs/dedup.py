@@ -8,6 +8,9 @@ re-airs of the same content resolve to one row.
 
 import hashlib
 import re
+from decimal import Decimal, InvalidOperation
+
+from .classification import EXCLUDED_LOCAL_SHOWS
 
 _RERUN_RE = re.compile(r'\s*\(\s*atkārtojums\s*\)\s*', re.IGNORECASE)
 _WS_RE = re.compile(r'\s+')
@@ -157,3 +160,91 @@ def get_or_create_show(parsed: dict):
     return Show.objects.get_or_create(
         dedup_key=parsed['dedup_key'], defaults=defaults
     )
+
+
+# Normalized EXCLUDED_LOCAL_SHOWS — backfill/lazy-link paths set
+# Show.is_excluded from it (classification.py is the source of
+# truth). Module-level so it is computed once.
+_EXCLUDED_TITLES = frozenset(
+    normalize_title(t).casefold() for t in EXCLUDED_LOCAL_SHOWS
+)
+
+
+def show_defaults(program, info):
+    """Show field defaults built from a Program row and its
+    annotate_result() output — shared by backfill_program_shows and
+    the lazy-link path in the react API."""
+    imdb_id = program.imdb_id or None
+    imdb_url = None
+    if imdb_id:
+        if program.url and 'imdb.com' in program.url:
+            imdb_url = program.url
+        else:
+            imdb_url = f'https://www.imdb.com/title/{imdb_id}/'
+    try:
+        imdb_rating = (
+            Decimal(str(program.imdb_rating))
+            if program.imdb_rating not in (None, '')
+            else None
+        )
+    except InvalidOperation:
+        imdb_rating = None
+    excluded = (
+        info['title_norm'].casefold() in _EXCLUDED_TITLES
+        or (info['series_title'] or '').casefold() in _EXCLUDED_TITLES
+    )
+    return {
+        'title_lv': info['title_norm'],
+        'series_title': info['series_title'],
+        'series_season': info['season'],
+        'series_episode': info['episode'],
+        'description_lv': info['desc_norm'] or None,
+        'dedup_key': info['dedup_key'],
+        'title_eng': program.title_eng,
+        'description_eng': program.description_eng,
+        'imdb_id': imdb_id,
+        'imdb_url': imdb_url,
+        'imdb_rating': imdb_rating,
+        'pg_rating': program.pg_rating,
+        'image_url': program.image_url or None,
+        'content_type': program.content_type,
+        'classification_confidence': (
+            program.classification_confidence or 0.0
+        ),
+        'classification_reasoning': program.classification_reasoning,
+        'enrichment_status': 'enriched' if imdb_id else 'pending',
+        'enrichment_source': (
+            program.enrichment_source or ('omdb' if imdb_id else None)
+        ),
+        'title_match_ratio': program.title_match_ratio or 0,
+        'is_excluded': bool(excluded),
+    }
+
+
+def ensure_show(program):
+    """Resolve a Program to its canonical Show — the linked show
+    wins; otherwise find-or-create by dedup_key and link the
+    program. Returns the Show either way: on a (show, channel,
+    start_time) collision the program keeps show NULL, but the
+    resolved Show is still usable for a ShowPreference."""
+    if program.show_id:
+        return program.show
+    from .models import Program, Show
+
+    info = annotate_result({
+        'title_lv': program.title_lv,
+        'description_lv': program.description_lv or '',
+        'image_url': program.image_url,
+    })
+    show, _ = Show.objects.get_or_create(
+        dedup_key=info['dedup_key'],
+        defaults=show_defaults(program, info),
+    )
+    if not Program.objects.filter(
+        show=show,
+        channel_id=program.channel_id,
+        start_time=program.start_time,
+    ).exists():
+        program.show = show
+        program.save(update_fields=['show'])
+    return show

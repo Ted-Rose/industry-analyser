@@ -71,12 +71,14 @@ export function fetchSpokiPage(): Promise<SpokiPageOut> {
   return apiGet<SpokiPageOut>('/api/tv/spoki-page/');
 }
 
-/** POST /api/tv/shows/<id>/react/<reaction>/ — session-auth toggle. */
-export function reactToShow(
-  showId: string,
+/** POST /api/tv/programs/<id>/react/<reaction>/ — session-auth
+ *  toggle. Program-level so unlinked airings (no Show yet) are
+ *  reactable too — the API lazily resolves the canonical Show. */
+export function reactToProgram(
+  programId: string,
   reaction: 'like' | 'dislike',
 ): Promise<ReactionOut> {
   return apiPost<ReactionOut>(
-    `/api/tv/shows/${showId}/react/${reaction}/`,
+    `/api/tv/programs/${programId}/react/${reaction}/`,
   );
 }

@@ -19,6 +19,7 @@ from ninja import Query, Router, Schema
 
 from industry_analyser.api import ApiHttpError
 
+from .dedup import ensure_show
 from .models import Channel, Program, Show, ShowPreference
 from .views import _fetch_spoki_page, _preference_qs
 
@@ -253,36 +254,66 @@ def spoki_page(request):
     return SpokiPageOut(title=title, content=content)
 
 
+def _toggle_reaction(user, show, reaction):
+    """Upsert/delete the user's ShowPreference row — posting the
+    same reaction again removes it. Returns the reaction now in
+    effect (None when toggled off)."""
+    pref = ShowPreference.objects.filter(
+        show=show, user=user
+    ).first()
+    if pref is not None and pref.reaction == reaction:
+        pref.delete()
+        return None
+    if pref is not None:
+        pref.reaction = reaction
+        pref.save(update_fields=['reaction'])
+    else:
+        ShowPreference.objects.create(
+            show=show, user=user, reaction=reaction
+        )
+    return reaction
+
+
+def _reaction_response(show, reaction, new_reaction):
+    return ReactionOut(
+        success=True,
+        show_id=show.pk,
+        reaction=new_reaction,
+        message=(
+            f'{reaction} removed'
+            if new_reaction is None
+            else f'reaction set to {reaction}'
+        ),
+    )
+
+
+def _check_reaction(reaction):
+    if reaction not in ShowPreference.Reaction.values:
+        raise ApiHttpError(
+            400, 'unknown reaction', code='unknown_reaction'
+        )
+
+
 @router.post('/shows/{show_id}/react/{reaction}/', response=ReactionOut)
 def react_to_show(request, show_id: UUID, reaction: str):
     """Toggle a like/dislike on a Show — posting the same reaction
     again removes it. Session-auth (was: anonymous form POST)."""
     show = get_object_or_404(Show, pk=show_id)
-    if reaction not in ShowPreference.Reaction.values:
-        raise ApiHttpError(
-            400, 'unknown reaction', code='unknown_reaction'
-        )
-    pref = ShowPreference.objects.filter(
-        show=show, user=request.user
-    ).first()
-    if pref is not None and pref.reaction == reaction:
-        pref.delete()
-        new_reaction = None
-        message = f'{reaction} removed'
-    elif pref is not None:
-        pref.reaction = reaction
-        pref.save(update_fields=['reaction'])
-        new_reaction = reaction
-        message = f'reaction set to {reaction}'
-    else:
-        ShowPreference.objects.create(
-            show=show, user=request.user, reaction=reaction
-        )
-        new_reaction = reaction
-        message = f'reaction set to {reaction}'
-    return ReactionOut(
-        success=True,
-        show_id=show.pk,
-        reaction=new_reaction,
-        message=message,
-    )
+    _check_reaction(reaction)
+    new_reaction = _toggle_reaction(request.user, show, reaction)
+    return _reaction_response(show, reaction, new_reaction)
+
+
+@router.post(
+    '/programs/{program_id}/react/{reaction}/', response=ReactionOut
+)
+def react_to_program(request, program_id: UUID, reaction: str):
+    """Toggle a like/dislike from a program card — unlinked airings
+    lazily resolve their canonical Show via ensure_show() (the same
+    dedup path backfill_program_shows uses), so every card is
+    reactable. Session-auth."""
+    program = get_object_or_404(Program, pk=program_id)
+    _check_reaction(reaction)
+    show = ensure_show(program)
+    new_reaction = _toggle_reaction(request.user, show, reaction)
+    return _reaction_response(show, reaction, new_reaction)

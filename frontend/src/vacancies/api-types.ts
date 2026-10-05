@@ -160,6 +160,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/tv/programs/{program_id}/react/{reaction}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * React To Program
+         * @description Toggle a like/dislike from a program card — unlinked airings
+         *     lazily resolve their canonical Show via ensure_show() (the same
+         *     dedup path backfill_program_shows uses), so every card is
+         *     reactable. Session-auth.
+         */
+        post: operations["tv_programs_api_react_to_program"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/classified-ads/ads/": {
         parameters: {
             query?: never;
@@ -1422,6 +1445,29 @@ export interface operations {
             header?: never;
             path: {
                 show_id: string;
+                reaction: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReactionOut"];
+                };
+            };
+        };
+    };
+    tv_programs_api_react_to_program: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                program_id: string;
                 reaction: string;
             };
             cookie?: never;

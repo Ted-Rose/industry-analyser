@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { reactToShow } from './api';
+import { reactToProgram } from './api';
 
 /**
  * TanStack Query mutation hooks for POST /api/tv/….
@@ -8,16 +8,16 @@ import { reactToShow } from './api';
  * refetched payload carries the authoritative reaction state (a
  * dislike also hides the show unless ?show_disliked=1).
  */
-export function useReactToShow() {
+export function useReactToProgram() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
-      showId,
+      programId,
       reaction,
     }: {
-      showId: string;
+      programId: string;
       reaction: 'like' | 'dislike';
-    }) => reactToShow(showId, reaction),
+    }) => reactToProgram(programId, reaction),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tv'] });
     },

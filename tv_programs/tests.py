@@ -902,6 +902,108 @@ class TvApiTests(TestCase):
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(resp.json()["error"], "forbidden")
 
+    # --- POST /api/tv/programs/{pk}/react/{reaction}/ ---
+
+    def _program_react_url(self, program, reaction):
+        return f"{self.API}/programs/{program.pk}/react/{reaction}/"
+
+    def test_react_to_program_unauthenticated_401(self):
+        resp = self.client.post(
+            self._program_react_url(make_program(), "like")
+        )
+        self.assertEqual(resp.status_code, 401)
+        self.assertEqual(resp.json()["error"], "unauthenticated")
+
+    def test_react_to_program_links_unlinked_program(self):
+        """An airing without a Show lazily resolves its canonical
+        one — created from the program's fields via the same dedup
+        path as backfill_program_shows — and links it."""
+        self.client.force_login(self.user)
+        prog = make_program(title_lv="Bez Tabu")
+        self.assertIsNone(prog.show)
+        resp = self.client.post(self._program_react_url(prog, "dislike"))
+        self.assertEqual(resp.status_code, 200)
+        prog.refresh_from_db()
+        show = prog.show
+        self.assertIsNotNone(show)
+        self.assertEqual(show.title_lv, "Bez Tabu")
+        self.assertEqual(str(show.pk), resp.json()["show_id"])
+        pref = ShowPreference.objects.get(user=self.user)
+        self.assertEqual(pref.show, show)
+        self.assertEqual(pref.reaction, "dislike")
+        # The same dedup key is reused — reacting on a second
+        # identical airing doesn't create another Show.
+        twin = make_program(title_lv="Bez Tabu")
+        self.client.post(self._program_react_url(twin, "like"))
+        twin.refresh_from_db()
+        self.assertEqual(twin.show, show)
+        self.assertEqual(
+            ShowPreference.objects.get(user=self.user).reaction,
+            "like",
+        )
+
+    def test_react_to_program_uses_linked_show(self):
+        self.client.force_login(self.user)
+        show = make_show()
+        prog = make_program(show=show)
+        resp = self.client.post(self._program_react_url(prog, "like"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["show_id"], str(show.pk))
+        pref = ShowPreference.objects.get(user=self.user)
+        self.assertEqual(pref.show, show)
+
+    def test_react_to_program_collision_still_reacts(self):
+        """A program colliding on (show, channel, start_time) can't
+        be linked, but the preference still lands on the resolved
+        Show."""
+        self.client.force_login(self.user)
+        show = make_show(
+            "s", title_lv="Bez Tabu", description_lv=None
+        )
+        from tv_programs.dedup import annotate_result
+
+        info = annotate_result({
+            "title_lv": "Bez Tabu",
+            "description_lv": "",
+        })
+        Show.objects.filter(pk=show.pk).update(
+            dedup_key=info["dedup_key"]
+        )
+        show.refresh_from_db()
+        occupied = make_program(
+            title_lv="Bez Tabu", description_lv="", show=show
+        )
+        blocker = make_program(
+            title_lv="Bez Tabu", description_lv="",
+            channel=occupied.channel, start_time=occupied.start_time,
+        )
+        self.assertIsNone(blocker.show)
+        resp = self.client.post(
+            self._program_react_url(blocker, "dislike")
+        )
+        self.assertEqual(resp.status_code, 200)
+        blocker.refresh_from_db()
+        self.assertIsNone(blocker.show)
+        self.assertEqual(
+            ShowPreference.objects.get(user=self.user).show, show
+        )
+
+    def test_react_to_program_invalid_reaction_400(self):
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            self._program_react_url(make_program(), "meh")
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_react_to_program_unknown_404s(self):
+        import uuid
+
+        self.client.force_login(self.user)
+        resp = self.client.post(
+            f"{self.API}/programs/{uuid.uuid4()}/react/like/"
+        )
+        self.assertEqual(resp.status_code, 404)
+
 
 class ReclassifyCommandDataTests(TestCase):
     def test_reclassify_updates_row(self):

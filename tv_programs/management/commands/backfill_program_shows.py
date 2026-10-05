@@ -15,12 +15,10 @@ unique constraint.
 """
 
 import logging
-from decimal import Decimal, InvalidOperation
 
 from django.core.management.base import BaseCommand, CommandError
 
-from tv_programs.classification import EXCLUDED_LOCAL_SHOWS
-from tv_programs.dedup import annotate_result, normalize_title
+from tv_programs.dedup import annotate_result, show_defaults
 from tv_programs.models import Program, Show
 
 logger = logging.getLogger('tv_programs')
@@ -55,10 +53,6 @@ class Command(BaseCommand):
             raise CommandError('--batch-size must be >= 1.')
         dry_run = options['dry_run']
         prefix = '[dry-run] ' if dry_run else ''
-
-        self._excluded = {
-            normalize_title(t).casefold() for t in EXCLUDED_LOCAL_SHOWS
-        }
 
         pending = Program.objects.filter(show__isnull=True)
         total = pending.count()
@@ -138,7 +132,7 @@ class Command(BaseCommand):
             show = shows_cache[info['dedup_key']]
             if show is None:
                 show = Show.objects.create(
-                    **self._show_defaults(prog, info)
+                    **show_defaults(prog, info)
                 )
                 shows_cache[info['dedup_key']] = show
                 created_keys.add(info['dedup_key'])
@@ -175,52 +169,3 @@ class Command(BaseCommand):
                 start_time__in={p.start_time for p in batch},
             ).values_list('show_id', 'channel_id', 'start_time')
         )
-
-    def _show_defaults(self, prog, info):
-        imdb_id = prog.imdb_id or None
-        imdb_url = None
-        if imdb_id:
-            if prog.url and 'imdb.com' in prog.url:
-                imdb_url = prog.url
-            else:
-                imdb_url = f'https://www.imdb.com/title/{imdb_id}/'
-        try:
-            imdb_rating = (
-                Decimal(str(prog.imdb_rating))
-                if prog.imdb_rating not in (None, '')
-                else None
-            )
-        except InvalidOperation:
-            imdb_rating = None
-        excluded = (
-            info['title_norm'].casefold() in self._excluded
-            or (info['series_title'] or '').casefold() in self._excluded
-        )
-        return {
-            'title_lv': info['title_norm'],
-            'series_title': info['series_title'],
-            'series_season': info['season'],
-            'series_episode': info['episode'],
-            'description_lv': info['desc_norm'] or None,
-            'dedup_key': info['dedup_key'],
-            'title_eng': prog.title_eng,
-            'description_eng': prog.description_eng,
-            'imdb_id': imdb_id,
-            'imdb_url': imdb_url,
-            'imdb_rating': imdb_rating,
-            'pg_rating': prog.pg_rating,
-            'image_url': prog.image_url or None,
-            'content_type': prog.content_type,
-            'classification_confidence': (
-                prog.classification_confidence or 0.0
-            ),
-            'classification_reasoning': prog.classification_reasoning,
-            'enrichment_status': (
-                'enriched' if imdb_id else 'pending'
-            ),
-            'enrichment_source': (
-                prog.enrichment_source or ('omdb' if imdb_id else None)
-            ),
-            'title_match_ratio': prog.title_match_ratio or 0,
-            'is_excluded': bool(excluded),
-        }

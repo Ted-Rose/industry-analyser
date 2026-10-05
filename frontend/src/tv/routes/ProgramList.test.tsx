@@ -281,13 +281,17 @@ describe('ProgramList', () => {
       expect(metadata?.textContent).not.toMatch(/\|\s*$/);
     });
 
-  it('hides reaction buttons for programs without a Show', async () => {
-    renderList('/tv/');
-    await screen.findByText('Dienas ziņas');
-    expect(
-      screen.queryByRole('button', { name: 'Like' }),
-    ).not.toBeInTheDocument();
-  });
+  it('renders reaction buttons for programs without a Show ' +
+    '(the API lazily links one)', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(
+        screen.getByRole('button', { name: 'Like' }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: 'Dislike' }),
+      ).toBeInTheDocument();
+    });
 
   it('aggregates repeat airings of a show into one expandable ' +
     'card, newest first', async () => {
