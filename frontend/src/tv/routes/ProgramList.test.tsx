@@ -199,4 +199,93 @@ describe('ProgramList', () => {
       screen.queryByRole('button', { name: 'Like' }),
     ).not.toBeInTheDocument();
   });
+
+  it('aggregates repeat airings of a show into one expandable ' +
+    'card, newest first', async () => {
+    const show = {
+      id: '22222222-2222-2222-2222-222222222222',
+      title_lv: '13. karotājs',
+      title_eng: null,
+      imdb_rating: null,
+      imdb_url: null,
+      pg_rating: null,
+      image_url: null,
+      title_match_ratio: 0.9,
+    };
+    mockedApiGet.mockResolvedValue(
+      makePrograms({
+        programs: [
+          makeProgram({
+            id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            show,
+            start_time: '2026-09-30T18:00:00+03:00',
+            channel_name: 'ltv1_hd',
+          }),
+          makeProgram({
+            id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+            show,
+            start_time: '2026-10-02T18:00:00+03:00',
+            channel_name: 'tv3',
+          }),
+        ],
+      }),
+    );
+    const { container } = renderList('/tv/');
+    await screen.findByText('13. karotājs');
+    expect(container.querySelectorAll('.feed-card')).toHaveLength(1);
+    // Collapsed: only the newest slot headlines the card.
+    expect(
+      screen.getByText(/Start Time: Oct\. 2, 2026, 3:00 p\.m\./),
+    ).toBeInTheDocument();
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'All showtimes' }),
+    );
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('Oct. 2, 2026, 3:00 p.m.');
+    expect(items[0]).toHaveTextContent('tv3');
+    expect(items[1]).toHaveTextContent('Sept. 30, 2026, 3:00 p.m.');
+    expect(items[1]).toHaveTextContent('ltv1_hd');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'All showtimes' }),
+    );
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('groups unlinked airings by title and keeps distinct titles ' +
+    'on separate cards', async () => {
+    mockedApiGet.mockResolvedValue(
+      makePrograms({
+        programs: [
+          makeProgram({
+            id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+            start_time: '2026-10-01T15:15:00+03:00',
+          }),
+          makeProgram({
+            id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+            start_time: '2026-10-02T15:15:00+03:00',
+          }),
+          makeProgram({
+            id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+            title_lv: 'Vakara ziņas',
+          }),
+        ],
+      }),
+    );
+    const { container } = renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    expect(container.querySelectorAll('.feed-card')).toHaveLength(2);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'All showtimes' }),
+    );
+    const items = screen.getAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    // Single-channel group — no channel suffix on the times.
+    expect(items[0]).not.toHaveTextContent('ltv1_hd');
+    expect(items[0]).toHaveTextContent('Oct. 2, 2026, 12:15 p.m.');
+  });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchPrograms, type ProgramOut } from '../api';
@@ -19,6 +19,34 @@ interface Draft {
   channel: string;
   excludeChannel: string;
   showDisliked: boolean;
+}
+
+interface ProgramGroup {
+  key: string;
+  /** Airings sorted newest first — the card headline is [0]. */
+  airings: ProgramOut[];
+}
+
+/** One card per program: airings sharing a Show (the canonical
+ *  rerun dedup) collapse into a group keyed by show id; unlinked
+ *  airings fall back to the normalized title. Group order follows
+ *  first appearance in the feed. */
+function groupPrograms(programs: ProgramOut[]): ProgramGroup[] {
+  const byKey = new Map<string, ProgramOut[]>();
+  for (const p of programs) {
+    const key = p.show
+      ? `show:${p.show.id}`
+      : `title:${p.title_lv.trim().toLowerCase()}`;
+    const list = byKey.get(key);
+    if (list) list.push(p);
+    else byKey.set(key, [p]);
+  }
+  return [...byKey].map(([key, airings]) => ({
+    key,
+    airings: airings.sort(
+      (a, b) => Date.parse(b.start_time) - Date.parse(a.start_time),
+    ),
+  }));
 }
 
 /**
@@ -130,7 +158,10 @@ export default function ProgramList() {
   };
 
   const reactMutation = useReactToShow();
-  const programs = data?.programs ?? [];
+  const groups = useMemo(
+    () => groupPrograms(data?.programs ?? []),
+    [data],
+  );
 
   return (
     <div className="feed-container">
@@ -285,22 +316,23 @@ export default function ProgramList() {
       )}
 
       {/* Feed Content */}
-      {programs.length === 0 && !isPending ? (
+      {groups.length === 0 && !isPending ? (
         <div>No programs available</div>
       ) : (
-        programs.map((program) => (
+        groups.map((group) => (
           <ProgramCard
-            key={program.id}
-            program={program}
+            key={group.key}
+            airings={group.airings}
             pendingShowId={
               reactMutation.isPending
                 ? (reactMutation.variables?.showId ?? null)
                 : null
             }
             onReact={(reaction) => {
-              if (program.show) {
+              const show = group.airings[0].show;
+              if (show) {
                 reactMutation.mutate({
-                  showId: program.show.id,
+                  showId: show.id,
                   reaction,
                 });
               }
@@ -314,14 +346,18 @@ export default function ProgramList() {
 }
 
 function ProgramCard({
-  program,
+  airings,
   pendingShowId,
   onReact,
 }: {
-  program: ProgramOut;
+  airings: ProgramOut[];
   pendingShowId: string | null;
   onReact: (reaction: 'like' | 'dislike') => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  // Newest airing fronts the card (airings arrive sorted desc).
+  const program = airings[0];
+  const channels = [...new Set(airings.map((a) => a.channel_name))];
   const show = program.show;
   const imageSrc =
     program.image_url || show?.image_url || PLACEHOLDER_IMAGE;
@@ -351,8 +387,22 @@ function ProgramCard({
           <span>
             Rating: {displayRating(show?.imdb_rating, program.imdb_rating)}
           </span>{' '}
-          | <span>Channel: {program.channel_name}</span> |{' '}
-          <span>Start Time: {formatStartTime(program.start_time)}</span> |{' '}
+          | <span>Channel: {channels.join(', ')}</span> |{' '}
+          <span>
+            Start Time: {formatStartTime(program.start_time)}
+            {airings.length > 1 && (
+              <button
+                type="button"
+                className="airings-toggle"
+                aria-expanded={expanded}
+                aria-label="All showtimes"
+                onClick={() => setExpanded((v) => !v)}
+              >
+                {expanded ? '▾' : '▸'} {airings.length}
+              </button>
+            )}
+          </span>{' '}
+          |{' '}
           <span>
             PG Rating: {show?.pg_rating || program.pg_rating}
           </span>{' '}
@@ -373,6 +423,16 @@ function ProgramCard({
             </>
           )}
         </div>
+        {expanded && (
+          <ul className="airings-list">
+            {airings.map((a) => (
+              <li key={a.id}>
+                {formatStartTime(a.start_time)}
+                {channels.length > 1 ? ` — ${a.channel_name}` : ''}
+              </li>
+            ))}
+          </ul>
+        )}
         {show && (
           <div className="feed-actions">
             <button

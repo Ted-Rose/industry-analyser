@@ -90,6 +90,22 @@ body {
   font-size: 14px;
 }
 
+.airings-toggle {
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 13px;
+  color: #0d6efd;
+}
+
+.airings-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: #777;
+}
+
 .feed-actions {
   margin-top: 10px;
   display: flex;
