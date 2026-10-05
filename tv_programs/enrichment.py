@@ -311,6 +311,12 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
             "Enrichment failed for show '%s': %s", show.title_lv, e
         )
         show.enrichment_status = 'failed'
+    logger.info(
+        "Enriched '%s': status=%s source=%s title_eng=%r imdb_id=%s "
+        "rating=%s pg=%s",
+        show.title_lv, show.enrichment_status, show.enrichment_source,
+        show.title_eng, show.imdb_id, show.imdb_rating, show.pg_rating,
+    )
     show.save()
     return show
 
