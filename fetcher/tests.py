@@ -23,6 +23,7 @@ from django.utils import timezone
 
 from ai_providers import errors as ai_errors
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from fetcher import company_linking
 from fetcher.models import (
@@ -1453,3 +1454,239 @@ class VacanciesApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, 403)
         self.assertEqual(resp.json()['error'], 'forbidden')
+
+
+def refetch_detail(vacancy_id, **overrides):
+    """Detail-page vacancy payload carrying both the employer
+    slices and the searchable fields ``_build_vacancy`` reads."""
+    detail = employer_page_detail()
+    detail.update({
+        'positionTitle': 'Fresh python developer',
+        'positionContent': 'We write python daily',
+        'salaryFrom': 3000,
+        'salaryTo': 4500,
+        'expirationDate': '2026-01-15T00:00:00+02:00',
+        'publishDate': '2025-06-01T10:00:00+03:00',
+        'details': {
+            'standardDetails': [
+                {'title': 'About the job',
+                 'content': '<p>more python here</p>'},
+            ],
+            'fileDetails': None,
+        },
+    })
+    detail.update(overrides)
+    payload = {
+        'props': {
+            'pageProps': {
+                'vacancy': {str(vacancy_id): detail},
+            },
+        },
+    }
+    return response(next_data_html(payload))
+
+
+class RefetchVacanciesTests(TestCase):
+    """The refetch_vacancies command — no real HTTP: make_request
+    is mocked at the class level, per-URL when needed."""
+
+    def _run(self, *args, response_obj=None, responses=None,
+             **kwargs):
+        if responses is None:
+            def responses(url, *a, **kw):
+                return response_obj
+        with mock.patch.object(
+            VacancyScrapper, 'load_config', return_value=CONFIG
+        ), mock.patch(
+            'fetcher.management.commands.'
+            'link_vacancies_to_companies.load_portals_config',
+            return_value={'2': dict(CONFIG, order=1)},
+        ), mock.patch.object(
+            VacancyScrapper, 'make_request',
+            side_effect=responses,
+        ) as request:
+            call_command('refetch_vacancies', *args, **kwargs)
+        return request
+
+    def _link(self, vacancy, keyword):
+        return VacancyContainsKeyword.objects.create(
+            vacancy=vacancy, keyword=keyword
+        )
+
+    def _fetched_urls(self, request):
+        return [
+            call.args[0] for call in request.call_args_list
+        ]
+
+    def test_keyword_id_selects_only_linked_vacancies(self):
+        kw = Keyword.objects.create(name='python')
+        linked = make_vacancy(1)
+        self._link(linked, kw)
+        make_vacancy(2)
+        request = self._run(
+            '--keyword-id', str(kw.id),
+            response_obj=refetch_detail(1),
+        )
+        self.assertEqual(self._fetched_urls(request), [linked.url])
+
+    def test_exclude_keywords_drops_matching_rows(self):
+        kw = Keyword.objects.create(name='python')
+        excluded = Keyword.objects.create(name='java')
+        keep = make_vacancy(1)
+        drop = make_vacancy(2)
+        self._link(keep, kw)
+        self._link(drop, kw)
+        self._link(drop, excluded)
+        request = self._run(
+            '--keyword-id', str(kw.id),
+            '--exclude-keywords', str(excluded.id),
+            response_obj=refetch_detail(1),
+        )
+        self.assertEqual(self._fetched_urls(request), [keep.url])
+
+    def test_ids_bypass_keyword_selection(self):
+        kw = Keyword.objects.create(name='python')
+        self._link(make_vacancy(1), kw)
+        explicit = make_vacancy(2)  # no keyword links at all
+        request = self._run(
+            '--ids', '2',
+            response_obj=refetch_detail(2),
+        )
+        urls = self._fetched_urls(request)
+        self.assertEqual(urls, [explicit.url])
+
+    def test_keyword_id_required_without_ids(self):
+        with self.assertRaises(CommandError):
+            self._run()
+
+    def test_unknown_keyword_id_errors(self):
+        with self.assertRaises(CommandError):
+            self._run('--keyword-id', '999')
+        kw = Keyword.objects.create(name='python')
+        with self.assertRaises(CommandError):
+            self._run(
+                '--keyword-id', str(kw.id),
+                '--exclude-keywords', '999',
+            )
+
+    def test_dry_run_fetches_and_writes_nothing(self):
+        kw = Keyword.objects.create(name='python')
+        vacancy = make_vacancy(1)
+        self._link(vacancy, kw)
+        out = io.StringIO()
+        request = self._run(
+            '--keyword-id', str(kw.id), '--dry-run', stdout=out,
+        )
+        request.assert_not_called()
+        self.assertIn('dry-run', out.getvalue())
+        vacancy.refresh_from_db()
+        self.assertIsNone(vacancy.detail_fetched_at)
+        self.assertFalse(Company.objects.exists())
+
+    def test_refetch_updates_vacancy_and_company(self):
+        python = Keyword.objects.create(name='python')
+        java = Keyword.objects.create(name='java')
+        vacancy = make_vacancy(
+            42, title='Stale title',
+            salary_from=111, salary_to=222,
+        )
+        self._link(vacancy, python)
+        self._link(vacancy, java)
+        self._run('--ids', '42', response_obj=refetch_detail(42))
+        vacancy.refresh_from_db()
+        self.assertEqual(vacancy.title, 'Fresh python developer')
+        self.assertEqual(vacancy.salary_from, 3000)
+        self.assertEqual(vacancy.salary_to, 4500)
+        self.assertIsNotNone(vacancy.detail_fetched_at)
+        # True refresh: the stale 'java' link is removed, the
+        # still-matching 'python' link is kept.
+        self.assertEqual(
+            set(vacancy.keywords.values_list('name', flat=True)),
+            {'python'},
+        )
+        company = Company.objects.get()
+        self.assertEqual(vacancy.company_id, company.pk)
+        self.assertEqual(company.name, 'Acme')
+        self.assertEqual(company.about, 'About us')
+        self.assertIsNotNone(company.detail_fetched_at)
+
+    def test_expired_ad_is_counted_no_detail(self):
+        vacancy = make_vacancy(42, title='Gone')
+        out = io.StringIO()
+        self._run(
+            '--ids', '42',
+            response_obj=response(
+                next_data_html({'props': {'pageProps': {}}})
+            ),
+            stdout=out,
+        )
+        vacancy.refresh_from_db()
+        self.assertIsNone(vacancy.detail_fetched_at)
+        self.assertEqual(vacancy.title, 'Gone')
+        self.assertIn('no_detail=1', out.getvalue())
+        self.assertFalse(Company.objects.exists())
+
+    def test_fetch_failure_leaves_row_untouched(self):
+        vacancy = make_vacancy(42, title='Untouched')
+        out = io.StringIO()
+        self._run('--ids', '42', response_obj=None, stdout=out)
+        vacancy.refresh_from_db()
+        self.assertEqual(vacancy.title, 'Untouched')
+        self.assertIsNone(vacancy.detail_fetched_at)
+        self.assertIn('fetch_failed=1', out.getvalue())
+
+    def test_no_ocr_skips_file_fetch(self):
+        make_vacancy(42)
+        detail_resp = refetch_detail(
+            42,
+            details={
+                'standardDetails': [],
+                'fileDetails': {'fileId': 'file-42'},
+            },
+        )
+        request = self._run(
+            '--ids', '42', '--no-ocr',
+            response_obj=detail_resp,
+        )
+        # Only the detail page is fetched — the files-service
+        # URL is never requested and no AI call happens.
+        self.assertEqual(request.call_count, 1)
+        self.assertFalse(VacancyFile.objects.exists())
+
+    def test_ocr_text_feeds_keywords_and_saves_file(self):
+        Keyword.objects.create(name='python')
+        Keyword.objects.create(name='ocrword')
+        vacancy = make_vacancy(42)
+        detail_resp = refetch_detail(
+            42,
+            details={
+                'standardDetails': [],
+                'fileDetails': {'fileId': 'file-42'},
+            },
+        )
+
+        def responses(url, *a, **kw):
+            if 'files-service' in url:
+                return response(b'IMG-BYTES', 'image/png')
+            return detail_resp
+
+        ai_client = mock.Mock()
+        ai_client.generate.return_value = types.SimpleNamespace(
+            text='has OCRWORD inside',
+            served_model=None, ai_request=None,
+        )
+        with mock.patch(
+            'fetcher.scraper.get_job_client',
+            return_value=ai_client,
+        ):
+            self._run('--ids', '42', responses=responses)
+        vacancy_file = VacancyFile.objects.get(file_id='file-42')
+        vacancy.refresh_from_db()
+        self.assertEqual(vacancy_file.vacancy_id, vacancy.pk)
+        self.assertEqual(
+            vacancy_file.extracted_text, 'has OCRWORD inside'
+        )
+        self.assertEqual(
+            set(vacancy.keywords.values_list('name', flat=True)),
+            {'python', 'ocrword'},
+        )
