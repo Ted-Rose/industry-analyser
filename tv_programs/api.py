@@ -192,28 +192,33 @@ def list_programs(
     )
     reactions = {p.show_id: p.reaction for p in preferences}
 
-    # Disliked shows (and every show sharing a disliked series_title)
-    # are hidden unless ?show_disliked=1 — judged on the effective
-    # (post-merge) reaction, so a user's own row outranks the anon
-    # bucket here too.
+    # Disliked shows are hidden unless ?show_disliked=1 — judged on
+    # the effective (post-merge) reaction, so a user's own row
+    # outranks the anon bucket here too. A non-movie dislike also
+    # hides the rest of the series: the key is series_title when the
+    # source title carried episode markers, else the show's own
+    # title_lv — daily slots without markers get a fresh Show per
+    # airing (the dedup key covers description), so title_lv is the
+    # only link between episodes. Movie dislikes hide just the Show.
     if not show_disliked:
         disliked_ids = {
             show_id
             for show_id, reaction in reactions.items()
             if reaction == ShowPreference.Reaction.DISLIKE
         }
-        disliked_series = {
-            p.show.series_title
+        disliked_series_keys = {
+            p.show.series_title or p.show.title_lv
             for p in preferences
-            if p.show.series_title
-            and reactions.get(p.show_id)
+            if reactions.get(p.show_id)
             == ShowPreference.Reaction.DISLIKE
+            and p.show.content_type != Program.ContentType.MOVIE
         }
         if disliked_ids:
             programs = programs.exclude(show_id__in=disliked_ids)
-        if disliked_series:
+        if disliked_series_keys:
             programs = programs.exclude(
-                show__series_title__in=disliked_series
+                Q(show__series_title__in=disliked_series_keys)
+                | Q(show__title_lv__in=disliked_series_keys)
             )
 
     programs = list(programs)

@@ -691,6 +691,55 @@ class TvApiTests(TestCase):
         self.assertNotIn(str(hidden_sibling.pk), ids)
         self.assertIn(str(visible.pk), ids)
 
+    def test_non_movie_dislike_hides_same_title_shows(self):
+        """Daily slots carry no series markers — each airing is a
+        distinct Show (the dedup key covers description) with an
+        empty series_title, so the non-movie dislike falls back to
+        hiding every Show sharing its title_lv."""
+        show = make_show(
+            "a", title_lv="Bez Tabu", content_type="not_movie"
+        )
+        next_ep = make_show(
+            "b", title_lv="Bez Tabu", content_type="not_movie",
+            description_lv="next day's episode",
+        )
+        ch = make_channel()
+        hidden = make_program(channel=ch, show=show)
+        hidden_next = make_program(channel=ch, show=next_ep)
+        visible = make_program(
+            channel=ch, show=make_show("c", title_lv="Cits raidījums")
+        )
+        ShowPreference.objects.create(
+            show=show, reaction="dislike", user=None
+        )
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertNotIn(str(hidden.pk), ids)
+        self.assertNotIn(str(hidden_next.pk), ids)
+        self.assertIn(str(visible.pk), ids)
+
+    def test_movie_dislike_hides_only_that_show(self):
+        """Movies never series-hide — a sibling sharing series_title
+        stays in the feed."""
+        show = make_show(
+            "a", series_title="Māja pie ezera",
+            content_type="movie",
+        )
+        sibling = make_show(
+            "b", series_title="Māja pie ezera",
+            content_type="movie",
+        )
+        ch = make_channel()
+        hidden = make_program(channel=ch, show=show)
+        kept = make_program(channel=ch, show=sibling)
+        ShowPreference.objects.create(
+            show=show, reaction="dislike", user=None
+        )
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertNotIn(str(hidden.pk), ids)
+        self.assertIn(str(kept.pk), ids)
+
     def test_show_disliked_reveals_with_reaction_flag(self):
         show = make_show("a")
         prog = make_program(show=show)
