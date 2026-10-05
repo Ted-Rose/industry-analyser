@@ -180,17 +180,106 @@ describe('ProgramList', () => {
     renderList('/tv/');
     await screen.findByText('Filma');
     expect(screen.getByText('The Movie')).toBeInTheDocument();
-    expect(screen.getByText(/Rating: 8\.1/)).toBeInTheDocument();
-    expect(screen.getByText(/Match Ratio: 0\.90/)).toBeInTheDocument();
+    // Rating rides inside the IMDb link text now.
+    const imdb = screen.getByRole('link', { name: 'IMDb 8.1' });
+    expect(imdb).toHaveAttribute('href', 'https://imdb.com/title/tt1');
+    expect(screen.queryByText(/^Rating: /)).not.toBeInTheDocument();
+    // Show-level pg_rating renders as a badge chip.
+    expect(screen.getByText('PG-13')).toHaveClass('pg-badge');
+    // Match Ratio is debug noise — gone from the card (the filter
+    // form's "Min. Match Ratio:" label is unrelated).
+    expect(
+      screen.queryByText(/^Match Ratio: /),
+    ).not.toBeInTheDocument();
     const like = screen.getByRole('button', { name: 'Like' });
     expect(like).toHaveClass('liked');
     expect(
       screen.getByRole('button', { name: 'Dislike' }),
     ).not.toHaveClass('disliked');
-    expect(
-      screen.getByRole('link', { name: 'IMDb' }),
-    ).toHaveAttribute('href', 'https://imdb.com/title/tt1');
   });
+
+  it('renders the rating inside the IMDb link text', async () => {
+    // No Show: program.imdb_rating + program.url fallback.
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    const link = screen.getByRole('link', { name: 'IMDb 6.5' });
+    expect(link).toHaveAttribute(
+      'href',
+      'https://tet.lv/programme/1',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('renders a bare IMDb link when the rating is unknown',
+    async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [makeProgram({ imdb_rating: null })],
+        }),
+      );
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(
+        screen.getByRole('link', { name: 'IMDb' }),
+      ).toHaveAttribute('href', 'https://tet.lv/programme/1');
+    });
+
+  it('falls back to a "Rating:" span when there is no link ' +
+    'but a rating exists', async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [
+            makeProgram({ url: null, imdb_rating: '7.4' }),
+          ],
+        }),
+      );
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(screen.getByText(/^Rating: 7\.4/)).toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: /IMDb/ }),
+      ).not.toBeInTheDocument();
+    });
+
+  it('renders program-level pg_rating as a badge chip', async () => {
+    mockedApiGet.mockResolvedValue(
+      makePrograms({
+        programs: [makeProgram({ pg_rating: 'TV-MA' })],
+      }),
+    );
+    const { container } = renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    const badge = container.querySelector('.pg-badge');
+    expect(badge).toHaveTextContent('TV-MA');
+  });
+
+  it('omits Rating/PG segments and dangling separators when ' +
+    'no values exist', async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [
+            makeProgram({
+              imdb_rating: null,
+              url: null,
+              pg_rating: null,
+            }),
+          ],
+        }),
+      );
+      const { container } = renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(screen.queryByText(/^Rating: /)).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('link', { name: /IMDb/ }),
+      ).not.toBeInTheDocument();
+      expect(container.querySelector('.pg-badge')).toBeNull();
+      // The metadata row starts cleanly at Channel — no leading
+      // or trailing '|'.
+      const metadata = container.querySelector('.feed-metadata');
+      expect(metadata?.textContent).toMatch(/^Channel:/);
+      expect(metadata?.textContent).not.toMatch(/\|\s*$/);
+    });
 
   it('hides reaction buttons for programs without a Show', async () => {
     renderList('/tv/');

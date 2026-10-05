@@ -365,11 +365,9 @@ function ProgramCard({
   // string on the linked Show must still fall back.
   const imageAlt =
     show?.title_eng || program.title_eng || program.title_lv;
-  const matchRatio =
-    show && show.title_match_ratio
-      ? show.title_match_ratio
-      : program.title_match_ratio;
   const imdbHref = show?.imdb_url || program.url;
+  const rating = displayRating(show?.imdb_rating, program.imdb_rating);
+  const pgRating = show?.pg_rating || program.pg_rating;
   const busy = pendingShowId === show?.id;
 
   return (
@@ -384,10 +382,24 @@ function ProgramCard({
         </div>
         <div className="feed-description">{program.description_lv}</div>
         <div className="feed-metadata">
-          <span>
-            Rating: {displayRating(show?.imdb_rating, program.imdb_rating)}
-          </span>{' '}
-          | <span>Channel: {channels.join(', ')}</span> |{' '}
+          {(imdbHref || rating) && (
+            <>
+              {imdbHref ? (
+                <a
+                  href={imdbHref}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-secondary btn-sm"
+                >
+                  IMDb{rating ? ` ${rating}` : ''}
+                </a>
+              ) : (
+                <span>Rating: {rating}</span>
+              )}{' '}
+              |{' '}
+            </>
+          )}
+          <span>Channel: {channels.join(', ')}</span> |{' '}
           <span>
             Start Time: {formatStartTime(program.start_time)}
             {airings.length > 1 && (
@@ -401,25 +413,11 @@ function ProgramCard({
                 {expanded ? '▾' : '▸'} {airings.length}
               </button>
             )}
-          </span>{' '}
-          |{' '}
-          <span>
-            PG Rating: {show?.pg_rating || program.pg_rating}
-          </span>{' '}
-          |{' '}
-          <span>Match Ratio: {matchRatio.toFixed(2)}</span>
-          {imdbHref && (
+          </span>
+          {pgRating && (
             <>
               {' '}
-              |{' '}
-              <a
-                href={imdbHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn btn-secondary btn-sm ml-2"
-              >
-                IMDb
-              </a>
+              | <span className="pg-badge">{pgRating}</span>
             </>
           )}
         </div>
