@@ -72,6 +72,19 @@ class VacancyScrapper(BaseScraper):
         # search pages must not re-save the same rows.
         self._seen_ids = set()
         self._industry_cache = None
+        # Detail-page enrichment counters — logged periodically so
+        # Cloud Run logs show whether employer data (about etc.) is
+        # being collected at all.
+        self._detail_fetches = 0
+        self._detail_skipped_fresh = 0
+        self._detail_failed = 0
+        self._detail_with_about = 0
+        enrich = 'enabled' if self.enrich_search_results else 'OFF'
+        logger.info(
+            f"Portal {self.portal_id} "
+            f"(type={self.config.get('type') or 'api'}) — "
+            f"detail enrichment {enrich}"
+        )
 
     def load_config(self, portal_id):
         return load_portals_config().get(str(portal_id))
@@ -221,10 +234,12 @@ class VacancyScrapper(BaseScraper):
         Vacancy model needs.
         """
         if not self._needs_detail_fetch(result):
+            self._detail_skipped_fresh += 1
             return result
         info_link = self.get_resource_info_link(result)
         response = self.make_request(info_link)
         if response is None:
+            self._detail_failed += 1
             logger.warning(
                 f"Detail page fetch failed for vacancy "
                 f"{result.get('id')}"
@@ -235,11 +250,23 @@ class VacancyScrapper(BaseScraper):
             data, result['id']
         )
         if detail is None:
+            self._detail_failed += 1
             logger.warning(
                 f"No detail JSON for vacancy {result.get('id')} "
                 f"at {info_link}"
             )
             return result
+        self._detail_fetches += 1
+        if (detail.get('employer') or {}).get('about'):
+            self._detail_with_about += 1
+        if self._detail_fetches % 25 == 0:
+            logger.info(
+                f"Detail enrichment progress: "
+                f"{self._detail_fetches} fetched "
+                f"({self._detail_with_about} with employer "
+                f"'about'), {self._detail_skipped_fresh} "
+                f"fresh-skipped, {self._detail_failed} failed"
+            )
         enriched = dict(result)
         enriched['_detail'] = detail
         return enriched
@@ -497,7 +524,7 @@ class VacancyScrapper(BaseScraper):
         # standardDetails sections and OCR the attached file when
         # present, so image-only ads still feed keyword matching.
         detail = result.get('_detail')
-        if detail is not None:
+        if detail:
             vacancy.detail_fetched_at = timezone.now()
             vacancy._pending_employer_detail = (
                 company_linking.employer_detail_slice(detail)
@@ -574,6 +601,14 @@ class VacancyScrapper(BaseScraper):
 
     def create_or_update_resources(self, vacancies: List[Vacancy]):
         vacancies = [v for v in vacancies if v is not None]
+        if self.enrich_search_results:
+            logger.info(
+                f"Detail enrichment totals: "
+                f"{self._detail_fetches} fetched "
+                f"({self._detail_with_about} with employer "
+                f"'about'), {self._detail_skipped_fresh} "
+                f"fresh-skipped, {self._detail_failed} failed"
+            )
         scraped_ids = {v.vacancy_portal_id for v in vacancies}
         # Materialize once — a keyed dict beats a per-row .get().
         existing_by_portal_id = {
@@ -798,6 +833,7 @@ class VacancyScrapper(BaseScraper):
         # Rich employer fields — nextjs detail slices only; carries
         # the reg-code collision/change flagging.
         detailed_pks = set()
+        about_pks = set()
         for employer_id, detail in details.items():
             company = companies.get(employer_id)
             if company is None:
@@ -806,6 +842,16 @@ class VacancyScrapper(BaseScraper):
                 company, detail, now=now
             )
             detailed_pks.add(company.pk)
+            if company.about:
+                about_pks.add(company.pk)
+        if details:
+            logger.info(
+                f"Employer detail applied to "
+                f"{len(detailed_pks)} companies "
+                f"({len(about_pks)} with 'about' text; "
+                f"{len(details) - len(detailed_pks)} slices "
+                f"without a matching company)"
+            )
 
         # Renames among non-enriched employers — routine: the alias
         # sighting below records the name, just refresh the display

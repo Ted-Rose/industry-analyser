@@ -143,6 +143,13 @@ def apply_employer_detail(company, detail_slice, now=None):
     rules (reg-code collision / change -> needs_review)."""
     now = now or timezone.now()
     employer = detail_slice.get('employer') or {}
+    if not employer:
+        logger.warning(
+            f"Vacancy detail for employer_id "
+            f"{detail_slice.get('employer_id')} carries no "
+            f"'employer' object — company {company.pk} "
+            f"({company.name}) keeps empty about/contacts"
+        )
 
     name = (detail_slice.get('employer_name') or '').strip()
     if name:
