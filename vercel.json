@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "bash build_files.sh > vercel_build_log.txt 2>&1 || true",
+  "buildCommand": "echo vercel-build-probe > vercel_build_log.txt",
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ]
