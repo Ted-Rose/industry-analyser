@@ -86,12 +86,20 @@ export default function VacancyList() {
       </a>
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2 className="mb-0">Vacancies</h2>
-        <Link
-          to="/vacancies/keywords"
-          className="btn btn-sm btn-outline-secondary"
-        >
-          + Add Keyword
-        </Link>
+        <div className="d-flex gap-2">
+          <Link
+            to="/companies"
+            className="btn btn-sm btn-outline-secondary"
+          >
+            Companies
+          </Link>
+          <Link
+            to="/vacancies/keywords"
+            className="btn btn-sm btn-outline-secondary"
+          >
+            + Add Keyword
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
