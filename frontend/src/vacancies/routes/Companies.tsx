@@ -2,15 +2,20 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
+import IdentityTag from '../components/IdentityTag';
 import { fetchCompanies } from '../api';
 import { formatDate } from '../format';
 import { errorDetail } from '../../shared/api/errors';
+import type { CompanyOut } from '../api';
 
 /**
  * React port of companies.html — the canonical-company browser with
  * a name/reg-code search box. `q` and `page` live in the URL so
  * filtered pages are bookmarkable; the input is staged and applied
  * on Search (the template's GET form), clearing `page`.
+ *
+ * Renders as a table on ≥md viewports and a stacked card list below
+ * that — seven columns don't fit a phone.
  */
 export default function Companies() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -45,6 +50,7 @@ export default function Companies() {
   };
 
   const companies = data?.companies ?? [];
+  const empty = companies.length === 0 && !isPending;
 
   return (
     <div className="container-fluid py-4 vacancies-page">
@@ -66,29 +72,30 @@ export default function Companies() {
         <div className="card-body">
           <form
             onSubmit={applySearch}
-            className="d-flex align-items-center"
+            className="d-flex flex-column flex-sm-row align-items-stretch align-items-sm-center"
           >
             <input
               type="text"
               name="q"
               value={draftQ}
               onChange={(e) => setDraftQ(e.target.value)}
-              className="form-control form-control-sm me-2"
+              className="form-control form-control-sm me-sm-2 mb-2 mb-sm-0 company-search-input"
               placeholder="Name or reg. code"
-              style={{ minWidth: '280px' }}
             />
-            <button type="submit" className="btn btn-primary btn-sm">
-              Search
-            </button>
-            {query && (
-              <button
-                type="button"
-                className="btn btn-link btn-sm"
-                onClick={clearSearch}
-              >
-                Clear
+            <div className="d-flex align-items-center">
+              <button type="submit" className="btn btn-primary btn-sm">
+                Search
               </button>
-            )}
+              {query && (
+                <button
+                  type="button"
+                  className="btn btn-link btn-sm"
+                  onClick={clearSearch}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </form>
         </div>
       </div>
@@ -110,8 +117,8 @@ export default function Companies() {
         </span>
       </div>
 
-      {/* Table */}
-      <div className="card filter-card">
+      {/* Table — desktop */}
+      <div className="card filter-card d-none d-md-block">
         <div className="card-body p-0">
           <div className="table-responsive">
             <table className="table table-hover table-sm mb-0">
@@ -127,7 +134,7 @@ export default function Companies() {
                 </tr>
               </thead>
               <tbody>
-                {companies.length === 0 && !isPending ? (
+                {empty ? (
                   <tr>
                     <td
                       colSpan={7}
@@ -143,16 +150,30 @@ export default function Companies() {
                         <Link to={`/companies/${company.id}`}>
                           {company.name || '(unnamed)'}
                         </Link>
+                        {company.webpage_url && (
+                          <a
+                            href={company.webpage_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="company-site-link ms-2"
+                            title={company.webpage_url}
+                          >
+                            site ↗
+                          </a>
+                        )}
+                        {company.about && (
+                          <div className="company-about">
+                            {company.about}
+                          </div>
+                        )}
                       </td>
                       <td>{company.reg_code || '—'}</td>
                       <td>
                         {company.identities.map((identity) => (
-                          <span
+                          <IdentityTag
                             key={`${identity.source}:${identity.employer_id}`}
-                            className="source-tag"
-                          >
-                            {identity.source}:{identity.employer_id}
-                          </span>
+                            identity={identity}
+                          />
                         ))}
                       </td>
                       <td>{company.vacancy_count}</td>
@@ -176,6 +197,21 @@ export default function Companies() {
         </div>
       </div>
 
+      {/* Cards — mobile */}
+      <div className="d-md-none">
+        {empty ? (
+          <div className="card filter-card">
+            <div className="card-body text-center text-muted py-5">
+              No companies found.
+            </div>
+          </div>
+        ) : (
+          companies.map((company) => (
+            <CompanyCard key={company.id} company={company} />
+          ))
+        )}
+      </div>
+
       {data && (
         <Pagination
           page={data.page}
@@ -184,6 +220,59 @@ export default function Companies() {
           hasNext={data.has_next}
         />
       )}
+    </div>
+  );
+}
+
+/** Stacked company card for <md viewports — same fields as the
+ *  desktop table's row, reflowed vertically. */
+function CompanyCard({ company }: { company: CompanyOut }) {
+  return (
+    <div className="card filter-card mb-3">
+      <div className="card-body">
+        <div className="d-flex justify-content-between align-items-start gap-2">
+          <span className="company-name">
+            <Link to={`/companies/${company.id}`}>
+              {company.name || '(unnamed)'}
+            </Link>
+          </span>
+          {company.needs_review && (
+            <span className="badge bg-warning text-dark flex-shrink-0">
+              review
+            </span>
+          )}
+        </div>
+        {company.about && (
+          <p className="company-about mt-1 mb-2">{company.about}</p>
+        )}
+        <div className="mb-2">
+          {company.identities.map((identity) => (
+            <IdentityTag
+              key={`${identity.source}:${identity.employer_id}`}
+              identity={identity}
+            />
+          ))}
+          {company.webpage_url && (
+            <a
+              href={company.webpage_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="source-tag"
+            >
+              website ↗
+            </a>
+          )}
+        </div>
+        <div className="company-card-meta">
+          {company.reg_code && <div>Reg. code {company.reg_code}</div>}
+          <div>
+            {company.vacancy_count}{' '}
+            {company.vacancy_count === 1 ? 'vacancy' : 'vacancies'} ·{' '}
+            {company.open_count} open
+          </div>
+          <div>Last seen {formatDate(company.last_seen)}</div>
+        </div>
+      </div>
     </div>
   );
 }

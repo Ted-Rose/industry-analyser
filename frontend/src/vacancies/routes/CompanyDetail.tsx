@@ -7,6 +7,7 @@ import {
 } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import Pagination from '../components/Pagination';
+import IdentityTag from '../components/IdentityTag';
 import { fetchCompany } from '../api';
 import { deadlineClass, formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
@@ -78,12 +79,10 @@ export default function CompanyDetail() {
                   </h2>
                   <div className="mb-2">
                     {data.identities.map((identity) => (
-                      <span
+                      <IdentityTag
                         key={`${identity.source}:${identity.employer_id}`}
-                        className="source-tag"
-                      >
-                        {identity.source}:{identity.employer_id}
-                      </span>
+                        identity={identity}
+                      />
                     ))}
                   </div>
                   {data.about && (
