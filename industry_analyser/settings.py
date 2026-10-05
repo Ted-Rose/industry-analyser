@@ -243,6 +243,12 @@ STATICFILES_DIRS = [
 # on every page load.
 WHITENOISE_IMMUTABLE_FILE_TEST = r'\.[0-9A-Za-z_-]{8}\.'
 
+# Vercel deploys this project as file-based api/ functions with no
+# usable build step (buildCommand fails every deploy), so collectstatic
+# never runs there — serve from the finders instead. Cloud Run still
+# uses collectstatic output via the Dockerfile.
+WHITENOISE_USE_FINDERS = bool(os.environ.get('VERCEL'))
+
 # django-vite bridge: dev_mode (VITE_DEV=1) emits dev-server asset
 # URLs; otherwise entries resolve through frontend_dist/manifest.json.
 # dev_server_port must match server.port in frontend/vite.config.ts —

@@ -24,7 +24,8 @@ terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.*
 
-# React frontend (built output is generated at deploy time)
+# React frontend (frontend_dist IS committed: Vercel can't run a
+# build step on this project, so it ships the built assets directly —
+# rebuild and recommit it when frontend sources change)
 node_modules/
 frontend/node_modules/
-frontend_dist/

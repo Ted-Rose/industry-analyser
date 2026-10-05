@@ -1,0 +1,1 @@
+import{r as e}from"./queryClient.B86DCVUJ.js";function o(){return e.useMemo(()=>{const t=document.getElementById("spa-bootstrap");if(!t||!t.textContent)return{};try{return JSON.parse(t.textContent)}catch{return{}}},[])}export{o as u};
