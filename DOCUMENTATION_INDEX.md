@@ -31,6 +31,20 @@ Complete guide to all documentation in the Industry Analyser project.
 | [fetcher/QUICK_REFERENCE.md](fetcher/QUICK_REFERENCE.md) | Quick command reference | Developers (daily use) |
 | [docs/cvlv_api_integration_task.md](docs/cvlv_api_integration_task.md) | cv.lv API integration task details | Developers |
 
+### Classified Ads App (ss.com)
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [docs/property_linking_plan.md](docs/property_linking_plan.md) | Ad→canonical-property dedup design | Developers |
+| [docs/db_health_report_2026_10.md](docs/db_health_report_2026_10.md) | Production DB health audit + dedup findings | Everyone |
+| [docs/classified_ads_remediation_plan.md](docs/classified_ads_remediation_plan.md) | Master remediation plan for audit findings | Developers |
+| [docs/property_match_review_2026_10.md](docs/property_match_review_2026_10.md) | Probable-duplicate property review (confidence-tiered) | Reviewers |
+| [docs/ad_presence_intervals_plan.md](docs/ad_presence_intervals_plan.md) | Sightings→open/close/reopen interval design | Developers |
+| [docs/duplicate_ad_rows_quarantine.md](docs/duplicate_ad_rows_quarantine.md) | Same-link duplicate rows hidden via `is_hidden` | Developers |
+| [docs/cross_deal_stats_impact_validation.md](docs/cross_deal_stats_impact_validation.md) | Do cross-deal dupes pollute stats? Validation | Developers |
+| [docs/property_conflation_prevention_plan.md](docs/property_conflation_prevention_plan.md) | Preventing multi-unit property conflation | Developers |
+| [docs/ad_data_quality_plan.md](docs/ad_data_quality_plan.md) | Data-quality triage & fixes plan | Developers |
+
 ### Infrastructure
 
 | Document | Description | Audience |
