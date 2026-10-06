@@ -258,10 +258,25 @@ python manage.py reclassify_tv_programs
   `ALLOWED_HOST_IP`, `DB_SSL_CERT` (or `capem`).
 - DB: this checkout's `.env` points `DATABASE_URL` at the
   **production Aiven PostgreSQL** (`industryanalyser` @
-  `*.aivencloud.com`) — every `manage.py` command hits prod by
-  default, which is exactly what you want when the user asks to
-  query/analyze real data. For tests, `migrate`, and any
-  scratch/seed writes, override to SQLite:
+  `*.aivencloud.com`) with the admin user — every `manage.py`
+  command hits prod by default.
+- Read-only prod access: `private_settings.json` holds a dedicated
+  read-only role under `DATABASES.default` (user `ai_agent`;
+  Django-style NAME/USER/PASSWORD/HOST/PORT). **Prefer it for all
+  investigation/analysis queries against prod** — the role has
+  SELECT-only grants plus `TEMP` revoked, so writes are rejected
+  server-side. Build a `DATABASE_URL` from it for any
+  `manage.py`/`dbshell`/ORM work:
+
+      DATABASE_URL=$(jq -r '.DATABASES.default
+          | "postgresql://\(.USER):\(.PASSWORD|@uri)@\(.HOST):\(.PORT)/\(.NAME)"'
+          private_settings.json) python manage.py shell
+
+  or connect with `venv/bin/python` + `psycopg2` using the same
+  fields (`sslmode=verify-full`, `sslrootcert=ca.pem`) for raw SQL.
+  Same extraction pattern as `db_backups/local_db_backup.sh`.
+- Tests/scratch DB: for `test`, `migrate`, and any scratch/seed
+  writes, override to SQLite:
   `DATABASE_URL=sqlite:///db.sqlite3 python manage.py …` (Django's
   test runner creates a database on whatever `DATABASE_URL` targets
   — never run tests against the default). `db.sqlite3` is dormant
@@ -303,10 +318,12 @@ and let CI apply.
 ## Guardrails
 
 - **The default DB is production** — `.env`'s `DATABASE_URL` targets
-  the live Aiven PostgreSQL, so `migrate`, scrapers and fix scripts
-  run locally write straight to prod. Read-only queries against the
-  default are fine (that's how real-data analysis works); for
-  anything that writes, or for tests, prefix with
+  the live Aiven PostgreSQL with an admin user, so `migrate`,
+  scrapers and fix scripts run locally write straight to prod. For
+  read-only investigations use the `ai_agent` credentials in
+  `private_settings.json` (`DATABASES.default`, see Configuration) —
+  the role cannot write, so an accidental mutation fails instead of
+  corrupting prod. Tests and scratch writes go to SQLite via
   `DATABASE_URL=sqlite:///db.sqlite3`.
 - **Migrations**: generate files freely (`makemigrations` touches no
   DB) and apply them only against the SQLite override above — never

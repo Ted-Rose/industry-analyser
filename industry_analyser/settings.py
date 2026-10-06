@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 import getpass
 from urllib.parse import quote_plus
 
@@ -184,6 +185,17 @@ DATABASES = {
 db_ssl_cert = _db_ssl_pem_from_env()
 if db_ssl_cert:
     _apply_db_ssl_cert(DATABASES['default'], db_ssl_cert, _DB_SSL_CA_FILE)
+
+# Tests always run on a local throwaway sqlite DB: the configured
+# connection is a read-only user against production that cannot
+# create the test database.
+if 'test' in sys.argv:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
