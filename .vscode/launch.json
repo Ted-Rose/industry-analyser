@@ -11,7 +11,11 @@
             ],
             "django": true,
             "justMyCode": false,
-            "console": "integratedTerminal"
+            // internalConsole: adapter spawns the debuggee directly;
+            // integratedTerminal's terminal-spawned launcher once
+            // stalled waiting for the IDE to connect back (output in
+            // Debug Console instead of a terminal).
+            "console": "internalConsole"
         },
         {
             "name": "Scrape: Apartment Ads",
@@ -132,7 +136,7 @@
                 "VITE_DEV": "1",
                 "VITE_PORT": "5274"
             },
-            "console": "integratedTerminal"
+            "console": "internalConsole"
         },
         {
             // Runs `npm run dev` in frontend/ on :5274 (server.port in
