@@ -19,7 +19,7 @@ from classified_ads.models import (
 from classified_ads.property_matcher import (
     extract_apartment_no, match_property, normalize_street_name,
 )
-from scrape_jobs.models import ScrapeJobRun, ScrapeJobRunItem
+from scrape_jobs.models import ScrapeJob, ScrapeJobRun, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
 
 
@@ -739,6 +739,117 @@ class HousingAdScraperRunnerTest(TestCase):
             urls,
             [house.url + 'hand_over/', house.url + 'sell/'],
         )
+
+
+class GcpFallbackCooldownTest(TestCase):
+    """On GCP Cloud Run the scrape commands are a weekly fallback:
+    they exit early (no new run row, no scraping) when the job had a
+    SUCCESS run within the last 6 days or a live RUNNING one. Local
+    invocations are never gated."""
+
+    APT_MODULE = (
+        'classified_ads.management.commands.scrape_apartment_ads'
+    )
+    HOUSE_MODULE = (
+        'classified_ads.management.commands.scrape_housing_ads'
+    )
+
+    def _make_run(self, slug, status, completed_at=None):
+        job, _ = ScrapeJob.objects.get_or_create(slug=slug)
+        return ScrapeJobRun.objects.create(
+            job=job,
+            cycle_key='2024-01-01',
+            execution_id='test',
+            executed_by='local',
+            status=status,
+            completed_at=completed_at,
+        )
+
+    def _invoke(self, module, command, scraper_name, executed_by):
+        """call_command with executed_by patched and the scraper
+        class mocked; returns the scraper class mock."""
+        with mock.patch(
+            f'{module}.detect_executed_by', return_value=executed_by
+        ), mock.patch(f'{module}.{scraper_name}') as scraper_cls:
+            call_command(command)
+        return scraper_cls
+
+    def test_apartment_gcp_skips_after_recent_success(self):
+        self._make_run(
+            'classified_ads.apartment_ads',
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now(),
+        )
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke(
+            self.APT_MODULE, 'scrape_apartment_ads',
+            'ApartmentAdScraper', 'gcp_cloud_run',
+        )
+        # Early return before ScrapeJobRunner(): no new run row.
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_apartment_gcp_scrapes_after_stale_success(self):
+        self._make_run(
+            'classified_ads.apartment_ads',
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(days=7),
+        )
+        scraper_cls = self._invoke(
+            self.APT_MODULE, 'scrape_apartment_ads',
+            'ApartmentAdScraper', 'gcp_cloud_run',
+        )
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_apartment_local_never_gated(self):
+        self._make_run(
+            'classified_ads.apartment_ads',
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now(),
+        )
+        scraper_cls = self._invoke(
+            self.APT_MODULE, 'scrape_apartment_ads',
+            'ApartmentAdScraper', 'local',
+        )
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_housing_gcp_skips_after_recent_success(self):
+        self._make_run(
+            'classified_ads.house_ads',
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now(),
+        )
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke(
+            self.HOUSE_MODULE, 'scrape_housing_ads',
+            'HousingAdScraper', 'gcp_cloud_run',
+        )
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_housing_gcp_scrapes_after_stale_success(self):
+        self._make_run(
+            'classified_ads.house_ads',
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(days=7),
+        )
+        scraper_cls = self._invoke(
+            self.HOUSE_MODULE, 'scrape_housing_ads',
+            'HousingAdScraper', 'gcp_cloud_run',
+        )
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_housing_local_never_gated(self):
+        self._make_run(
+            'classified_ads.house_ads',
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now(),
+        )
+        scraper_cls = self._invoke(
+            self.HOUSE_MODULE, 'scrape_housing_ads',
+            'HousingAdScraper', 'local',
+        )
+        self.assertTrue(scraper_cls.return_value.run.called)
 
 
 class PaginationEndDetectionTest(TestCase):

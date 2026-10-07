@@ -1,9 +1,18 @@
+import logging
 import traceback
 
 from django.core.management.base import BaseCommand, CommandError
 
 from classified_ads.apartment_scraper import ApartmentAdScraper
-from scrape_jobs.runner import ScrapeJobRunner
+from scrape_jobs.runner import (
+    ScrapeJobRunner,
+    detect_executed_by,
+    recent_scrape_exists,
+)
+
+logger = logging.getLogger('classified_ads')
+
+JOB_SLUG = 'classified_ads.apartment_ads'
 
 
 class Command(BaseCommand):
@@ -41,10 +50,30 @@ class Command(BaseCommand):
             help='Fetch and parse but write nothing (no ads, '
                  'sightings, or run rows)',
         )
+        parser.add_argument(
+            '--ignore-cooldown',
+            action='store_true',
+            dest='ignore_cooldown',
+            help='GCP: run even if a scrape succeeded in the last '
+                 '6 days',
+        )
 
     def handle(self, *args, **options):
+        if (
+            detect_executed_by() == 'gcp_cloud_run'
+            and not options['ignore_cooldown']
+            and recent_scrape_exists(JOB_SLUG)
+        ):
+            msg = (
+                f'{JOB_SLUG}: skipping — a successful run completed '
+                'within the last 6 days (or one is in progress); '
+                'GCP run is a weekly fallback'
+            )
+            logger.info(msg)
+            self.stdout.write(msg)
+            return
         runner = ScrapeJobRunner(
-            slug='classified_ads.apartment_ads',
+            slug=JOB_SLUG,
             description=(
                 'Apartment ads scrape (ss.com regions x deal types)'
             ),

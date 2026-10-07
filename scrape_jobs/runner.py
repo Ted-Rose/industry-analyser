@@ -93,6 +93,28 @@ def ensure_job(slug, description=''):
     return job
 
 
+def recent_scrape_exists(slug, days=6):
+    """True when job ``slug`` had a SUCCESS run completed within the
+    last ``days`` days, or has a live (non-stale-heartbeat) RUNNING
+    run right now. Used by GCP fallback scheduling: a scheduled
+    Cloud Run invocation exits early when a scrape already happened
+    recently (e.g. it was run locally).
+    """
+    job = ScrapeJob.objects.filter(slug=slug).first()
+    if job is None:
+        return False
+    now = timezone.now()
+    cutoff = now - timedelta(days=days)
+    if job.runs.filter(
+        status=ScrapeJobRun.SUCCESS, completed_at__gte=cutoff
+    ).exists():
+        return True
+    live_cutoff = now - timedelta(minutes=job.stale_timeout_minutes)
+    return job.runs.filter(
+        status=ScrapeJobRun.RUNNING, updated_at__gte=live_cutoff
+    ).exists()
+
+
 class ScrapeJobRunner:
     """One instance per command invocation."""
 
