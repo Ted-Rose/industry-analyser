@@ -211,7 +211,8 @@ class Vacancy(models.Model):
     detail_fetched_at = models.DateTimeField(
         null=True,
         help_text="When the public vacancy detail page was last "
-                  "fetched (null for API-only rows)",
+                  "fetched — by the nextjs scrape enrichment or by "
+                  "refetch_vacancies (null for API-only rows)",
     )
     state = models.CharField(max_length=50)
 
