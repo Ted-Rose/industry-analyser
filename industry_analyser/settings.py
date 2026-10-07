@@ -95,6 +95,11 @@ ALLOWED_HOSTS = [
     '.vercel.app'
 ]
 
+# Django only auto-allows localhost variants when ALLOWED_HOSTS is
+# empty, so name them here for local dev.
+if DEBUG:
+    ALLOWED_HOSTS += ['localhost', '[::1]']
+
 _extra_host = env('ALLOWED_HOST_IP', default='')
 if _extra_host:
     ALLOWED_HOSTS.append(_extra_host)
