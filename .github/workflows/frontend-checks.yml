@@ -1,15 +1,13 @@
 name: Frontend checks
 
-# Runs the SPA toolchain on PRs that touch the frontend or any API
-# surface that feeds it — including regenerating the committed
-# OpenAPI schema + api-types.ts so schema/type drift fails the check.
+# Runs the SPA toolchain on every PR and every push to master —
+# including regenerating the committed OpenAPI schema + api-types.ts
+# so schema/type drift fails the check.
 on:
   pull_request:
-    paths:
-      - 'frontend/**'
-      - '**/api.py'
-      - 'requirements.txt'
-      - '.github/workflows/frontend-checks.yml'
+  push:
+    branches: [master]
+  workflow_dispatch:
 
 jobs:
   frontend:
