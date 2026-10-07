@@ -36,6 +36,11 @@ hits live cv.lv (~1 req/s, throttled) plus Gemini OCR.
 
 - `--exclude-keywords A B C` — with `--keyword-id`: skip vacancies
   linked to ANY of these keyword ids
+- `--first-seen-after DATE` / `--first-seen-before DATE` — only
+  vacancies first spotted on/after resp. on/before this date
+  (`YYYY-MM-DD` or ISO datetime; both bounds inclusive)
+- `--offset N` — skip the first N vacancies of the ordered result
+  set (`--offset 300` starts at the 301st; applied before `--limit`)
 - `--limit N` — max vacancies to process (stalest `detail_fetched_at`
   first)
 - `--batch-size N` — query batch size (default: 100)
@@ -52,6 +57,14 @@ python manage.py refetch_vacancies \
 
 # Bounded run without AI calls (e.g. while Gemini quota is thin)
 python manage.py refetch_vacancies --keyword-id 12 --no-ocr --limit 50
+
+# Resume a keyword run where it stopped — skip the first 300 of
+# the ordered results
+python manage.py refetch_vacancies --keyword-id 12 --offset 300
+
+# Only vacancies first spotted in September 2026
+python manage.py refetch_vacancies --keyword-id 12 \
+    --first-seen-after 2026-09-01 --first-seen-before 2026-09-30
 
 # Specific ads by portal id
 python manage.py refetch_vacancies --ids 1655039 1655040
@@ -75,6 +88,11 @@ done: N vacancy(ies) processed: refreshed=..., no_detail=...,
 
 ## Notes
 
+- Result order for `--keyword-id` runs is stalest `detail_fetched_at`
+  first (`NULL`s lead) with `pk` as the tiebreaker, so a repeated
+  query over unchanged rows is deterministic and `--offset` is safe
+  to resume with. Note processed rows get `detail_fetched_at = now`,
+  so after a real run they move to the back of the ordering.
 - Overwrite semantics: `title`/`company_name` are filled only when the
   payload reports them; `salary_*`/`application_deadline` are
   overwritten only when the source key was present — an explicit

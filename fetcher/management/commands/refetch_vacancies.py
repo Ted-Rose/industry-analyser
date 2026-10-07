@@ -20,6 +20,8 @@ Usage:
     python manage.py refetch_vacancies --keyword-id 12 --dry-run
     python manage.py refetch_vacancies --keyword-id 12 \
         --exclude-keywords 30 31 --limit 50
+    python manage.py refetch_vacancies --keyword-id 12 \
+        --first-seen-after 2026-09-01 --offset 300
     python manage.py refetch_vacancies --ids 1655039 1655040 \
         --no-ocr
 """
@@ -29,7 +31,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.utils.dateparse import parse_date, parse_datetime
 
 from fetcher import company_linking
 from fetcher.management.commands.link_vacancies_to_companies import (
@@ -88,6 +90,22 @@ class Command(BaseCommand):
             help='Max vacancies to process.',
         )
         parser.add_argument(
+            '--offset', type=int, default=None,
+            help='Skip the first N vacancies of the ordered '
+                 'result set — --offset 300 starts at the '
+                 '301st (applied before --limit).',
+        )
+        parser.add_argument(
+            '--first-seen-after', metavar='DATE', default=None,
+            help='Only vacancies first spotted on or after '
+                 'this date (YYYY-MM-DD or ISO datetime).',
+        )
+        parser.add_argument(
+            '--first-seen-before', metavar='DATE', default=None,
+            help='Only vacancies first spotted on or before '
+                 'this date (YYYY-MM-DD or ISO datetime).',
+        )
+        parser.add_argument(
             '--batch-size', type=int, default=100,
             help='Rows fetched per query batch (default: 100).',
         )
@@ -107,14 +125,18 @@ class Command(BaseCommand):
             raise CommandError('--batch-size must be >= 1.')
         if options['limit'] is not None and options['limit'] < 1:
             raise CommandError('--limit must be >= 1.')
+        if options['offset'] is not None and options['offset'] < 0:
+            raise CommandError('--offset must be >= 0.')
         if options['ids'] and (
             options['keyword_id'] is not None
             or options['exclude_keywords']
+            or options['first_seen_after']
+            or options['first_seen_before']
         ):
             raise CommandError(
                 '--ids bypasses keyword selection — do not '
-                'combine it with --keyword-id or '
-                '--exclude-keywords.'
+                'combine it with --keyword-id, '
+                '--exclude-keywords or --first-seen-*.'
             )
         if not options['ids'] and options['keyword_id'] is None:
             raise CommandError(
@@ -128,6 +150,8 @@ class Command(BaseCommand):
                 'pages only exist on the public cv.lv portal.'
             )
         qs = self._select_vacancies(options)
+        if options['offset']:
+            qs = qs[options['offset']:]
         if options['limit']:
             qs = qs[:options['limit']]
         total = qs.count()
@@ -182,6 +206,7 @@ class Command(BaseCommand):
         qs = Vacancy.objects.filter(
             keywords__id=options['keyword_id']
         )
+        qs = self._apply_first_seen_filters(qs, options)
         excluded = options['exclude_keywords'] or []
         if excluded:
             # Explicit subquery — chaining
@@ -192,10 +217,44 @@ class Command(BaseCommand):
                     keywords__id__in=excluded
                 )
             )
-        # Stalest detail first — rows never detail-fetched lead.
+        # Stalest detail first — rows never detail-fetched
+        # lead. The pk tiebreaker keeps ties deterministic so
+        # --offset resumes predictably (equal detail_fetched_at
+        # values — above all the NULLs — have no natural order).
         return qs.order_by(
-            F('detail_fetched_at').asc(nulls_first=True)
+            F('detail_fetched_at').asc(nulls_first=True), 'pk'
         )
+
+    @staticmethod
+    def _apply_first_seen_filters(qs, options):
+        """Apply --first-seen-after/--first-seen-before. Plain
+        dates compare against ``first_seen__date`` so a boundary
+        day covers that whole day; full ISO datetimes compare
+        directly. Both bounds are inclusive."""
+        for flag, op in (
+            ('first_seen_after', 'gte'),
+            ('first_seen_before', 'lte'),
+        ):
+            raw = options[flag]
+            if raw is None:
+                continue
+            parsed = parse_date(raw)
+            if parsed is not None:
+                qs = qs.filter(
+                    **{f'first_seen__date__{op}': parsed}
+                )
+                continue
+            parsed = parse_datetime(raw)
+            if parsed is None:
+                raise CommandError(
+                    f"--{flag.replace('_', '-')} must be a "
+                    f"date (YYYY-MM-DD) or ISO datetime — "
+                    f"got {raw!r}."
+                )
+            if timezone.is_naive(parsed):
+                parsed = timezone.make_aware(parsed)
+            qs = qs.filter(**{f'first_seen__{op}': parsed})
+        return qs
 
     def _refetch_all(self, scraper, qs, total, options):
         counts = {
