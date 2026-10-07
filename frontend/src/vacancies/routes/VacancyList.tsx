@@ -172,6 +172,7 @@ export default function VacancyList() {
                 showActiveOnly: params.showActiveOnly,
                 companyFilter: params.companyFilter,
               }}
+              staged={draft}
             />
           )}
           <form onSubmit={applyFilters}>

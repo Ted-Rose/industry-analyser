@@ -25,6 +25,9 @@ interface AppliedFilters {
 
 interface SavedFiltersBarProps {
   applied: AppliedFilters;
+  /** The staged (uncommitted) checkbox draft — what the save
+   *  buttons persist and apply to the URL. */
+  staged: AppliedFilters;
 }
 
 /** Mirrors SavedFilterIn.name's max_length on the API. */
@@ -89,13 +92,16 @@ function promptName(
  * the source of truth — the staged checkbox draft re-syncs from it).
  * The selected option is derived: whichever preset's params match
  * the applied URL, so editing filters or navigating falls back to
- * the placeholder. "Save current" snapshots the *applied* URL
- * params, not the staged draft. The `enabled` gate matters: an
+ * the placeholder. "Save current" and "Overwrite" snapshot the
+ * *staged* checkbox draft — and apply it to the URL like a Search
+ * press, so the saved preset is what the user sees checked and
+ * what actually filters the list. The `enabled` gate matters: an
  * authed request from an anonymous visitor would 401 and the client
  * would bounce the whole page to /admin/login/.
  */
 export default function SavedFiltersBar({
   applied,
+  staged,
 }: SavedFiltersBarProps) {
   const { user } = useBootstrap();
   const [, setSearchParams] = useSearchParams();
@@ -119,13 +125,27 @@ export default function SavedFiltersBar({
   );
   const mutationError = (err: unknown) => setError(errorDetail(err));
 
-  const appliedPayload = () => ({
-    include_keywords: applied.includeKeywords,
-    exclude_keywords: applied.excludeKeywords,
-    include_industries: applied.includeIndustries,
-    show_active_only: applied.showActiveOnly,
-    company_filter: applied.companyFilter,
+  const payloadOf = (f: AppliedFilters) => ({
+    include_keywords: f.includeKeywords,
+    exclude_keywords: f.excludeKeywords,
+    include_industries: f.includeIndustries,
+    show_active_only: f.showActiveOnly,
+    company_filter: f.companyFilter,
   });
+
+  /** Write the staged draft to the URL when it differs from the
+   *  applied params — a save doubles as a Search press so the list
+   *  shows what was just persisted. Skipped when nothing is
+   *  staged, so saving while paging doesn't reset ?page=. */
+  const applyStaged = () => {
+    const next = toSearchParams(payloadOf(staged));
+    if (
+      next.toString() !==
+      toSearchParams(payloadOf(applied)).toString()
+    ) {
+      setSearchParams(next);
+    }
+  };
 
   const onSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const filter = (filters ?? []).find(
@@ -142,13 +162,12 @@ export default function SavedFiltersBar({
       setError,
     );
     if (name === null) return;
-    // Saved params are exactly the applied ones — once the list
-    // refetch lands (and the optimistic cache entry before it), the
-    // derived selection above resolves to the new preset on its own.
-    createFilter.mutate(
-      { name, ...appliedPayload() },
-      { onError: mutationError },
-    );
+    const input = { name, ...payloadOf(staged) };
+    applyStaged();
+    // Once the list refetch lands (and the optimistic cache entry
+    // before it), the derived selection above resolves to the new
+    // preset on its own.
+    createFilter.mutate(input, { onError: mutationError });
   };
 
   const overwriteSelected = () => {
@@ -160,10 +179,11 @@ export default function SavedFiltersBar({
     )
       return;
     setError('');
+    applyStaged();
     updateFilter.mutate(
       {
         id: selected.id,
-        input: { name: selected.name, ...appliedPayload() },
+        input: { name: selected.name, ...payloadOf(staged) },
       },
       { onError: mutationError },
     );

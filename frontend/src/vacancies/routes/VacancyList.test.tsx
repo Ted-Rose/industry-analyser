@@ -435,13 +435,16 @@ describe('VacancyList saved filters', () => {
     );
   });
 
-  it('saves the applied URL params, not the staged draft', async () => {
+  it('saves the staged draft and applies it to the URL', async () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([]);
     mockedApiPost.mockResolvedValue(
       makeSavedFilter({
         id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
         name: 'My filter',
+        include_keywords: ['python', 'django'],
+        exclude_keywords: [],
+        include_industries: [],
       }),
     );
     vi.spyOn(window, 'prompt').mockReturnValue('My filter');
@@ -450,8 +453,8 @@ describe('VacancyList saved filters', () => {
     );
     await screen.findAllByText('Python developer');
 
-    // Stage an extra keyword without pressing Search — it must NOT
-    // be part of the saved preset.
+    // Stage an extra keyword without pressing Search — saving must
+    // snapshot the checked state the user sees, not the applied URL.
     const [includeDjango] = screen.getAllByLabelText('django');
     fireEvent.click(includeDjango);
 
@@ -464,13 +467,56 @@ describe('VacancyList saved filters', () => {
       '/api/vacancies/filters/',
       {
         name: 'My filter',
-        include_keywords: ['python'],
+        include_keywords: ['python', 'django'],
         exclude_keywords: [],
         include_industries: [],
         show_active_only: true,
         company_filter: 'all',
       },
     );
+    // Saving doubles as a Search press — the draft lands in the
+    // URL (and the stale ?page goes, like any filter apply).
+    await waitFor(() =>
+      expect(
+        calledUrls().some((u) =>
+          u.includes('include_keywords=django'),
+        ),
+      ).toBe(true),
+    );
+    const applied = calledUrls().find((u) =>
+      u.includes('include_keywords=django'),
+    )!;
+    expect(applied).not.toContain('page=');
+  });
+
+  it('saving without staged changes leaves the URL untouched', async () => {
+    setBootstrap({ user: 'alice' });
+    mockAuthedGet([]);
+    mockedApiPost.mockResolvedValue(
+      makeSavedFilter({
+        id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+        name: 'My filter',
+        include_keywords: ['python'],
+        exclude_keywords: [],
+        include_industries: [],
+        show_active_only: false,
+      }),
+    );
+    vi.spyOn(window, 'prompt').mockReturnValue('My filter');
+    renderList('/vacancies?include_keywords=python&page=3');
+    await screen.findAllByText('Python developer');
+    const listCalls = () =>
+      calledUrls().filter((u) => !u.includes('/filters/'));
+    expect(listCalls()).toHaveLength(1);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save current' }),
+    );
+
+    await waitFor(() => expect(mockedApiPost).toHaveBeenCalled());
+    // Nothing staged → no navigation, no refetch, ?page=3 stays.
+    expect(listCalls()).toHaveLength(1);
+    expect(listCalls()[0]).toContain('page=3');
   });
 
   it('writes a preset company_filter into the URL on select', async () => {
