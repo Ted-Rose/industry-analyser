@@ -2,149 +2,47 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Django: Run Server",
+            // Child of the "LOCAL SPIN-UP" compound — do not launch
+            // alone: without vite on :5274 the SPA sits on "Loading
+            // React app…" (check industry_analyser.W001 warns).
+            // DEBUG=true is REQUIRED and deliberately lives here,
+            // not in .env: django-vite's dev_mode is `DEBUG and
+            // VITE_DEV=1`, and .env keeps DEBUG=False for
+            // prod-parity runs. Read from .env with overwrite=False,
+            // so this env wins.
+            // Ports are deliberately non-default — another project's
+            // servers on :5173/:8000 used to shadow these.
+            "name": "— Django :8274 (spin-up child)",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
             "args": [
-                "runserver"
-            ],
-            "django": true,
-            "justMyCode": false,
-            // internalConsole: adapter spawns the debuggee directly;
-            // integratedTerminal's terminal-spawned launcher once
-            // stalled waiting for the IDE to connect back (output in
-            // Debug Console instead of a terminal).
-            "console": "internalConsole"
-        },
-        {
-            "name": "Scrape: Apartment Ads",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "scrape_apartment_ads",
-                "--max-pages", "5"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Scrape: Housing Ads",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "scrape_housing_ads",
-                "--max-pages", "5"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal"
-        },
-        {
-            "name": "Scrape: Vacancies (all portals)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "scrape_vacancies"
-            ],
-            "django": true,
-            "justMyCode": true,
-            "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/venv/bin/python",
-            "console": "integratedTerminal",
-            "env": {
-                "PYTHONPATH": "${workspaceFolder}"
-            }
-        },
-        {
-            "name": "Scrape: Blogs",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "scrape_blogs",
-                "--max-api-requests", "20"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/venv/bin/python"
-        },
-        {
-            "name": "Scrape: TV Programs",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "scrape_tv_programs"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/venv/bin/python"
-        },
-        {
-            "name": "Link Ads to Properties",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "link_ads_to_properties",
-                "--older-than-days", "3"
-            ],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}",
-            "python": "${workspaceFolder}/venv/bin/python"
-        },
-        {
-            "name": "Fix Apartment Addresses",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/scripts/fix_apartment_addresses.py",
-            "args": [],
-            "django": true,
-            "justMyCode": false,
-            "console": "integratedTerminal",
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            // Runserver with django-vite dev_mode on:
-            // {% vite_asset %} emits :5274 URLs (dev_server_port in
-            // settings.py reads VITE_PORT), so run this together
-            // with "Vite dev server" (or just use the compound).
-            // Port 5274 instead of vite's default 5173: another
-            // project's dev server on :5173 used to shadow these
-            // URLs and the page sat on "Loading React app…".
-            "name": "Python Debugger: Django (VITE_DEV)",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "runserver"
+                "runserver",
+                "8274"
             ],
             "django": true,
             "justMyCode": false,
             "env": {
+                "DEBUG": "true",
                 "VITE_DEV": "1",
-                "VITE_PORT": "5274"
+                "VITE_PORT": "5274",
+                "PYTHONUNBUFFERED": "1"
             },
-            "console": "internalConsole"
+            // integratedTerminal shows runserver's startup banner
+            // (the URL) and request logs; internalConsole swallows
+            // them into the Debug Console. If the terminal spawn
+            // ever stalls waiting for IDE connect-back, fall back
+            // to internalConsole.
+            "console": "integratedTerminal"
         },
         {
-            // Runs `npm run dev` in frontend/ on :5274 (server.port in
-            // vite.config.ts reads VITE_PORT; strictPort makes it fail
-            // loudly rather than silently take another port). Not
-            // itself debugged — vite is a long-running dev server,
-            // so it uses the integrated terminal.
-            "name": "Vite dev server",
+            // Child of the "LOCAL SPIN-UP" compound. Runs
+            // `npm run dev` in frontend/ on :5274 (server.port in
+            // vite.config.ts reads VITE_PORT; strictPort fails
+            // loudly rather than silently taking another port).
+            // DJANGO_PORT feeds vite's proxy target. Not itself
+            // debugged — vite is a long-running dev server.
+            "name": "— Vite :5274 (spin-up child)",
             "type": "node",
             "request": "launch",
             "cwd": "${workspaceFolder}/frontend",
@@ -158,19 +56,23 @@
             ],
             "env": {
                 "PATH": "${env:HOME}/.nvm/versions/node/v22.2.0/bin:${env:PATH}",
-                "VITE_PORT": "5274"
+                "VITE_PORT": "5274",
+                "DJANGO_PORT": "8274"
             },
             "console": "integratedTerminal"
         }
     ],
     "compounds": [
         {
-            // Full React dev loop: Django on :8000 with VITE_DEV=1
-            // plus vite on :5274. Browse http://localhost:8000/.
-            "name": "Django + Vite",
+            // THE local spin-up — this is the one to launch.
+            // Django on :8274 (DEBUG=True, VITE_DEV) + vite on :5274
+            // serving latest React from frontend/src with HMR.
+            // Browse http://localhost:8274/.
+            // (./dev.sh does the same thing outside the debugger.)
+            "name": "LOCAL SPIN-UP (DEBUG=True): Django + Vite",
             "configurations": [
-                "Python Debugger: Django (VITE_DEV)",
-                "Vite dev server"
+                "— Django :8274 (spin-up child)",
+                "— Vite :5274 (spin-up child)"
             ]
         }
     ]
