@@ -18,7 +18,7 @@ Start with `DOCUMENTATION_INDEX.md` for the full doc map,
 | `core_scraper/` | Shared `BaseScraper` ABC and `BaseRefetchCommand` ABC | — |
 | `accounts/` | Retired stub — `/accounts/` 301-redirects to `/` | — |
 | `scrape_jobs/` | Scrape-job bookkeeping (ScrapeJob/Run/RunItem); `/` dashboard SPA + `/api/dashboard/` | — |
-| `industry_analyser/` | Django project (settings, root urls, wsgi/asgi) | — |
+| `industry_analyser/` | Django project (settings, root urls, wsgi/asgi, SPA shell view, startup `checks.py`) | — |
 | `terraform/` | GCP infra: Cloud Run jobs/service, Scheduler, Secret Manager | — |
 | `scripts/` | One-off data-fix and job-entrypoint scripts | — |
 
@@ -232,7 +232,11 @@ python manage.py check
 python manage.py test <app>       # test coverage is thin; tests.py are mostly stubs
 
 # Run
-python manage.py runserver
+./dev.sh                        # full-stack dev: vite :5274 + runserver :8274 (DEBUG=true,
+                                # VITE_DEV=1); waits for vite, prints the URL, Ctrl-C kills both
+python manage.py runserver      # Django only — DEBUG=False in .env means whitenoise serves
+                                # STATIC_ROOT: collectstatic after every `npm run build`,
+                                # else SPA pages sit on "Loading React app…"
 
 # Scrapers (make real HTTP requests — see Guardrails)
 python manage.py scrape_vacancies [portal_id]   # all configured portals by default
@@ -291,6 +295,20 @@ python manage.py reclassify_tv_programs
 - `blogs/config.yaml` holds listing URLs and per-URL
   `use_cheap_tier`; its legacy `max_api_requests` key only seeds the
   `AIJob` row once (the live cap is `AIJob.max_requests_per_run`).
+- React/Vite serving (detail: `docs/react_frontend_migration/`):
+  `DJANGO_VITE.dev_mode = DEBUG and VITE_DEV=1` → SPA asset URLs
+  point at the vite dev server (`VITE_PORT`, default **5274**;
+  Django dev port is **8274**, both non-default so other projects'
+  :5173/:8000 servers can't shadow them). With dev_mode off, entries
+  resolve via `frontend_dist/manifest.json`; under `DEBUG=False`
+  whitenoise serves them from `STATIC_ROOT`, so a build without
+  `collectstatic` leaves the manifest pointing at 404s (the
+  "Loading React app…" trap). `.env`'s `DEBUG=False` is deliberate
+  prod parity — `./dev.sh` and the `LOCAL SPIN-UP` launch compound
+  export `DEBUG=true` for the dev loop only. `localhost`/`[::1]`
+  enter `ALLOWED_HOSTS` only under DEBUG. Startup checks in
+  `industry_analyser/checks.py` warn about both failure modes
+  (W001 vite not serving in dev mode, W002 stale collectstatic).
 
 ## Conventions
 

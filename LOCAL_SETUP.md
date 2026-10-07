@@ -275,6 +275,17 @@ through the admin interface or Django shell.
 
 ### 1. Start Development Server
 
+**Full stack with live React reload** (recommended — starts the vite
+dev server on :5274 plus Django, waits for vite, and prints the URL):
+
+```bash
+./dev.sh   # then open http://localhost:8274/
+```
+
+**Django only** (serves the last `npm run build` output from
+`frontend_dist/` via collectstatic — run `collectstatic` after each
+frontend build or SPA pages sit on "Loading React app…"):
+
 ```bash
 python manage.py runserver
 ```

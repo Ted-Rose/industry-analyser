@@ -38,10 +38,11 @@ export default defineConfig({
     // root (/@react-refresh, /@id/*, /@fs/*, /src/*, /node_modules/*)
     // and under the /static/ base (dev asset URLs are
     // /static/src/*, /static/node_modules/*, /static/@*). Real Django
-    // static files under /static/ DO proxy to :8000.
+    // static files under /static/ DO proxy to Django's port
+    // (DJANGO_PORT env; :8000 is only the fallback).
     proxy: {
       '^/(?!@|src/|node_modules/|static/(?:@|src/|node_modules/))':
-        'http://localhost:8000',
+        `http://localhost:${process.env.DJANGO_PORT || 8000}`,
     },
   },
   test: {
