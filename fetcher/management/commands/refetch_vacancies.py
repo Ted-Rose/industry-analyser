@@ -276,11 +276,10 @@ class Command(BaseCommand):
         ):
             outcome = self._refetch_one(scraper, vacancy, counts)
             counts[outcome] += 1
-            if outcome != 'refreshed':
-                logger.info(
-                    f"Vacancy {vacancy.vacancy_portal_id}: "
-                    f"{outcome}"
-                )
+            logger.info(
+                f"Vacancy {vacancy.vacancy_portal_id} "
+                f"{vacancy.url}: {outcome}"
+            )
             done += 1
             if done % options['batch_size'] == 0:
                 self.stdout.write(f'  ... processed {done}/{total}')
