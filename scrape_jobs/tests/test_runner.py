@@ -16,6 +16,8 @@ from scrape_jobs.models import (
 from scrape_jobs.runner import (
     ITEM_FAILURE_MARKER,
     ScrapeJobRunner,
+    cooldown_skip_reason,
+    cycle_scrape_exists,
     detect_executed_by,
     detect_execution_id,
     ensure_job,
@@ -63,6 +65,19 @@ class EnvDetectionTests(TestCase):
             self.assertEqual(detect_executed_by(), 'gcp_cloud_run')
             self.assertEqual(detect_execution_id(), 'exec-1-2')
 
+    def test_cloud_run_job_detection(self):
+        """Jobs don't get K_SERVICE/K_REVISION — only CLOUD_RUN_*;
+        without this every job execution was recorded 'local' and
+        the GCP weekly-fallback cooldown never engaged."""
+        env = {
+            'CLOUD_RUN_JOB': 'scrape-apartment-ads',
+            'CLOUD_RUN_EXECUTION': 'exec-1',
+            'CLOUD_RUN_TASK_INDEX': '0',
+        }
+        with mock.patch.dict('os.environ', env, clear=True):
+            self.assertEqual(detect_executed_by(), 'gcp_cloud_run')
+            self.assertEqual(detect_execution_id(), 'exec-1-0')
+
 
 class IsoWeekCycleKeyTests(TestCase):
 
@@ -83,6 +98,78 @@ class IsoWeekCycleKeyTests(TestCase):
         # 2025-12-29 is a Monday in ISO week 1 of 2026.
         self.assertEqual(
             iso_week_cycle_key(date(2025, 12, 29)), '2026-W01'
+        )
+
+
+class CooldownGateTests(TestCase):
+    """cadence gates: GCP is the weekly fallback (6-day SUCCESS
+    window), local is daily (current-cycle SUCCESS window); a live
+    RUNNING run gates both."""
+
+    def _run(self, slug, status, cycle_key='2000-01-01',
+             completed_at=None):
+        job, _ = ScrapeJob.objects.get_or_create(slug=slug)
+        return ScrapeJobRun.objects.create(
+            job=job, cycle_key=cycle_key, execution_id='e',
+            executed_by='local', status=status,
+            completed_at=completed_at,
+        )
+
+    def test_local_gated_by_same_cycle_success(self):
+        self._run(
+            'test.job', ScrapeJobRun.SUCCESS,
+            cycle_key=timezone.localdate().isoformat(),
+            completed_at=timezone.now(),
+        )
+        self.assertTrue(cycle_scrape_exists('test.job'))
+        self.assertIsNotNone(
+            cooldown_skip_reason('test.job', 'local')
+        )
+
+    def test_local_not_gated_by_other_cycle(self):
+        self._run(
+            'test.job', ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now(),
+        )
+        self.assertFalse(cycle_scrape_exists('test.job'))
+        self.assertIsNone(
+            cooldown_skip_reason('test.job', 'local')
+        )
+
+    def test_live_running_gates_local(self):
+        self._run('test.job', ScrapeJobRun.RUNNING)
+        self.assertIsNotNone(
+            cooldown_skip_reason('test.job', 'local')
+        )
+
+    def test_gcp_gated_by_recent_success_any_cycle(self):
+        self._run(
+            'test.job', ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(days=3),
+        )
+        self.assertIsNotNone(
+            cooldown_skip_reason('test.job', 'gcp_cloud_run')
+        )
+        # …while a same-day local run still scrapes.
+        self.assertIsNone(
+            cooldown_skip_reason('test.job', 'local')
+        )
+
+    def test_gcp_not_gated_by_stale_success(self):
+        self._run(
+            'test.job', ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(days=7),
+        )
+        self.assertIsNone(
+            cooldown_skip_reason('test.job', 'gcp_cloud_run')
+        )
+
+    def test_unknown_job_not_gated(self):
+        self.assertIsNone(
+            cooldown_skip_reason('missing.job', 'local')
+        )
+        self.assertIsNone(
+            cooldown_skip_reason('missing.job', 'gcp_cloud_run')
         )
 
 

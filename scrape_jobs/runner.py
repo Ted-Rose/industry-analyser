@@ -49,10 +49,19 @@ _TERMINAL_STATUSES = {
 
 
 def detect_executed_by():
-    """'gcp_cloud_run' on Cloud Run (jobs and services), else 'local'."""
+    """'gcp_cloud_run' on Cloud Run (jobs and services), else 'local'.
+
+    Services expose K_SERVICE/K_REVISION; jobs only get the
+    CLOUD_RUN_* variables — checking only K_* misclassifies every
+    job execution as 'local' and disables the GCP weekly-fallback
+    cooldown.
+    """
     if any(
         os.getenv(var)
-        for var in ('K_SERVICE', 'K_REVISION', 'GOOGLE_CLOUD_PROJECT')
+        for var in (
+            'K_SERVICE', 'K_REVISION', 'GOOGLE_CLOUD_PROJECT',
+            'CLOUD_RUN_JOB', 'CLOUD_RUN_EXECUTION',
+        )
     ):
         return 'gcp_cloud_run'
     return 'local'
@@ -93,6 +102,17 @@ def ensure_job(slug, description=''):
     return job
 
 
+def _live_run_exists(job):
+    """True when the job has a RUNNING run whose heartbeat is still
+    inside the stale-timeout window."""
+    live_cutoff = timezone.now() - timedelta(
+        minutes=job.stale_timeout_minutes
+    )
+    return job.runs.filter(
+        status=ScrapeJobRun.RUNNING, updated_at__gte=live_cutoff
+    ).exists()
+
+
 def recent_scrape_exists(slug, days=6):
     """True when job ``slug`` had a SUCCESS run completed within the
     last ``days`` days, or has a live (non-stale-heartbeat) RUNNING
@@ -103,16 +123,53 @@ def recent_scrape_exists(slug, days=6):
     job = ScrapeJob.objects.filter(slug=slug).first()
     if job is None:
         return False
-    now = timezone.now()
-    cutoff = now - timedelta(days=days)
+    cutoff = timezone.now() - timedelta(days=days)
     if job.runs.filter(
         status=ScrapeJobRun.SUCCESS, completed_at__gte=cutoff
     ).exists():
         return True
-    live_cutoff = now - timedelta(minutes=job.stale_timeout_minutes)
-    return job.runs.filter(
-        status=ScrapeJobRun.RUNNING, updated_at__gte=live_cutoff
-    ).exists()
+    return _live_run_exists(job)
+
+
+def cycle_scrape_exists(slug, cycle_key=None):
+    """True when job ``slug`` already has a SUCCESS run in
+    ``cycle_key`` (default: today, UTC) or a live RUNNING run —
+    the local daily gate: a command re-run within the same cycle
+    exits early instead of walking the completed-item set."""
+    job = ScrapeJob.objects.filter(slug=slug).first()
+    if job is None:
+        return False
+    cycle_key = cycle_key or timezone.localdate().isoformat()
+    if job.runs.filter(
+        status=ScrapeJobRun.SUCCESS, cycle_key=cycle_key
+    ).exists():
+        return True
+    return _live_run_exists(job)
+
+
+def cooldown_skip_reason(slug, executed_by, cycle_key=None):
+    """Skip reason for the cadence gates, or None to scrape.
+
+    GCP Cloud Run is the weekly fallback — skipped when a SUCCESS
+    run completed within the last 6 days. Local runs are daily —
+    skipped once the current cycle already has a SUCCESS run.
+    A live RUNNING run skips both.
+    """
+    if executed_by == 'gcp_cloud_run':
+        if recent_scrape_exists(slug):
+            return (
+                'a successful run completed within the last '
+                '6 days (or one is in progress); GCP run is a '
+                'weekly fallback'
+            )
+        return None
+    if cycle_scrape_exists(slug, cycle_key):
+        return (
+            'a successful run already completed this cycle '
+            '(or one is in progress); use --fresh or '
+            '--ignore-cooldown to re-scrape'
+        )
+    return None
 
 
 class ScrapeJobRunner:

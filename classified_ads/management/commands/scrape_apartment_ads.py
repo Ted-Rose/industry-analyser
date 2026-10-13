@@ -6,8 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 from classified_ads.apartment_scraper import ApartmentAdScraper
 from scrape_jobs.runner import (
     ScrapeJobRunner,
+    cooldown_skip_reason,
     detect_executed_by,
-    recent_scrape_exists,
 )
 
 logger = logging.getLogger('classified_ads')
@@ -54,24 +54,25 @@ class Command(BaseCommand):
             '--ignore-cooldown',
             action='store_true',
             dest='ignore_cooldown',
-            help='GCP: run even if a scrape succeeded in the last '
-                 '6 days',
+            help='Run even if a scrape already succeeded in the '
+                 'cooldown window (6 days on GCP, current cycle '
+                 'locally)',
         )
 
     def handle(self, *args, **options):
-        if (
-            detect_executed_by() == 'gcp_cloud_run'
-            and not options['ignore_cooldown']
-            and recent_scrape_exists(JOB_SLUG)
+        if not (
+            options['ignore_cooldown']
+            or options['fresh']
+            or options['dry_run']
         ):
-            msg = (
-                f'{JOB_SLUG}: skipping — a successful run completed '
-                'within the last 6 days (or one is in progress); '
-                'GCP run is a weekly fallback'
+            reason = cooldown_skip_reason(
+                JOB_SLUG, detect_executed_by(), options['cycle']
             )
-            logger.info(msg)
-            self.stdout.write(msg)
-            return
+            if reason:
+                msg = f'{JOB_SLUG}: skipping — {reason}'
+                logger.info(msg)
+                self.stdout.write(msg)
+                return
         runner = ScrapeJobRunner(
             slug=JOB_SLUG,
             description=(

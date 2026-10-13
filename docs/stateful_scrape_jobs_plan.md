@@ -71,8 +71,9 @@ job executions share progress **as long as they share the same
 - Job timeouts: 8000s for scrapers, 1800s for region syncs;
   `task_count = 1`; `max_retries` 0 or 1.
 - Cloud Run Jobs env vars: `CLOUD_RUN_JOB`, `CLOUD_RUN_EXECUTION`,
-  `CLOUD_RUN_TASK_INDEX`, `CLOUD_RUN_TASK_ATTEMPT` (plus `K_SERVICE`,
-  `K_REVISION` as on services).
+  `CLOUD_RUN_TASK_INDEX`, `CLOUD_RUN_TASK_ATTEMPT` — jobs do **not**
+  get `K_SERVICE`/`K_REVISION`/`K_CONFIGURATION` (services only),
+  so GCP detection must check the `CLOUD_RUN_*` vars.
 - DB: SQLite locally (`db.sqlite3`), PostgreSQL in prod.
   `run-migrations.yml` applies migrations in CI only when
   `migrations/` changed in `HEAD~1..HEAD` → PRs containing migrations
