@@ -1,5 +1,5 @@
 """Re-fetch cv.lv vacancy detail pages to refresh stored rows
-(docs/vacancy_refetch_plan.md).
+(docs/vacancy_refetch_usage.md).
 
 Unlike the incremental scrape — which only fills empty fields and
 only ever *adds* keyword links — this command performs a true

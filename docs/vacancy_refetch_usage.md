@@ -103,5 +103,5 @@ done: N vacancy(ies) processed: refreshed=..., no_detail=...,
 - Keyword ids come from the `fetcher_keyword` table
   (`Keyword.objects.values('id', 'name')`).
 
-See `docs/vacancy_refetch_plan.md` for the design and
+See `docs/plans/vacancy_refetch_plan.md` for the design and
 `docs/vacancy_refetch_context.md` for the architecture background.

@@ -1,5 +1,5 @@
 """Link vacancies to canonical Company rows by re-fetching their
-public detail pages (docs/company_linking_plan.md PR-4).
+public detail pages (docs/plans/company_linking_plan.md PR-4).
 
 Vacancies scraped before company linking existed carry no
 employerId, so each row needs one throttled detail fetch — the

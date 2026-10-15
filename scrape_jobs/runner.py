@@ -1,4 +1,4 @@
-"""Cycle-scoped checkpointing runner (docs/stateful_scrape_jobs_plan.md).
+"""Cycle-scoped checkpointing runner (docs/plans/stateful_scrape_jobs_plan.md).
 
 One ScrapeJobRunner per command invocation. On construction it:
 

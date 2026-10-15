@@ -141,8 +141,8 @@ This validation is a point-in-time snapshot — the underlying cause is
 **still live**: 48 apartment + 1 house cross-deal pairs formed in the
 7 days before this note. Every new `is_sale_misclassified` rent row
 keeps minting a phantom property until the matcher twin-shortcut
-(`docs/property_conflation_prevention_plan.md`) and the relink pass
-(`docs/classified_ads_remediation_plan.md` WS2) land; expect the
+(`docs/plans/property_conflation_prevention_plan.md`) and the relink pass
+(`docs/plans/classified_ads_remediation_plan.md` WS2) land; expect the
 property-level inflation to keep growing ~3% per ~2 months at the
 current rate.
 

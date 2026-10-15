@@ -1,4 +1,4 @@
-# Generated manually for docs/property_linking_plan.md
+# Generated manually for docs/plans/property_linking_plan.md
 
 from django.db import migrations, models
 import django.db.models.deletion

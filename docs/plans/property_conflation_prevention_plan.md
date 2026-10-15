@@ -1,6 +1,6 @@
 # Property Conflation Prevention Plan
 
-Follow-up to `docs/property_linking_plan.md` and the duplicate review
+Follow-up to `docs/plans/property_linking_plan.md` and the duplicate review
 documented in `docs/property_match_review_2026_10.md` /
 `/tmp/property_match_review_report.md`. Verified against the
 production database (read-only) on 2026-10.

@@ -392,7 +392,7 @@ self-resuming, no extra state needed. Optionally a
 ### PR-5 — UI + admin
 
 - **UI choice** (decide at implementation time):
-  `docs/react_frontend_migration/` plans to convert `/vacancies/`
+  `docs/plans/react_frontend_migration/` plans to convert `/vacancies/`
   into a React SPA entry (`/vacancies/` + `/api/vacancies/`), but
   the migration hasn't started — there is no `frontend/` workspace
   yet. Either:

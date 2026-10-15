@@ -37,7 +37,7 @@ job executions share progress **as long as they share the same
   `current_channel`, `current_start_time`).
 - `core_scraper` is a plain package, **not** in `INSTALLED_APPS` —
   models cannot live there without promoting it (see ADR-2 in
-  `docs/ai_provider_abstraction_plan.md`).
+  `docs/plans/ai_provider_abstraction_plan.md`).
 - `ai_providers` is the precedent for a cross-cutting feature app:
   DB tables + `AIJobSpec` declarations in `<app>/ai_jobs.py` +
   `ensure_job()` seeding that never overwrites admin edits. Reuse

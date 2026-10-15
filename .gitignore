@@ -17,6 +17,10 @@ blogs/config.yaml
 .vercel
 .DS_Store
 
+# Agent config — user-local permission allowlist
+.devin/config.local.json
+pr-body.md
+
 # Terraform secrets
 terraform/terraform.tfvars
 terraform/*.auto.tfvars

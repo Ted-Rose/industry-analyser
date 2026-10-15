@@ -309,7 +309,7 @@ python manage.py link_ads_to_properties \
   decides whether 0.80/0.45 are right.
 - **`street_name` normalization** needs care: source mixes
   "Čaka"/"A. Čaka iela", korpus suffixes ("54 k-3"), and the known
-  address-parsing bugs (`docs/address_parsing_fix_plan.md`) — ~5% of
+  address-parsing bugs (`docs/plans/address_parsing_fix_plan.md`) — ~5% of
   apartment rows have misparsed street/street_no/apartment_no and will
   match poorly until refetched.
 

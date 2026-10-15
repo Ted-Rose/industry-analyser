@@ -1,7 +1,7 @@
 """Score-based matching of classified ads to canonical properties.
 
 Used by the ``link_ads_to_properties`` management command; see
-``docs/property_linking_plan.md`` for the full design.
+``docs/plans/property_linking_plan.md`` for the full design.
 """
 import logging
 import re

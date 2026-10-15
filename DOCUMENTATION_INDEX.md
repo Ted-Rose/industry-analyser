@@ -35,15 +35,15 @@ Complete guide to all documentation in the Industry Analyser project.
 
 | Document | Description | Audience |
 |----------|-------------|----------|
-| [docs/property_linking_plan.md](docs/property_linking_plan.md) | Ad→canonical-property dedup design | Developers |
+| [docs/plans/property_linking_plan.md](docs/plans/property_linking_plan.md) | Ad→canonical-property dedup design | Developers |
 | [docs/db_health_report_2026_10.md](docs/db_health_report_2026_10.md) | Production DB health audit + dedup findings | Everyone |
-| [docs/classified_ads_remediation_plan.md](docs/classified_ads_remediation_plan.md) | Master remediation plan for audit findings | Developers |
+| [docs/plans/classified_ads_remediation_plan.md](docs/plans/classified_ads_remediation_plan.md) | Master remediation plan for audit findings | Developers |
 | [docs/property_match_review_2026_10.md](docs/property_match_review_2026_10.md) | Probable-duplicate property review (confidence-tiered) | Reviewers |
-| [docs/ad_presence_intervals_plan.md](docs/ad_presence_intervals_plan.md) | Sightings→open/close/reopen interval design | Developers |
+| [docs/plans/ad_presence_intervals_plan.md](docs/plans/ad_presence_intervals_plan.md) | Sightings→open/close/reopen interval design | Developers |
 | [docs/duplicate_ad_rows_quarantine.md](docs/duplicate_ad_rows_quarantine.md) | Same-link duplicate rows hidden via `is_hidden` | Developers |
 | [docs/cross_deal_stats_impact_validation.md](docs/cross_deal_stats_impact_validation.md) | Do cross-deal dupes pollute stats? Validation | Developers |
-| [docs/property_conflation_prevention_plan.md](docs/property_conflation_prevention_plan.md) | Preventing multi-unit property conflation | Developers |
-| [docs/ad_data_quality_plan.md](docs/ad_data_quality_plan.md) | Data-quality triage & fixes plan | Developers |
+| [docs/plans/property_conflation_prevention_plan.md](docs/plans/property_conflation_prevention_plan.md) | Preventing multi-unit property conflation | Developers |
+| [docs/plans/ad_data_quality_plan.md](docs/plans/ad_data_quality_plan.md) | Data-quality triage & fixes plan | Developers |
 
 ### Infrastructure
 
@@ -265,7 +265,7 @@ gcloud run jobs execute scrape-vacancy --region=europe-north1
 - **Quick reference**: `<app>/QUICK_REFERENCE.md`
 - **Task details**: `docs/<task>.md`
 - **Infrastructure**: `terraform/` comments and README
-- **Frontend migration**: `docs/react_frontend_migration/README.md` —
+- **Frontend migration**: `docs/plans/react_frontend_migration/README.md` —
   plan for rewriting Django-template UIs as per-app React+Vite SPAs
 
 ## 🎯 Documentation Checklist

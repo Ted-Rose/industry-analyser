@@ -1,7 +1,7 @@
 """Company identity resolution shared by the vacancy scraper and
 the ``link_vacancies_to_companies`` backfill command.
 
-Implements docs/company_linking_plan.md §4: ``employerId`` is the
+Implements docs/plans/company_linking_plan.md §4: ``employerId`` is the
 stable join key (survives renames), ``regCode`` is a strong but
 self-reported signal — collisions and changes are flagged with
 ``needs_review`` instead of auto-merging.

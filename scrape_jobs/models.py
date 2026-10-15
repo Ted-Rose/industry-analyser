@@ -1,4 +1,4 @@
-"""Stateful scrape-job bookkeeping (docs/stateful_scrape_jobs_plan.md).
+"""Stateful scrape-job bookkeeping (docs/plans/stateful_scrape_jobs_plan.md).
 
 A ScrapeJob is one periodic scrape entrypoint (e.g.
 'classified_ads.apartment_ads'). Each pass over the job's work items

@@ -10,7 +10,7 @@ Before commit `b833b94` ("Use stable ss.com tr_ id as classified ad
 ad_id") the scrapers built `ad_id` as the ss.com `tr_<n>` row id plus
 concatenated listing-cell text. The `tr_`-prefix dedupe
 (`scripts/dedupe_classified_ads.py`, see
-`docs/ad_id_dedup_fix_plan.md`)
+`docs/plans/ad_id_dedup_fix_plan.md`)
 merged most of the fallout, but a residue remained: rows in the same
 table sharing the **exact same `link`** under different `ad_id`s —
 literal duplicate rows of one listing. Typical shapes:

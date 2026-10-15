@@ -5,8 +5,8 @@ Master plan for the four issues surfaced by the health audit
 
 - `docs/property_match_review_2026_10.md` — pair-level review
 - `docs/cross_deal_stats_impact_validation.md` — stats impact
-- `docs/property_conflation_prevention_plan.md` — conflation design
-- `docs/ad_data_quality_plan.md` — data-quality triage
+- `docs/plans/property_conflation_prevention_plan.md` — conflation design
+- `docs/plans/ad_data_quality_plan.md` — data-quality triage
 - `docs/duplicate_ad_rows_quarantine.md` — done: dup ad rows hidden
 
 Ordered by stats impact. Each workstream lists implementation,
@@ -139,7 +139,7 @@ multiple units (13910 Šlokenbeka 5, 16071 Miera 3, 16072 Saules 4,
 16037 Jaunpils). Root cause: degenerate `street_no=''` blocks +
 `apartment_no` absent on sale ads + same seller/boilerplate comments.
 Full design + per-ad re-linking lists in
-`docs/property_conflation_prevention_plan.md`.
+`docs/plans/property_conflation_prevention_plan.md`.
 
 **Remediation (now).**
 1. Command `relink_property_ads --twin-fix` (or ad-hoc script):
@@ -184,7 +184,7 @@ WS3 (refetch)         ── independent, any time (network-bound)
 
 ## Out of scope / later
 
-- `AdInterval`/`PropertyEpisode` model — `docs/ad_presence_intervals_plan.md`.
+- `AdInterval`/`PropertyEpisode` model — `docs/plans/ad_presence_intervals_plan.md`.
 - Malformed `ad_id` normalization (36 "frozen" canonical rows +
   ~147 malformed-but-unique rows): needs ad_id rewrite via
   `scripts/dedupe_classified_ads.py` — separate task.

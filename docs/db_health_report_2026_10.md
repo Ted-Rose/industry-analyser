@@ -84,7 +84,7 @@ rooms/size pass all hard rejects and auto-merge:
 | 16071 | Seda, Miera 3 | apts 1/4/12 |
 | 16072 | Seda, Saules 4 | apts 4/6 |
 
-Prevention design: `docs/property_conflation_prevention_plan.md`.
+Prevention design: `docs/plans/property_conflation_prevention_plan.md`.
 
 ### 4. Probable duplicate properties (same-block pairs)
 
@@ -105,7 +105,7 @@ cannot separate same-stairwell units; that is the bulk of MEDIUM.
 ~62 ads `size ≤ 5m²`, ~20 nonpositive prices, `post_date` NULL on
 most house ads, `rooms=0` on all house ads (source limitation),
 masked seller phones. Triage + plan:
-`docs/ad_data_quality_plan.md`.
+`docs/plans/ad_data_quality_plan.md`.
 
 ### 6. Unmatched ads
 
@@ -133,7 +133,7 @@ Which issues are still producing bad data vs. frozen history:
   classified-ads Cloud Run jobs/schedulers are commented out in
   `terraform/main.tf`, so ~40% of days have zero coverage. "Ad not
   seen" ≠ "ad closed". This motivated the interval design in
-  `docs/ad_presence_intervals_plan.md`.
+  `docs/plans/ad_presence_intervals_plan.md`.
 - `HouseForRent`/`HouseForSale` store `rooms=0` — the source listing
   has no room count; `HouseProperty.rooms` is therefore always 0 and
   `rooms` cannot be used to match houses.

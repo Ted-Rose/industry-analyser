@@ -5,7 +5,7 @@ Dataset: `/tmp/property_review_dataset.json` (ss.com classified ads → canonica
 > **Snapshot caveat**: counts reflect the prod DB as of 2026-10-05.
 > Cross-deal duplicate pairs are still being created (~48 apt pairs
 > in the 7 days to 2026-10-06) until the twin-shortcut fix in
-> `docs/property_conflation_prevention_plan.md` lands — treat the
+> `docs/plans/property_conflation_prevention_plan.md` lands — treat the
 > pair lists as a queue that refills, not a closed set.
 
 ## Executive summary

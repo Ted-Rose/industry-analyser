@@ -518,7 +518,7 @@ class VacancyScrapper(BaseScraper):
 
         # Employer identity — the search payload's employerId is the
         # stable join key to a Company (see
-        # docs/company_linking_plan.md). Free on every portal.
+        # docs/plans/company_linking_plan.md). Free on every portal.
         try:
             employer_id = int(result.get('employerId'))
         except (TypeError, ValueError):
