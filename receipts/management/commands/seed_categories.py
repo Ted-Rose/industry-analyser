@@ -309,7 +309,8 @@ class Command(BaseCommand):
             return
         for receipt in Receipt.objects.filter(user=user):
             apply_category_rules(user, receipt)
-        left = items_qs.count()
+        left = ReceiptItem.objects.filter(
+            receipt__user=user, category__isnull=True).count()
         logger.info(
             'seed_categories: user=%s categorized, %d item(s) '
             'still uncategorized', user.username, left)
