@@ -195,3 +195,9 @@ jobs:
             --image="${IMAGE}" \
             --command=python \
             --args=manage.py,link_ads_to_properties,--older-than-days,3
+
+          # Receipt inbox sync: IMAP poll of the collector mailbox
+          update_job_if_exists sync-receipt-emails \
+            --image="${IMAGE}" \
+            --command=python \
+            --args=manage.py,sync_receipt_emails

@@ -36,8 +36,10 @@ _DB_SSL_CA_FILE = (
     f'/tmp/industry-analyser-postgres-ca-{getpass.getuser()}.pem'
 )
 
+
 def _db_ssl_pem_from_env() -> str:
-    # For production, prioritize environment variables (supports full cert chain)
+    # For production, prioritize env variables (supports full
+    # cert chain)
     env_cert = normalize_db_ssl_pem_raw(
         os.environ.get('DB_SSL_CERT') or os.environ.get('capem') or ''
     )
@@ -78,6 +80,9 @@ HARD_CODED_PASSWORD = env('HARD_CODED_PASSWORD', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
 OMDB_KEY = env('OMDB_KEY', default='')
+# Receipts collector Gmail inbox (plan §7); app-password auth.
+RECEIPTS_IMAP_USER = env('RECEIPTS_IMAP_USER', default='')
+RECEIPTS_IMAP_PASSWORD = env('RECEIPTS_IMAP_PASSWORD', default='')
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or
@@ -125,6 +130,7 @@ INSTALLED_APPS = [
     'classified_ads',
     'ai_providers',
     'scrape_jobs',
+    'receipts',
     'django_vite',
     'ninja',
     # The project package itself must be installed so APP_DIRS finds
@@ -379,6 +385,11 @@ LOGGING = {
             'propagate': True,
         },
         'scrape_jobs': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'receipts': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,

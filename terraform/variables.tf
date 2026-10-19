@@ -71,3 +71,9 @@ variable "gemini_api_key" {
   default     = ""
   sensitive   = true
 }
+
+variable "receipts_imap_user" {
+  description = "Collector Gmail address for receipt IMAP polling"
+  type        = string
+  default     = ""
+}
