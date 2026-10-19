@@ -57,6 +57,7 @@ jobs:
           TF_VAR_db_ssl_cert: ${{ secrets.TF_VAR_db_ssl_cert }}
           TF_VAR_hard_coded_password: ${{ secrets.TF_VAR_hard_coded_password }}
           TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_gemini_api_key }}
+          TF_VAR_receipts_imap_user: ${{ secrets.TF_VAR_RECEIPTS_IMAP_USER }}
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply
@@ -72,6 +73,7 @@ jobs:
           TF_VAR_db_ssl_cert: ${{ secrets.TF_VAR_db_ssl_cert }}
           TF_VAR_hard_coded_password: ${{ secrets.TF_VAR_hard_coded_password }}
           TF_VAR_gemini_api_key: ${{ secrets.TF_VAR_gemini_api_key }}
+          TF_VAR_receipts_imap_user: ${{ secrets.TF_VAR_RECEIPTS_IMAP_USER }}
         run: terraform apply -auto-approve tfplan
 
       - name: Output Resources
