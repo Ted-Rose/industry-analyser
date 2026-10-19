@@ -12,9 +12,10 @@ Deterministic parse failures write a ``parse_error`` receipt row
 so the message can be marked ``\\Seen`` instead of retrying
 forever — that includes ``AIAllModelsFailedError`` whose
 ``last_error`` is a per-document deterministic failure (e.g. a
-PDF the provider rejects outright). Transient/cap/config
-failures (other ``AIJobError``) propagate so the command aborts
-the run and leaves the message UNSEEN for retry.
+PDF the provider rejects outright) on a single-assignment role.
+Transient/cap/config failures (other ``AIJobError``) propagate so
+the command aborts the run and leaves the message UNSEEN for
+retry.
 """
 
 import hashlib
@@ -89,7 +90,13 @@ def _load_prompt():
 
 
 def iter_pdf_attachments(email_msg):
-    """Yield ``(filename, pdf_bytes)`` for each PDF part."""
+    """Yield ``(filename, pdf_bytes)`` for each PDF part.
+
+    ``pdf_bytes`` is falsy when the payload is empty or could not
+    be decoded — the caller records a ``parse_error`` row so the
+    attachment does not vanish silently while the message still
+    gets ``\\Seen``.
+    """
     for part in email_msg.walk():
         filename = part.get_filename() or ''
         is_pdf = part.get_content_type() == 'application/pdf' or (
@@ -97,9 +104,9 @@ def iter_pdf_attachments(email_msg):
         )
         if not is_pdf:
             continue
-        payload = part.get_payload(decode=True)
-        if payload:
-            yield filename or 'attachment.pdf', payload
+        yield filename or 'attachment.pdf', (
+            part.get_payload(decode=True)
+        )
 
 
 def _extract_pdf_text(pdf_bytes):
@@ -204,22 +211,33 @@ def _extract_with_ai(client, pdf_bytes, filename):
     """
     supports = getattr(client, 'supports_json_mode', None)
     json_mode = bool(supports and supports('extract'))
-    ai_result = client.generate(
-        PromptSpec(
-            template_key='receipts.receipt_extract',
-            template_text=_load_prompt(),
-            input_text=filename or 'receipt.pdf',
-            layout='system_v1',
-            images=(
-                ImagePart(
-                    data=pdf_bytes,
-                    mime_type='application/pdf',
+    try:
+        ai_result = client.generate(
+            PromptSpec(
+                template_key='receipts.receipt_extract',
+                template_text=_load_prompt(),
+                input_text=filename or 'receipt.pdf',
+                layout='system_v1',
+                images=(
+                    ImagePart(
+                        data=pdf_bytes,
+                        mime_type='application/pdf',
+                    ),
                 ),
             ),
-        ),
-        role='extract',
-        options=GenerationOptions(json_mode=json_mode),
-    )
+            role='extract',
+            options=GenerationOptions(json_mode=json_mode),
+        )
+    except AIAllModelsFailedError as e:
+        # ``last_error`` is only the FINAL assignment's failure —
+        # annotate with the role's active assignment count so the
+        # caller can tell whether it is the whole story. JobClient
+        # exposes no public accessor, so read ``_assignments``
+        # (a defaultdict keyed by role); a duck-typed client
+        # without it counts as unknown (0) → no downgrade.
+        assignments = getattr(client, '_assignments', {})
+        e.assignment_count = len(assignments.get('extract') or [])
+        raise
     raw = ai_result.text or ''
     parsed = _normalize_ai_output(_parse_ai_json(raw))
     parsed['raw_text'] = raw
@@ -333,7 +351,11 @@ def _write_receipt(user, parsed, sha, filename, message_id, status):
         user=user,
         store=store,
         purchased_at=parsed.get('purchased_at'),
-        document_number=parsed.get('document_number') or '',
+        # max_length=50 — like register_number, parser/filename
+        # values can exceed the column (Postgres DataError on a
+        # parseable receipt would poison the message into
+        # parse_error).
+        document_number=(parsed.get('document_number') or '')[:50],
         # max_length=20 — parsers/filename enrichment can hand
         # over longer strings.
         register_number=(parsed.get('register_number') or '')[:20],
@@ -492,6 +514,15 @@ def _process_attachment(user, pdf_bytes, filename, message_id,
         deterministic = (
             isinstance(e, AIAllModelsFailedError)
             and isinstance(e.last_error, _PER_DOCUMENT_AI_ERRORS)
+            # ``last_error`` describes only the final model tried.
+            # Downgrade to parse_error solely when the role has
+            # exactly ONE active assignment (the annotated count
+            # set in _extract_with_ai), where last_error is the
+            # whole story. With a fallback chain a mixed failure
+            # (m1 timeout + m2 bad-request) would otherwise be
+            # misclassified and a document m1 could parse on
+            # retry would be dropped permanently.
+            and getattr(e, 'assignment_count', 0) == 1
         )
         if not deterministic:
             # Transient/cap/config failure (request cap, provider
@@ -527,6 +558,24 @@ def process_message(user, email_msg, get_ai_client=None, dry_run=False):
     message_id = (email_msg.get('Message-ID') or '')[:255]
     try:
         for filename, pdf_bytes in iter_pdf_attachments(email_msg):
+            if not pdf_bytes:
+                # Empty/undecodable payload — nothing to hash or
+                # parse, but a silent drop would leave no record
+                # while the message still gets \Seen. Record a
+                # parse_error row like any deterministic failure.
+                tb = (
+                    f'{filename}: empty or undecodable PDF '
+                    'payload'
+                )
+                logger.error('receipt parse failed: %s', tb)
+                if not dry_run:
+                    _write_parse_error(
+                        user,
+                        f'empty-{filename}'[:64],
+                        filename, message_id, tb,
+                    )
+                result.errors += 1
+                continue
             _process_attachment(
                 user, pdf_bytes, filename, message_id,
                 get_ai_client, dry_run, result,

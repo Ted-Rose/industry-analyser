@@ -10,6 +10,8 @@ from email.parser import BytesParser
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -164,7 +166,15 @@ class _StubAIResult:
 
 
 class StubAIClient:
-    """Duck-typed JobClient stand-in returning canned JSON."""
+    """Duck-typed JobClient stand-in returning canned JSON.
+
+    ``_assignments`` mirrors JobClient's construction-time
+    snapshot: one active 'extract' assignment, so a raised
+    AIAllModelsFailedError's last_error is the whole story and
+    can still downgrade to parse_error.
+    """
+
+    _assignments = {'extract': [object()]}
 
     def __init__(self, payload):
         self.payload = payload
@@ -492,6 +502,81 @@ class IngestTests(TestCase):
         self.assertEqual(len(fake.seen), 2)
 
     @patch('receipts.ingest._extract_pdf_text', return_value='')
+    def test_multi_assignment_failure_does_not_downgrade(
+            self, _extract):
+        """With >=2 active assignments, ``last_error`` is only the
+        FINAL model's failure — a deterministic-looking error
+        (e.g. m1 timeout + m2 bad-request) must NOT become a
+        parse_error that drops a document m1 could parse on
+        retry: the run aborts and the mail stays UNSEEN."""
+
+        class MultiClient(StubAIClient):
+            _assignments = {'extract': [object(), object()]}
+
+            def generate(self, spec, role, options=None):
+                raise AIAllModelsFailedError(
+                    'all models failed',
+                    last_error=AIBadRequestError('PDF rejected'),
+                )
+
+        fake, results = self._run_sync(
+            [_build_eml()],
+            get_ai_client=lambda: MultiClient(None),
+        )
+        self.assertEqual(results, [])
+        self.assertEqual(Receipt.objects.count(), 0)
+        self.assertEqual(len(fake.seen), 0)
+
+    def test_empty_pdf_payload_writes_parse_error(self):
+        """An empty/undecodable attachment payload must leave a
+        parse_error row — not vanish silently while the message
+        still gets \\Seen."""
+        fake, results = self._run_sync([_build_eml(pdf_bytes=b'')])
+        self.assertEqual(results[0].errors, 1)
+        receipt = Receipt.objects.get()
+        self.assertEqual(receipt.parse_status, Receipt.PARSE_ERROR)
+        self.assertEqual(
+            receipt.source_ref, 'empty-invoice123.pdf')
+        self.assertIn('empty or undecodable', receipt.parse_error)
+        self.assertEqual(len(fake.seen), 1)
+
+    @patch(
+        'receipts.ingest._extract_pdf_text',
+        return_value=INVOICE_TEXT)
+    @patch('receipts.ingest.parse_invoice_text')
+    def test_long_document_number_is_truncated(
+            self, parse_invoice, _extract):
+        """document_number is max_length=50 — an overlong
+        parser-supplied value must be truncated at the write path
+        instead of raising a Postgres DataError on a parseable
+        receipt."""
+        parse_invoice.return_value = _parsed_dict(
+            document_number='A' * 60)
+        fake, results = self._run_sync([_build_eml()])
+        self.assertEqual(results[0].created, 1)
+        receipt = Receipt.objects.get()
+        self.assertEqual(receipt.document_number, 'A' * 50)
+        self.assertEqual(len(fake.seen), 1)
+
+    @patch(
+        'receipts.ingest._extract_pdf_text',
+        return_value=INVOICE_TEXT)
+    @patch('receipts.ingest.parse_invoice_text')
+    def test_long_filename_docnr_is_truncated(
+            self, parse_invoice, _extract):
+        """Same truncation for the '<kase>-<docnr>.pdf' filename
+        enrichment path — docnr is an unbounded [A-Za-z0-9]+."""
+        parse_invoice.return_value = _parsed_dict(
+            register_number='', document_number='')
+        docnr = 'B' * 60
+        fake, results = self._run_sync(
+            [_build_eml(filename=f'2-{docnr}.pdf')])
+        self.assertEqual(results[0].created, 1)
+        receipt = Receipt.objects.get()
+        self.assertEqual(receipt.document_number, docnr[:50])
+        self.assertEqual(receipt.register_number, '2')
+
+    @patch('receipts.ingest._extract_pdf_text', return_value='')
     def test_ai_retryable_all_models_failed_aborts_unseen(
             self, _extract):
         """AIAllModelsFailedError with a retryable last_error
@@ -599,6 +684,67 @@ class ImapClientTests(SimpleTestCase):
         pairs = list(iter_messages(fake, limit=2))
         self.assertEqual(len(pairs), 2)
         self.assertEqual(len(fake.fetches), 2)
+
+    def test_non_ok_search_raises(self):
+        """A refused search (NO/BAD) is a broken mailbox — it must
+        raise so the command exits non-zero, not silently report
+        an empty inbox."""
+
+        class BadSearchImap(FakeImap):
+            def search(self, charset, criteria):
+                return 'NO', [b'[CANNOT] mailbox broken']
+
+        with self.assertRaises(imaplib.IMAP4.error):
+            list(iter_messages(BadSearchImap([_build_eml()])))
+
+    def test_empty_inbox_returns_no_messages(self):
+        class EmptyImap(FakeImap):
+            def search(self, charset, criteria):
+                return 'OK', [b'']
+
+        self.assertEqual(list(iter_messages(EmptyImap([]))), [])
+
+
+class SyncReceiptEmailsCommandTests(TestCase):
+    """call_command-level coverage for sync_receipt_emails — the
+    real handle() loop, with only IMAP and the AI client stubbed.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username='admin', password='x', email='a@x.com')
+
+    @patch('receipts.ingest._extract_pdf_text', return_value='')
+    def test_ai_job_error_aborts_run_unseen(self, _extract):
+        """An AIJobError (provider outage here) must propagate
+        through the real command loop: CommandError → non-zero
+        exit, and the message is left UNSEEN for the next run."""
+        fake = FakeImap([_build_eml()])
+
+        class DownClient(StubAIClient):
+            def generate(self, spec, role, options=None):
+                raise AIAllModelsFailedError(
+                    'all models failed',
+                    last_error=AIServerError('503'),
+                )
+
+        command_module = (
+            'receipts.management.commands.sync_receipt_emails'
+        )
+        with patch(
+            f'{command_module}.connect', return_value=fake,
+        ), patch(
+            f'{command_module}.get_job_client',
+            return_value=DownClient(None),
+        ):
+            with self.assertRaises(CommandError):
+                call_command('sync_receipt_emails')
+
+        # The fetch happened (the real iter_messages ran), but no
+        # row was written and no \Seen was stored.
+        self.assertEqual(len(fake.fetches), 1)
+        self.assertEqual(Receipt.objects.count(), 0)
+        self.assertEqual(len(fake.seen), 0)
 
 
 class NormalizeAiOutputTests(SimpleTestCase):

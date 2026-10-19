@@ -58,12 +58,19 @@ def iter_messages(imap, scan_all=False, limit=None):
     ``scan_all=False`` searches ``UNSEEN`` (the incremental sync);
     ``True`` searches ``ALL`` for a manual backfill. ``limit``
     caps how many message bodies are fetched. A fetch that fails
-    is logged and skipped — the message stays UNSEEN.
+    is logged and skipped — the message stays UNSEEN. A non-OK
+    ``search`` raises ``imaplib.IMAP4.error`` so the command exits
+    non-zero instead of silently reporting an empty inbox.
     """
     criteria = 'ALL' if scan_all else 'UNSEEN'
     typ, data = imap.search(None, criteria)
-    if typ != 'OK' or not data or not data[0]:
-        logger.info('imap search %s returned %s', criteria, typ)
+    if typ != 'OK':
+        # NO/BAD on search means a broken mailbox — treating it
+        # as "empty inbox" would exit 0 and hide the failure.
+        raise imaplib.IMAP4.error(
+            f'imap search {criteria} returned {typ}')
+    if not data or not data[0]:
+        logger.info('imap search %s: no matching messages', criteria)
         return
     nums = data[0].split()
     if limit is not None:
