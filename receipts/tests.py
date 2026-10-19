@@ -1063,3 +1063,67 @@ class DashboardViewTests(TestCase):
         self.assertContains(resp, '<details class="cat">')
         self.assertContains(resp, 'Augļi')
         self.assertContains(resp, 'Banāni')
+
+
+class SeedCategoriesCommandTests(TestCase):
+    """seed_categories: idempotent taxonomy seed + reapply pass."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username='admin', password='x', email='a@x.com')
+        self.receipt = Receipt.objects.create(
+            user=self.user, source_ref='seed' + '0' * 60,
+            total=Decimal('1.00'))
+
+    def _item(self, name, position):
+        return ReceiptItem.objects.create(
+            receipt=self.receipt, raw_name=name,
+            quantity=Decimal(1), unit='gab',
+            total=Decimal('1.00'), position=position)
+
+    def test_seeds_categories_rules_and_applies(self):
+        self._item('Pilnpiena biezpiens Rimi, 9%', 1)
+        self._item('Zobu pasta Parodontax Classic 75ml', 2)
+        self._item('Žurnāls Sudoku SMS', 3)
+        self._item('Rudzu maize sagriezta 1kg', 4)
+
+        call_command('seed_categories', '--user', 'admin')
+
+        from receipts.management.commands.seed_categories import (
+            SEED_CATEGORIES,
+        )
+        self.assertEqual(
+            Category.objects.filter(user=self.user).count(),
+            len(SEED_CATEGORIES))
+        self.assertGreater(
+            CategoryRule.objects.filter(user=self.user).count(), 0)
+
+        items = {
+            i.raw_name: i.category.name
+            for i in ReceiptItem.objects.all()
+        }
+        # 'biezpiens' must beat the generic 'piens' shadowed rule.
+        self.assertEqual(
+            items['Pilnpiena biezpiens Rimi, 9%'],
+            'Piena produkti')
+        self.assertEqual(
+            items['Zobu pasta Parodontax Classic 75ml'], 'Higiēna')
+        self.assertEqual(items['Žurnāls Sudoku SMS'], 'Preses')
+        self.assertEqual(items['Rudzu maize sagriezta 1kg'], 'Maize')
+
+    def test_rerun_is_idempotent(self):
+        call_command('seed_categories', '--user', 'admin')
+        cats = Category.objects.count()
+        rules = CategoryRule.objects.count()
+        call_command('seed_categories', '--user', 'admin')
+        self.assertEqual(Category.objects.count(), cats)
+        self.assertEqual(CategoryRule.objects.count(), rules)
+
+    def test_dry_run_writes_nothing(self):
+        self._item('Zobu pasta Parodontax Classic 75ml', 1)
+        call_command('seed_categories', '--user', 'admin',
+                     '--dry-run')
+        self.assertEqual(Category.objects.count(), 0)
+        self.assertEqual(CategoryRule.objects.count(), 0)
+        self.assertIsNone(
+            ReceiptItem.objects.get().category)
