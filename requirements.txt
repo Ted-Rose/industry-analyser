@@ -23,3 +23,4 @@ django-ninja==1.7.1
 # Pinned: committed frontend/openapi.json is regenerated verbatim —
 # newer pydantic emits a Decimal `pattern` the checked-in file lacks.
 pydantic==2.9.2
+pypdf==6.21.1
