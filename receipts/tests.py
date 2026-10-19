@@ -3,6 +3,7 @@
 import hashlib
 import imaplib
 import json
+from datetime import datetime, timedelta
 from decimal import Decimal
 from email import policy
 from email.message import EmailMessage
@@ -41,6 +42,7 @@ from receipts.models import (
     Store,
 )
 from receipts.parse_invoice import parse_invoice_text
+from receipts.views import _default_range
 
 INVOICE_TEXT = """\
 RIMI LATVIJA, SIA
@@ -946,3 +948,118 @@ class DashboardViewTests(TestCase):
         self.assertEqual(resp.context['summary'], {
             'total_spend': Decimal('42.08'), 'receipt_count': 1})
         self.assertEqual(resp.context['item_count'], 3)
+
+    def test_date_range_filter_narrows_results(self):
+        """Receipts outside ?date_from..?date_to drop out of
+        summary, monthly, by_store, categories and the table."""
+        out = Receipt.objects.create(
+            user=self.user, store=self.store,
+            purchased_at=timezone.make_aware(
+                datetime(2020, 1, 5, 12)),
+            document_number='OUT-1', total=Decimal('99.00'),
+            source_ref='d' * 64)
+        ReceiptItem.objects.create(
+            receipt=out, raw_name='OldItem', quantity=Decimal(1),
+            unit='gab', unit_price=Decimal('99.00'),
+            total=Decimal('99.00'), position=1)
+
+        today = timezone.localdate()
+        resp = self.client.get(reverse('receipts:dashboard'), {
+            'date_from': (today - timedelta(days=30)).isoformat(),
+            'date_to': today.isoformat(),
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, '2-999888')
+        self.assertNotContains(resp, 'OUT-1')
+        self.assertNotContains(resp, 'OldItem')
+        self.assertEqual(resp.context['summary'], {
+            'total_spend': Decimal('5.98'), 'receipt_count': 1})
+        self.assertEqual(len(list(resp.context['monthly'])), 1)
+        self.assertEqual(len(list(resp.context['receipts'])), 1)
+        self.assertEqual(resp.context['item_count'], 1)
+
+    def test_default_range_covers_last_12_months(self):
+        """No params: an 11-month-old receipt is in, a
+        13-month-old one is out."""
+        Receipt.objects.create(
+            user=self.user, store=self.store,
+            purchased_at=timezone.now() - timedelta(days=335),
+            document_number='IN-11M', total=Decimal('10.00'),
+            source_ref='e' * 64)
+        Receipt.objects.create(
+            user=self.user, store=self.store,
+            purchased_at=timezone.now() - timedelta(days=400),
+            document_number='OUT-13M', total=Decimal('10.00'),
+            source_ref='f' * 64)
+
+        resp = self.client.get(reverse('receipts:dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'IN-11M')
+        self.assertNotContains(resp, 'OUT-13M')
+
+    def test_invalid_date_params_fall_back_to_defaults(self):
+        resp = self.client.get(reverse('receipts:dashboard'), {
+            'date_from': 'not-a-date', 'date_to': '2026-13-99'})
+        self.assertEqual(resp.status_code, 200)
+        def_from, def_to = _default_range(timezone.localdate())
+        self.assertEqual(resp.context['date_from'], def_from)
+        self.assertEqual(resp.context['date_to'], def_to)
+        self.assertContains(resp, '2-999888')
+
+    def test_category_spend_groups_averages_and_top_items(self):
+        """Items aggregate per category; uncategorized items land
+        in their own bucket; monthly_avg = total / calendar
+        months covered by the range (Jan–Feb here = 2)."""
+        self.receipt.delete()   # 'Piens' is uncategorized noise
+        fruit = Category.objects.create(
+            user=self.user, name='Augļi')
+        bread = Category.objects.create(
+            user=self.user, name='Maize')
+        receipt = Receipt.objects.create(
+            user=self.user, store=self.store,
+            purchased_at=timezone.make_aware(
+                datetime(2026, 1, 15, 12)),
+            document_number='CAT-1', total=Decimal('30.00'),
+            source_ref='9' * 64)
+        rows = [
+            ('Banāni', '10.00', fruit),
+            ('Āboli', '8.00', fruit),
+            ('Rudzu maize', '7.00', bread),
+            ('Mystery', '5.00', None),
+        ]
+        for pos, (name, total, cat) in enumerate(rows, start=1):
+            ReceiptItem.objects.create(
+                receipt=receipt, raw_name=name, category=cat,
+                quantity=Decimal(1), unit='gab',
+                unit_price=Decimal(total), total=Decimal(total),
+                position=pos)
+
+        resp = self.client.get(reverse('receipts:dashboard'), {
+            'date_from': '2026-01-01', 'date_to': '2026-02-28'})
+        self.assertEqual(resp.status_code, 200)
+
+        cats = resp.context['categories']
+        self.assertEqual(
+            [c['name'] for c in cats],
+            ['Augļi', 'Maize', 'Uncategorized'])
+        self.assertEqual(cats[0]['total'], Decimal('18.00'))
+        self.assertEqual(cats[0]['item_count'], 2)
+        self.assertEqual(cats[0]['monthly_avg'], Decimal('9.00'))
+        self.assertEqual(cats[1]['monthly_avg'], Decimal('3.50'))
+        self.assertEqual(cats[2]['monthly_avg'], Decimal('2.50'))
+        self.assertEqual(
+            [i['raw_name'] for i in cats[0]['top_items']],
+            ['Banāni', 'Āboli'])
+
+    def test_category_rows_render_collapsible_details(self):
+        cat = Category.objects.create(
+            user=self.user, name='Augļi')
+        ReceiptItem.objects.create(
+            receipt=self.receipt, raw_name='Banāni', category=cat,
+            quantity=Decimal(1), unit='gab',
+            unit_price=Decimal('1.00'), total=Decimal('1.00'),
+            position=2)
+        resp = self.client.get(reverse('receipts:dashboard'))
+        self.assertContains(resp, '<details class="cat">')
+        self.assertContains(resp, 'Augļi')
+        self.assertContains(resp, 'Banāni')

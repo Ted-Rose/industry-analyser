@@ -22,6 +22,29 @@
     .items-row td { border-bottom: none; }
     .items-row table { min-width: 40%; margin-top: .4rem; }
     .empty { color: #777; font-style: italic; }
+    .range-form { display: flex; gap: .6rem; align-items: end;
+                  flex-wrap: wrap; margin: 1rem 0 .3rem; }
+    .range-form label { font-size: .8rem; color: #666;
+                        display: flex; flex-direction: column;
+                        gap: .2rem; }
+    .range-presets { font-size: .85rem; margin: .2rem 0 .8rem; }
+    .cat-table { min-width: 60%; }
+    .cat-row { display: grid; gap: .5rem;
+               grid-template-columns: 1fr 5rem 8rem 8rem;
+               padding: .35rem .7rem;
+               border-bottom: 1px solid #ddd;
+               align-items: baseline; }
+    .cat-head { background: #f4f4f4; font-weight: 600; }
+    .num { text-align: right; }
+    details.cat summary { cursor: pointer; list-style: none; }
+    details.cat summary::-webkit-details-marker {
+      display: none; }
+    details.cat summary::before {
+      content: '\25B6\FE0E\00A0'; color: #888;
+      font-size: .8rem; }
+    details.cat[open] summary::before {
+      content: '\25BC\FE0E\00A0'; }
+    .cat-items { min-width: 50%; margin: .4rem 0 .8rem 2rem; }
   </style>
 </head>
 <body>
@@ -32,6 +55,25 @@
     No data — user &quot;admin&quot; does not exist.
   </p>
   {% endif %}
+
+  <form method="get" class="range-form">
+    <label>From
+      <input type="date" name="date_from"
+             value="{{ date_from|date:'Y-m-d' }}">
+    </label>
+    <label>To
+      <input type="date" name="date_to"
+             value="{{ date_to|date:'Y-m-d' }}">
+    </label>
+    <button type="submit">Apply</button>
+  </form>
+  <p class="range-presets">
+    <a href="?date_from={{ last_month_from|date:'Y-m-d' }}&amp;date_to={{ last_month_to|date:'Y-m-d' }}">Last month</a>
+    &middot;
+    <a href="{% url 'receipts:dashboard' %}">Last 12 months</a>
+    &middot;
+    Showing {{ date_from|date:'Y-m-d' }}&ndash;{{ date_to|date:'Y-m-d' }}
+  </p>
 
   <div class="summary">
     <div class="card">
@@ -91,6 +133,46 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <h2>By category</h2>
+  <div class="cat-table">
+    <div class="cat-row cat-head">
+      <span>Category</span>
+      <span class="num">Items</span>
+      <span class="num">Total</span>
+      <span class="num">Avg / month</span>
+    </div>
+    {% for c in categories %}
+    <details class="cat">
+      <summary class="cat-row">
+        <span>{{ c.name }}</span>
+        <span class="num">{{ c.item_count }}</span>
+        <span class="num">{{ c.total|default:"0.00" }} &euro;</span>
+        <span class="num">{{ c.monthly_avg }} &euro;</span>
+      </summary>
+      <table class="cat-items">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num">Count</th>
+            <th class="num">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for it in c.top_items %}
+          <tr>
+            <td>{{ it.raw_name }}</td>
+            <td class="num">{{ it.item_count }}</td>
+            <td class="num">{{ it.total|default:"0.00" }} &euro;</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+    {% empty %}
+    <p class="empty">No data.</p>
+    {% endfor %}
+  </div>
 
   <h2>All receipts</h2>
   <table>
