@@ -31,31 +31,34 @@ def dashboard(request):
             ADMIN_USERNAME,
         )
         owner = None
-        receipts = Receipt.objects.none()
+        base = Receipt.objects.none()
     else:
-        receipts = (
-            Receipt.objects.filter(user=owner)
-            .select_related('store')
-            .prefetch_related('items')
-            .annotate(item_count=Count('items'))
-            .order_by('-purchased_at')
-        )
+        base = Receipt.objects.filter(user=owner)
 
-    summary = receipts.aggregate(
+    # Aggregates must run on ``base`` — the item_count annotation
+    # below joins receipt_item, and a Sum/Count over that join
+    # multiplies each receipt by its item count.
+    receipts = (
+        base.select_related('store')
+        .prefetch_related('items')
+        .annotate(item_count=Count('items'))
+        .order_by('-purchased_at')
+    )
+    summary = base.aggregate(
         total_spend=Sum('total'),
         receipt_count=Count('pk'),
     )
     item_count = ReceiptItem.objects.filter(
-        receipt__in=receipts).count()
+        receipt__in=base).count()
     monthly = (
-        receipts.exclude(purchased_at__isnull=True)
+        base.exclude(purchased_at__isnull=True)
         .annotate(month=TruncMonth('purchased_at'))
         .values('month')
         .annotate(receipt_count=Count('pk'), total=Sum('total'))
         .order_by('-month')
     )
     by_store = (
-        receipts.values('store__name')
+        base.values('store__name')
         .annotate(receipt_count=Count('pk'), total=Sum('total'))
         .order_by('-total')
     )

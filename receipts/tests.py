@@ -911,3 +911,38 @@ class DashboardViewTests(TestCase):
         resp = self.client.get(reverse('receipts:dashboard'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'No data')
+
+    def test_aggregates_not_inflated_by_item_join(self):
+        """Regression: the item_count annotation's items join must
+        not leak into the aggregates — a receipt with N items was
+        counted N times (Count('pk')=N, Sum('total')=total*N)."""
+        self.receipt.delete()
+        receipt = Receipt.objects.create(
+            user=self.user, store=self.store,
+            purchased_at=timezone.now(),
+            document_number='9-111222',
+            total=Decimal('42.08'), source_ref='c' * 64)
+        for position, amount in enumerate(
+                ('20.00', '15.08', '7.00'), start=1):
+            ReceiptItem.objects.create(
+                receipt=receipt, raw_name=f'Item {position}',
+                quantity=Decimal(1), unit='gab',
+                unit_price=Decimal(amount),
+                total=Decimal(amount), position=position)
+
+        resp = self.client.get(reverse('receipts:dashboard'))
+        self.assertEqual(resp.status_code, 200)
+
+        monthly = list(resp.context['monthly'])
+        self.assertEqual(len(monthly), 1)
+        self.assertEqual(monthly[0]['receipt_count'], 1)
+        self.assertEqual(monthly[0]['total'], Decimal('42.08'))
+
+        by_store = list(resp.context['by_store'])
+        self.assertEqual(len(by_store), 1)
+        self.assertEqual(by_store[0]['receipt_count'], 1)
+        self.assertEqual(by_store[0]['total'], Decimal('42.08'))
+
+        self.assertEqual(resp.context['summary'], {
+            'total_spend': Decimal('42.08'), 'receipt_count': 1})
+        self.assertEqual(resp.context['item_count'], 3)
