@@ -14,17 +14,14 @@ store/address/vat/document fields, ``purchased_at``, ``total``,
 cross-check).
 """
 
-import logging
 import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.utils import timezone
 
-logger = logging.getLogger('receipts')
-
 _NUM = r'-?\d+(?:[,.]\d+)?'
-_UNITS = r'gab|kg|kompl|m\u00e8tre'
+_UNITS = r'gab|kg|kompl|metri|m'
 
 # Item line: "<name> <qty> <unit> <unit_price> [<discount>] <total>".
 # The discount-column variant is tried first; both are anchored at
@@ -195,6 +192,7 @@ def parse_invoice_text(text):
 
     total = None
     total_discount = Decimal(0)
+    seen_discounts = set()
     store_address = ''
     for line in lines:
         lowered = line.lower()
@@ -204,8 +202,14 @@ def parse_invoice_text(text):
                 total = number   # last matching line wins
         elif _DISCOUNT_RE.search(line):
             number = _last_number(line)
+            # Identical amounts are deduped: a header+footer
+            # repetition of the same discount must not
+            # double-count total_discount.
             if number is not None:
-                total_discount += abs(number)
+                value = abs(number)
+                if value not in seen_discounts:
+                    seen_discounts.add(value)
+                    total_discount += value
         if not store_address and _ADDRESS_RE.search(line):
             store_address = line[:300]
 

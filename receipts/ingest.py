@@ -7,9 +7,12 @@ endpoint (plan §10) can reuse the same entry point.
 Per PDF attachment: sha256 dedup → pypdf text layer → invoice
 parser, or JobClient multimodal for image-only PDFs →
 ``reconcile()`` (§5.4) → ``Receipt`` + ``ReceiptItem`` rows in one
-``transaction.atomic()`` → per-user ``CategoryRule`` pass. Any
-failure writes a ``parse_error`` receipt row so the message can be
-marked ``\\Seen`` instead of retrying forever.
+``transaction.atomic()`` → per-user ``CategoryRule`` pass.
+Deterministic parse failures write a ``parse_error`` receipt row
+so the message can be marked ``\\Seen`` instead of retrying
+forever; transient/cap/config failures (``AIJobError``)
+propagate so the command aborts the run and leaves the message
+UNSEEN for retry.
 """
 
 import hashlib
@@ -26,6 +29,7 @@ from io import BytesIO
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from ai_providers.errors import AIJobError
 from ai_providers.types import (
     GenerationOptions,
     ImagePart,
@@ -88,12 +92,19 @@ def _extract_pdf_text(pdf_bytes):
 
 
 def _to_decimal(value):
-    """Coerce JSON/regex numbers to Decimal; None when missing."""
+    """Coerce JSON/regex numbers to Decimal; None when missing.
+
+    Spaces and non-breaking spaces are stripped first so
+    thousands-separated values like ``'1 234,56'`` survive.
+    """
     if value is None or value == '':
         return None
     if isinstance(value, Decimal):
         return value
-    cleaned = str(value).strip().replace(',', '.')
+    cleaned = (
+        str(value).strip().replace('\xa0', '').replace(' ', '')
+        .replace(',', '.')
+    )
     try:
         return Decimal(cleaned)
     except InvalidOperation:
@@ -114,7 +125,8 @@ def _parse_purchased_at(value):
 
 
 def _parse_ai_json(text):
-    """json.loads tolerant of markdown fences and preamble junk."""
+    """json.loads tolerant of markdown fences and junk around the
+    JSON object — ``raw_decode`` ignores anything trailing it."""
     cleaned = text.strip()
     if cleaned.startswith('```'):
         cleaned = re.sub(r'^```[A-Za-z]*\s*', '', cleaned)
@@ -122,16 +134,20 @@ def _parse_ai_json(text):
     start = cleaned.find('{')
     if start > 0:
         cleaned = cleaned[start:]
-    return json.loads(cleaned)
+    return json.JSONDecoder().raw_decode(cleaned)[0]
 
 
 def _normalize_ai_output(data):
     """Model JSON → the canonical parsed dict (like parse_invoice)."""
     items = []
     for position, raw in enumerate(data.get('items') or [], 1):
+        # `is None`, not falsy: a legit quantity of 0 stays 0.
+        quantity = _to_decimal(raw.get('quantity'))
         items.append({
             'raw_name': str(raw.get('name') or '')[:300],
-            'quantity': _to_decimal(raw.get('quantity')) or Decimal(1),
+            'quantity': (
+                quantity if quantity is not None else Decimal(1)
+            ),
             'unit': str(raw.get('unit') or '')[:10],
             'unit_price': _to_decimal(raw.get('unit_price')),
             'discount': _to_decimal(raw.get('discount')) or Decimal(0),
@@ -305,8 +321,11 @@ def _write_receipt(user, parsed, sha, filename, message_id, status):
         payment_method=parsed.get('payment_method') or '',
         total_discount=parsed.get('total_discount') or 0,
         source_ref=sha,
-        source_filename=filename or '',
-        message_id=message_id or '',
+        # max_length=255 — Postgres raises DataError on longer
+        # names, which would leave the message UNSEEN and retry
+        # (re-paying the AI call) forever.
+        source_filename=(filename or '')[:255],
+        message_id=(message_id or '')[:255],
         raw_text=parsed.get('raw_text') or '',
         parse_status=status,
     )
@@ -335,8 +354,8 @@ def _write_parse_error(user, sha, filename, message_id, tb):
         Receipt.objects.create(
             user=user,
             source_ref=sha,
-            source_filename=filename or '',
-            message_id=message_id or '',
+            source_filename=(filename or '')[:255],
+            message_id=(message_id or '')[:255],
             parse_status=Receipt.PARSE_ERROR,
             parse_error=tb[:4000],
         )
@@ -418,7 +437,15 @@ def _process_attachment(user, pdf_bytes, filename, message_id,
                 receipt = _write_receipt(
                     user, parsed, sha, filename, message_id, status)
         except IntegrityError:
-            # Unique (user, source_ref) race — already imported.
+            # Expected source: the unique (user, source_ref) race
+            # — already imported by a concurrent run. Any other
+            # IntegrityError inside the atomic block (e.g. the
+            # Store get_or_create unique_together race) must NOT
+            # be counted as "imported", or the message would be
+            # marked \Seen with no row written.
+            if not Receipt.objects.filter(
+                    user=user, source_ref=sha).exists():
+                raise
             result.skipped += 1
             return
         try:
@@ -428,6 +455,13 @@ def _process_attachment(user, pdf_bytes, filename, message_id,
                 'category pass failed for receipt %s', receipt.pk,
                 exc_info=True)
         result.created += 1
+    except AIJobError:
+        # Transient/cap/config failure (request cap, all models
+        # failed, job unseeded/disabled): propagate so the command
+        # aborts the run and leaves the message UNSEEN for retry —
+        # a parse_error row + \Seen would poison it via sha256
+        # dedup.
+        raise
     except Exception:
         tb = traceback.format_exc()
         logger.error(
@@ -442,9 +476,10 @@ def process_message(user, email_msg, get_ai_client=None, dry_run=False):
 
     ``get_ai_client`` is a zero-arg callable used lazily so the
     AIJob row is only created when an image-only PDF actually needs
-    it. Returns ``MessageResult``; only raises when the per-message
-    failure could not be recorded (the caller then leaves the
-    message UNSEEN for retry).
+    it. Returns ``MessageResult``. Raises ``AIJobError``
+    (cap/outage/config — the caller aborts the run and leaves the
+    message UNSEEN) or any per-message failure that could not be
+    recorded (also left UNSEEN for retry).
     """
     result = MessageResult()
     message_id = (email_msg.get('Message-ID') or '')[:255]

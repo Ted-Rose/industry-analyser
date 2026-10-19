@@ -1,6 +1,7 @@
 """Receipts pipeline tests (plan §9) — stub IMAP + stub AI client."""
 
 import hashlib
+import imaplib
 import json
 from decimal import Decimal
 from email import policy
@@ -9,10 +10,14 @@ from email.parser import BytesParser
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
-from receipts.imap_client import iter_messages, mark_seen
+from ai_providers.errors import AIJobError, AIRequestCapReached
+
+from receipts.imap_client import connect, iter_messages, mark_seen
 from receipts.ingest import (
+    _normalize_ai_output,
+    _parse_ai_json,
     apply_category_rules,
     process_message,
     reconcile,
@@ -107,6 +112,7 @@ class FakeImap:
     def __init__(self, messages):
         self.messages = list(messages)
         self.seen = []
+        self.fetches = []
 
     def search(self, charset, criteria):
         nums = b' '.join(
@@ -115,11 +121,34 @@ class FakeImap:
         return 'OK', [nums]
 
     def fetch(self, num, query):
+        self.fetches.append(num)
         return 'OK', [(num, self.messages[int(num) - 1])]
 
     def store(self, num, flags, value):
         self.seen.append((num, flags, value))
         return 'OK', [num]
+
+
+class FlakyFetchImap(FakeImap):
+    """fetch() returns a non-OK status for ``fail_nums`` and
+    raises an IMAP abort for ``raise_nums``; successful fetches
+    also carry a non-tuple part like real imaplib responses."""
+
+    def __init__(self, messages, fail_nums=(), raise_nums=()):
+        super().__init__(messages)
+        self.fail_nums = {str(n).encode() for n in fail_nums}
+        self.raise_nums = {str(n).encode() for n in raise_nums}
+
+    def fetch(self, num, query):
+        self.fetches.append(num)
+        if num in self.raise_nums:
+            raise imaplib.IMAP4.abort('connection dropped')
+        if num in self.fail_nums:
+            return 'NO', None
+        return 'OK', [
+            b'FLAGS (\\Seen)',   # non-tuple part must be skipped
+            (num, self.messages[int(num) - 1]),
+        ]
 
 
 class _StubAIResult:
@@ -285,14 +314,18 @@ class IngestTests(TestCase):
             username='admin', password='x', email='a@x.com')
 
     def _run_sync(self, raws, get_ai_client=None, dry_run=False):
-        """Mirror the command loop: iterate, process, mark \\Seen."""
+        """Mirror the command loop: iterate, process, mark \\Seen;
+        an AIJobError aborts the run (message stays UNSEEN)."""
         fake = FakeImap(raws)
         results = []
         for num, msg in iter_messages(fake):
-            result = process_message(
-                self.user, msg,
-                get_ai_client=get_ai_client, dry_run=dry_run,
-            )
+            try:
+                result = process_message(
+                    self.user, msg,
+                    get_ai_client=get_ai_client, dry_run=dry_run,
+                )
+            except AIJobError:
+                break
             if not dry_run:
                 mark_seen(fake, num)
             results.append(result)
@@ -398,6 +431,28 @@ class IngestTests(TestCase):
         self.assertEqual(receipt.parse_status, Receipt.PARSE_ERROR)
         self.assertEqual(len(fake.seen), 1)
 
+    @patch('receipts.ingest._extract_pdf_text', return_value='')
+    def test_ai_cap_reached_leaves_message_unseen(self, _extract):
+        """AIRequestCapReached must abort the run: no parse_error
+        row, no \\Seen — the message is retried next run instead
+        of being poisoned by sha256 dedup."""
+
+        class CapClient(StubAIClient):
+            def generate(self, spec, role, options=None):
+                raise AIRequestCapReached('per-run cap reached')
+
+        fake, results = self._run_sync(
+            [_build_eml(), _build_eml(
+                filename='other.pdf',
+                message_id='<m2@example.com>')],
+            get_ai_client=lambda: CapClient(None),
+        )
+        # The run aborted on the first message — nothing was
+        # processed, written, or marked seen.
+        self.assertEqual(results, [])
+        self.assertEqual(Receipt.objects.count(), 0)
+        self.assertEqual(len(fake.seen), 0)
+
     @patch(
         'receipts.ingest._extract_pdf_text',
         return_value=INVOICE_TEXT)
@@ -412,6 +467,80 @@ class IngestTests(TestCase):
         fake, results = self._run_sync([_build_eml()], dry_run=True)
         self.assertEqual(results[0].ai_pending, 1)
         self.assertEqual(Receipt.objects.count(), 0)
+
+
+class ImapClientTests(SimpleTestCase):
+    """connect() settings guard + iter_messages resilience."""
+
+    @override_settings(
+        RECEIPTS_IMAP_USER='', RECEIPTS_IMAP_PASSWORD='')
+    def test_connect_empty_settings_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            connect()
+
+    @override_settings(
+        RECEIPTS_IMAP_USER='u@x.com', RECEIPTS_IMAP_PASSWORD='')
+    def test_connect_empty_password_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            connect()
+
+    def test_failed_fetch_is_skipped(self):
+        fake = FlakyFetchImap(
+            [_build_eml(), _build_eml(), _build_eml()],
+            fail_nums={1},
+        )
+        pairs = list(iter_messages(fake))
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual(
+            [num for num, _msg in pairs], [b'2', b'3'])
+
+    def test_fetch_abort_is_skipped(self):
+        fake = FlakyFetchImap(
+            [_build_eml(), _build_eml()],
+            raise_nums={1},
+        )
+        pairs = list(iter_messages(fake))
+        self.assertEqual(len(pairs), 1)
+
+    def test_limit_avoids_extra_body_fetch(self):
+        fake = FakeImap([_build_eml(), _build_eml(), _build_eml()])
+        pairs = list(iter_messages(fake, limit=2))
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual(len(fake.fetches), 2)
+
+
+class NormalizeAiOutputTests(SimpleTestCase):
+    """_normalize_ai_output/_to_decimal/_parse_ai_json nits."""
+
+    def test_quantity_zero_is_not_replaced_by_one(self):
+        parsed = _normalize_ai_output({
+            'items': [{
+                'name': 'Free sample', 'quantity': 0,
+                'unit_price': '0.00', 'total': '0.00',
+            }],
+        })
+        self.assertEqual(
+            parsed['items'][0]['quantity'], Decimal(0))
+
+    def test_spaced_thousands_decimal(self):
+        parsed = _normalize_ai_output({'total': '1 234,56'})
+        self.assertEqual(parsed['total'], Decimal('1234.56'))
+
+    def test_parse_ai_json_tolerates_trailing_junk(self):
+        self.assertEqual(
+            _parse_ai_json('{"a": 1} some trailing note'),
+            {'a': 1})
+
+    def test_repeated_discount_line_is_deduped(self):
+        text = (
+            INVOICE_TEXT
+            + 'Atlaide: 0,50\n'
+            + 'Atlaide: 0,50\n'
+            + 'Ietaupījums: 0,30\n'
+        )
+        parsed = parse_invoice_text(text)
+        self.assertEqual(
+            parsed['total_discount'], Decimal('0.80'))
 
 
 class CategoryRuleTests(TestCase):

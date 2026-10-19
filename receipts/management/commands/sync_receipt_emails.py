@@ -14,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 
 from ai_providers.client import get_job_client
+from ai_providers.errors import AIJobError
 
 from receipts.ai_jobs import RECEIPT_EXTRACT
 from receipts.imap_client import connect, iter_messages, mark_seen
@@ -114,10 +115,9 @@ class Command(BaseCommand):
         }
         try:
             for num, msg in iter_messages(
-                imap, scan_all=options['all']
+                imap, scan_all=options['all'],
+                limit=options['limit'],
             ):
-                if counts['messages'] >= options['limit']:
-                    break
                 counts['messages'] += 1
                 try:
                     result = process_message(
@@ -125,6 +125,17 @@ class Command(BaseCommand):
                         get_ai_client=get_ai_client,
                         dry_run=dry_run,
                     )
+                except AIJobError as e:
+                    # Cap reached / provider outage / unseeded or
+                    # disabled job: every remaining image-PDF
+                    # message would fail the same way, so abort
+                    # the run — this message stays UNSEEN (no
+                    # parse_error row was written) for retry.
+                    counts['errors'] += 1
+                    logger.error(
+                        'message %s aborted the run: %s',
+                        num, e)
+                    break
                 except Exception as e:
                     # Unrecoverable (e.g. even the parse_error row
                     # failed) — leave UNSEEN for the next run.
@@ -149,9 +160,15 @@ class Command(BaseCommand):
                 pass
 
         suffix = ' [dry-run]' if dry_run else ''
+        # In dry-run nothing was written — 'created' counts what
+        # would have been stored.
+        created_label = (
+            'receipt(s) would have been written'
+            if dry_run else 'receipt(s)'
+        )
         self.stdout.write(self.style.SUCCESS(
             f"Done{suffix}: {counts['messages']} message(s), "
-            f"{counts['created']} receipt(s), "
+            f"{counts['created']} {created_label}, "
             f"{counts['skipped']} duplicate(s) skipped, "
             f"{counts['errors']} error(s), "
             f"{counts['ai_pending']} would need AI extraction."
