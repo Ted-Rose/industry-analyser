@@ -61,6 +61,7 @@ export default function Dashboard() {
         <a href="/vacancies/">Vacancies</a>
         <a href="/tv/">TV Programs</a>
         <a href="/classified-ads/">Classified Ads</a>
+        <a href="/receipts/">Receipts</a>
         <a href="/admin/">Admin</a>
       </div>
 
