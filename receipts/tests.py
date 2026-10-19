@@ -1127,3 +1127,57 @@ class SeedCategoriesCommandTests(TestCase):
         self.assertEqual(CategoryRule.objects.count(), 0)
         self.assertIsNone(
             ReceiptItem.objects.get().category)
+
+    def test_meat_split_and_sausages_as_toppings(self):
+        """Specific meats land in their own categories; sausages
+        count as sandwich toppings; 'cūkgaļa' beats 'gaļa'."""
+        self._item('Vistas fileja bez ādas 1kg', 1)
+        self._item('Cūkgaļas karbonāde 500g', 2)
+        self._item('Liellopa antrekots 400g', 3)
+        self._item('Maltā gaļa MIX 400g', 4)
+        self._item('Desa Jelgava jubilejas 280g', 5)
+        self._item('Cīsiņi grila 300g', 6)
+
+        call_command('seed_categories', '--user', 'admin')
+
+        items = {
+            i.raw_name: i.category.name
+            for i in ReceiptItem.objects.all()
+        }
+        self.assertEqual(
+            items['Vistas fileja bez ādas 1kg'], 'Vistas gaļa')
+        self.assertEqual(
+            items['Cūkgaļas karbonāde 500g'], 'Cūkgaļa')
+        self.assertEqual(
+            items['Liellopa antrekots 400g'], 'Liellopu gaļa')
+        self.assertEqual(items['Maltā gaļa MIX 400g'], 'Gaļa')
+        self.assertEqual(
+            items['Desa Jelgava jubilejas 280g'],
+            'Sendviču piedevas')
+        self.assertEqual(
+            items['Cīsiņi grila 300g'], 'Sendviču piedevas')
+
+    def test_obsolete_rules_are_deleted(self):
+        galya = Category.objects.create(
+            user=self.user, name='Gaļa')
+        stale = CategoryRule.objects.create(
+            user=self.user, category=galya, pattern='desa',
+            match_type=CategoryRule.CONTAINS, priority=50)
+        call_command('seed_categories', '--user', 'admin')
+        self.assertFalse(
+            CategoryRule.objects.filter(pk=stale.pk).exists())
+
+    def test_reapply_recategorizes_all_items(self):
+        self._item('Desa Jelgava jubilejas 280g', 1)
+        old = Category.objects.create(user=self.user, name='Gaļa')
+        ReceiptItem.objects.update(category=old)
+
+        call_command('seed_categories', '--user', 'admin')
+        self.assertEqual(
+            ReceiptItem.objects.get().category.name, 'Gaļa')
+
+        call_command(
+            'seed_categories', '--user', 'admin', '--reapply')
+        self.assertEqual(
+            ReceiptItem.objects.get().category.name,
+            'Sendviču piedevas')

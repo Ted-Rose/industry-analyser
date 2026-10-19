@@ -8,7 +8,9 @@ existing uncategorized ReceiptItems pick up categories too.
 Idempotent: everything goes through ``get_or_create`` — existing
 rows (including admin edits to priority/is_active) are never
 overwritten, and the apply pass only fills items whose category
-is still NULL.
+is still NULL (``--reapply`` clears all categories first).
+``OBSOLETE_RULES`` lists seeded patterns removed by taxonomy
+changes — they are deleted so they can't shadow replacements.
 
 Rule semantics (``receipts.ingest.apply_category_rules``): rules
 match ``ReceiptItem.raw_name`` case-insensitively ordered by
@@ -80,20 +82,34 @@ SEED_CATEGORIES = [
         ('kārum', 50),            # Kārums brand curd snacks
         ('mocarel', 50),          # mocarella
     ]),
-    ('Gaļa', [
-        ('desa', 50),             # vārītā / kūpināta desa
-        ('cīsiņ', 50),            # cīsiņi (small sausages)
-        ('gaļa', 50),             # cūkgaļa / maltā gaļa ...
-        ('vist', 50),             # vistas fileja / vista
-        ('cūk', 50),              # cūkas fileja ...
-        ('liellop', 50),
+    # Specific meat kinds at priority 10 — 'vistas gaļa' /
+    # 'cūkgaļa' also contain the generic 'gaļa' (priority 50).
+    ('Vistas gaļa', [
+        ('vist', 10),             # vistas fileja / vistu gaļa
+        ('broiler', 10),
+    ]),
+    ('Cūkgaļa', [
+        ('cūk', 10),              # cūkas fileja / cūkgaļa
+        ('karbonād', 10),
+    ]),
+    ('Liellopu gaļa', [
+        ('liellop', 10),
+        ('jaut', 10),             # jauta / jautinas (archaic)
+        ('teļ', 10),              # teļa gaļa (veal)
+    ]),
+    ('Gaļa', [                  # generic catch-all
+        ('gaļa', 50),             # maltā gaļa / tītara gaļa ...
         ('kotlet', 50),
         ('steik', 50),
-        ('bekon', 50),
         ('tītar', 50),            # tītara gaļa
         ('pīl', 50),              # pīle / pīlēns (duck)
     ]),
     ('Sendviču piedevas', [
+        # 'desa' also matches 'deserts' — a desert category rule
+        # added later must run at priority < 10.
+        ('desa', 10),             # vārītā / kūpināta desa
+        ('cīsiņ', 10),            # cīsiņi (small sausages)
+        ('bekon', 50),
         ('šķiņķ', 50),            # šķiņķis (ham)
         ('pastēt', 50),           # pastēte
         ('salami', 50),
@@ -127,6 +143,14 @@ SEED_CATEGORIES = [
     ]),
 ]
 
+# Seeded rules superseded by later taxonomy changes. They must
+# be deleted explicitly — get_or_create never removes rows, and
+# a stale lower-pk rule would keep shadowing its replacement.
+OBSOLETE_RULES = {
+    # Meat split + sausage move to Sendviču piedevas.
+    'Gaļa': ['desa', 'cīsiņ', 'vist', 'cūk', 'liellop', 'bekon'],
+}
+
 
 class Command(BaseCommand):
     help = (
@@ -147,6 +171,13 @@ class Command(BaseCommand):
             '--dry-run',
             action='store_true',
             help='Print what would change without writing.',
+        )
+        parser.add_argument(
+            '--reapply',
+            action='store_true',
+            help='Re-evaluate ALL items, not only uncategorized '
+                 'ones. Use after taxonomy changes; overwrites '
+                 'existing category assignments.',
         )
 
     def _resolve_user(self, username):
@@ -209,17 +240,34 @@ class Command(BaseCommand):
                 )
                 rule_created += int(created)
 
+        obsolete_deleted = 0
+        for cat_name, patterns in OBSOLETE_RULES.items():
+            qs = CategoryRule.objects.filter(
+                user=user, category__name=cat_name,
+                pattern__in=patterns)
+            obsolete_deleted += qs.count()
+            if not dry_run:
+                qs.delete()
+        if obsolete_deleted:
+            self.stdout.write(
+                f'{prefix}{obsolete_deleted} obsolete rule(s) '
+                'deleted')
+
         self.stdout.write(
             f'{prefix}{cat_created} category(ies), '
             f'{rule_created} rule(s) created'
         )
-        self._apply(user, dry_run, prefix)
+        self._apply(user, dry_run, prefix, options['reapply'])
 
-    def _apply(self, user, dry_run, prefix):
+    def _apply(self, user, dry_run, prefix, reapply):
         """Re-run the real apply_category_rules pass (or simulate
-        it in dry-run) over items with a NULL category."""
-        items_qs = ReceiptItem.objects.filter(
-            receipt__user=user, category__isnull=True)
+        it in dry-run). --reapply first clears every category so
+        changed rules take effect on already-categorized items."""
+        items_qs = ReceiptItem.objects.filter(receipt__user=user)
+        if not reapply:
+            items_qs = items_qs.filter(category__isnull=True)
+        elif not dry_run:
+            items_qs.update(category=None)
         if dry_run:
             rules = list(
                 CategoryRule.objects
