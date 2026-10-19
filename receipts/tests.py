@@ -10,9 +10,16 @@ from email.parser import BytesParser
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase, override_settings
 
-from ai_providers.errors import AIJobError, AIRequestCapReached
+from ai_providers.errors import (
+    AIAllModelsFailedError,
+    AIBadRequestError,
+    AIJobError,
+    AIRequestCapReached,
+    AIServerError,
+)
 
 from receipts.imap_client import connect, iter_messages, mark_seen
 from receipts.ingest import (
@@ -453,6 +460,91 @@ class IngestTests(TestCase):
         self.assertEqual(Receipt.objects.count(), 0)
         self.assertEqual(len(fake.seen), 0)
 
+    @patch('receipts.ingest._extract_pdf_text', return_value='')
+    def test_ai_bad_request_becomes_parse_error(self, _extract):
+        """AIAllModelsFailedError whose last_error is a
+        deterministic per-document failure (the provider rejects
+        the PDF) must not wedge the run: parse_error row + \\Seen
+        and the next message is still processed."""
+
+        class BadDocClient(StubAIClient):
+            def generate(self, spec, role, options=None):
+                raise AIAllModelsFailedError(
+                    'all models failed',
+                    last_error=AIBadRequestError('PDF too large'),
+                )
+
+        other_pdf = b'%PDF-1.4 different bytes'
+        fake, results = self._run_sync(
+            [
+                _build_eml(),
+                _build_eml(
+                    pdf_bytes=other_pdf, filename='other.pdf',
+                    message_id='<m2@example.com>'),
+            ],
+            get_ai_client=lambda: BadDocClient(None),
+        )
+        self.assertEqual(results[0].errors, 1)
+        self.assertEqual(results[1].errors, 1)  # run continued
+        self.assertEqual(
+            Receipt.objects.filter(
+                parse_status=Receipt.PARSE_ERROR).count(), 2)
+        self.assertEqual(len(fake.seen), 2)
+
+    @patch('receipts.ingest._extract_pdf_text', return_value='')
+    def test_ai_retryable_all_models_failed_aborts_unseen(
+            self, _extract):
+        """AIAllModelsFailedError with a retryable last_error
+        stays an abort: no parse_error row, no \\Seen."""
+
+        class DownClient(StubAIClient):
+            def generate(self, spec, role, options=None):
+                raise AIAllModelsFailedError(
+                    'all models failed',
+                    last_error=AIServerError('503'),
+                )
+
+        fake, results = self._run_sync(
+            [_build_eml(), _build_eml(
+                filename='other.pdf',
+                message_id='<m2@example.com>')],
+            get_ai_client=lambda: DownClient(None),
+        )
+        self.assertEqual(results, [])
+        self.assertEqual(Receipt.objects.count(), 0)
+        self.assertEqual(len(fake.seen), 0)
+
+    @patch('receipts.ingest._write_receipt')
+    @patch(
+        'receipts.ingest._extract_pdf_text',
+        return_value=INVOICE_TEXT)
+    def test_non_dedup_integrity_error_writes_parse_error(
+            self, _extract, write):
+        """An IntegrityError that is NOT the (user, source_ref)
+        dedup race — no row exists — must become a parse_error
+        row, not a dedup-skip."""
+        write.side_effect = IntegrityError('store unique race')
+        fake, results = self._run_sync([_build_eml()])
+        self.assertEqual(results[0].errors, 1)
+        self.assertEqual(results[0].skipped, 0)
+        receipt = Receipt.objects.get()
+        self.assertEqual(receipt.parse_status, Receipt.PARSE_ERROR)
+        self.assertIn('store unique race', receipt.parse_error)
+        self.assertEqual(len(fake.seen), 1)
+
+    @patch(
+        'receipts.ingest._extract_pdf_text',
+        return_value=INVOICE_TEXT)
+    def test_long_filename_is_truncated(self, _extract):
+        long_name = 'a' * 300 + '.pdf'
+        fake, results = self._run_sync(
+            [_build_eml(filename=long_name)])
+        self.assertEqual(results[0].created, 1)
+        receipt = Receipt.objects.get()
+        self.assertEqual(len(receipt.source_filename), 255)
+        self.assertEqual(receipt.source_filename, long_name[:255])
+        self.assertEqual(len(fake.seen), 1)
+
     @patch(
         'receipts.ingest._extract_pdf_text',
         return_value=INVOICE_TEXT)
@@ -541,6 +633,16 @@ class NormalizeAiOutputTests(SimpleTestCase):
         parsed = parse_invoice_text(text)
         self.assertEqual(
             parsed['total_discount'], Decimal('0.80'))
+
+    def test_same_amount_different_discount_lines_both_count(self):
+        text = (
+            INVOICE_TEXT
+            + 'Atlaide: 0,50\n'
+            + 'Kartes atlaide: 0,50\n'
+        )
+        parsed = parse_invoice_text(text)
+        self.assertEqual(
+            parsed['total_discount'], Decimal('1.00'))
 
 
 class CategoryRuleTests(TestCase):

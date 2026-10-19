@@ -134,9 +134,11 @@ def _parse_items(lines):
         name = groups['name'].strip()
         if not name:
             continue
+        qty = _to_decimal(groups['qty'])
         items.append({
             'raw_name': name[:300],
-            'quantity': _to_decimal(groups['qty']) or Decimal(1),
+            # `is None`, not falsy: a legit quantity of 0 stays 0.
+            'quantity': qty if qty is not None else Decimal(1),
             'unit': groups['unit'].lower()[:10],
             'unit_price': _to_decimal(groups['unit_price']),
             'discount': _to_decimal(groups.get('discount'))
@@ -202,14 +204,16 @@ def parse_invoice_text(text):
                 total = number   # last matching line wins
         elif _DISCOUNT_RE.search(line):
             number = _last_number(line)
-            # Identical amounts are deduped: a header+footer
-            # repetition of the same discount must not
-            # double-count total_discount.
+            # Dedup on the normalized line text, not the amount:
+            # a header+footer repetition of the same discount
+            # must not double-count total_discount, but two
+            # different discount lines sharing an amount are
+            # both legit.
             if number is not None:
-                value = abs(number)
-                if value not in seen_discounts:
-                    seen_discounts.add(value)
-                    total_discount += value
+                key = ' '.join(line.lower().split())
+                if key not in seen_discounts:
+                    seen_discounts.add(key)
+                    total_discount += abs(number)
         if not store_address and _ADDRESS_RE.search(line):
             store_address = line[:300]
 

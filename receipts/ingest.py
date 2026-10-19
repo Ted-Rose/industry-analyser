@@ -10,9 +10,11 @@ parser, or JobClient multimodal for image-only PDFs →
 ``transaction.atomic()`` → per-user ``CategoryRule`` pass.
 Deterministic parse failures write a ``parse_error`` receipt row
 so the message can be marked ``\\Seen`` instead of retrying
-forever; transient/cap/config failures (``AIJobError``)
-propagate so the command aborts the run and leaves the message
-UNSEEN for retry.
+forever — that includes ``AIAllModelsFailedError`` whose
+``last_error`` is a per-document deterministic failure (e.g. a
+PDF the provider rejects outright). Transient/cap/config
+failures (other ``AIJobError``) propagate so the command aborts
+the run and leaves the message UNSEEN for retry.
 """
 
 import hashlib
@@ -29,7 +31,12 @@ from io import BytesIO
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from ai_providers.errors import AIJobError
+from ai_providers.errors import (
+    AIAllModelsFailedError,
+    AIBadRequestError,
+    AIEmptyResponseError,
+    AIJobError,
+)
 from ai_providers.types import (
     GenerationOptions,
     ImagePart,
@@ -45,11 +52,23 @@ logger = logging.getLogger('receipts')
 ITEMS_SUM_TOLERANCE = Decimal('0.03')
 LINE_TOLERANCE = Decimal('0.02')
 
+# ``last_error`` classes on ``AIAllModelsFailedError`` that mean
+# the document itself is deterministically unprocessable: the
+# request shape was rejected (e.g. a >20MB or unsupported PDF)
+# or every model keeps returning an empty body for it. These get
+# a ``parse_error`` row instead of aborting the run — aborting
+# would leave the message UNSEEN so every daily run re-pays the
+# failing call and never reaches the mail behind it. Retryable,
+# provider-level and job-level errors still abort.
+_PER_DOCUMENT_AI_ERRORS = (AIBadRequestError, AIEmptyResponseError)
+
 _PROMPT_PATH = os.path.join(
     os.path.dirname(__file__), 'prompts', 'receipt_extract.txt')
 _prompt_text = None
 
-_FILENAME_DOC_RE = re.compile(r'^([A-Za-z0-9]+)-([A-Za-z0-9]+)$')
+# '<kase>-<docnr>.pdf' — kase numbers are digits only, so
+# 'invoice-123.pdf' cannot yield register_number='invoice'.
+_FILENAME_DOC_RE = re.compile(r'^(\d+)-([A-Za-z0-9]+)$')
 
 
 @dataclass
@@ -315,7 +334,9 @@ def _write_receipt(user, parsed, sha, filename, message_id, status):
         store=store,
         purchased_at=parsed.get('purchased_at'),
         document_number=parsed.get('document_number') or '',
-        register_number=parsed.get('register_number') or '',
+        # max_length=20 — parsers/filename enrichment can hand
+        # over longer strings.
+        register_number=(parsed.get('register_number') or '')[:20],
         total=parsed.get('total'),
         currency=parsed.get('currency') or 'EUR',
         payment_method=parsed.get('payment_method') or '',
@@ -362,6 +383,18 @@ def _write_parse_error(user, sha, filename, message_id, tb):
     except IntegrityError:
         logger.warning(
             'parse_error row already exists for %s', sha[:12])
+
+
+def _record_parse_error(user, sha, filename, message_id,
+                        dry_run, result):
+    """Log the traceback, write the parse_error row (unless
+    dry-run) and bump the error tally."""
+    tb = traceback.format_exc()
+    logger.error(
+        'receipt parse failed for %s:\n%s', filename, tb)
+    if not dry_run:
+        _write_parse_error(user, sha, filename, message_id, tb)
+    result.errors += 1
 
 
 def _rule_matches(rule, lowered_name):
@@ -455,20 +488,27 @@ def _process_attachment(user, pdf_bytes, filename, message_id,
                 'category pass failed for receipt %s', receipt.pk,
                 exc_info=True)
         result.created += 1
-    except AIJobError:
-        # Transient/cap/config failure (request cap, all models
-        # failed, job unseeded/disabled): propagate so the command
-        # aborts the run and leaves the message UNSEEN for retry —
-        # a parse_error row + \Seen would poison it via sha256
-        # dedup.
-        raise
+    except AIJobError as e:
+        deterministic = (
+            isinstance(e, AIAllModelsFailedError)
+            and isinstance(e.last_error, _PER_DOCUMENT_AI_ERRORS)
+        )
+        if not deterministic:
+            # Transient/cap/config failure (request cap, provider
+            # outage, job unseeded/disabled): propagate so the
+            # command aborts the run and leaves the message UNSEEN
+            # for retry — a parse_error row + \Seen would poison
+            # it via sha256 dedup.
+            raise
+        # Every model failed deterministically on THIS document
+        # (e.g. Gemini rejects an oversized PDF with a 400) —
+        # record the failure and move on instead of wedging the
+        # run and re-paying the failing call every day.
+        _record_parse_error(
+            user, sha, filename, message_id, dry_run, result)
     except Exception:
-        tb = traceback.format_exc()
-        logger.error(
-            'receipt parse failed for %s:\n%s', filename, tb)
-        if not dry_run:
-            _write_parse_error(user, sha, filename, message_id, tb)
-        result.errors += 1
+        _record_parse_error(
+            user, sha, filename, message_id, dry_run, result)
 
 
 def process_message(user, email_msg, get_ai_client=None, dry_run=False):
@@ -478,14 +518,20 @@ def process_message(user, email_msg, get_ai_client=None, dry_run=False):
     AIJob row is only created when an image-only PDF actually needs
     it. Returns ``MessageResult``. Raises ``AIJobError``
     (cap/outage/config — the caller aborts the run and leaves the
-    message UNSEEN) or any per-message failure that could not be
-    recorded (also left UNSEEN for retry).
+    message UNSEEN) with the work already done on this message
+    attached as ``e.partial_result``, or any per-message failure
+    that could not be recorded (the caller records a message-level
+    ``parse_error`` row and marks it seen).
     """
     result = MessageResult()
     message_id = (email_msg.get('Message-ID') or '')[:255]
-    for filename, pdf_bytes in iter_pdf_attachments(email_msg):
-        _process_attachment(
-            user, pdf_bytes, filename, message_id,
-            get_ai_client, dry_run, result,
-        )
+    try:
+        for filename, pdf_bytes in iter_pdf_attachments(email_msg):
+            _process_attachment(
+                user, pdf_bytes, filename, message_id,
+                get_ai_client, dry_run, result,
+            )
+    except AIJobError as e:
+        e.partial_result = result
+        raise
     return result

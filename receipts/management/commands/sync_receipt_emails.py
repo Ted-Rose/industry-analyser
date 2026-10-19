@@ -3,12 +3,17 @@
 ``python manage.py sync_receipt_emails`` fetches UNSEEN mail from
 the collector Gmail inbox and ingests PDF attachments into
 Receipt/ReceiptItem rows. Exits 0 even when individual mails fail
-(per-mail errors are logged + get ``parse_error`` rows); non-zero
-only if IMAP connect/login fails — a bad message cannot wedge the
-daily Cloud Run job.
+(per-mail errors are logged + get ``parse_error`` rows); exits
+non-zero when IMAP connect/login fails, when an ``AIJobError``
+aborts the run (request cap, provider outage, disabled or
+unseeded job — a silent exit-0 would hide that in Cloud Run), or
+when non-IMAP4 errors (socket/OSError/SSL) propagate from
+fetch/search/store. A bad message cannot wedge the daily job,
+but a broken run must fail loudly.
 """
 
 import logging
+import traceback
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -18,7 +23,7 @@ from ai_providers.errors import AIJobError
 
 from receipts.ai_jobs import RECEIPT_EXTRACT
 from receipts.imap_client import connect, iter_messages, mark_seen
-from receipts.ingest import process_message
+from receipts.ingest import _write_parse_error, process_message
 
 logger = logging.getLogger('receipts')
 
@@ -113,6 +118,7 @@ class Command(BaseCommand):
             'errors': 0,
             'ai_pending': 0,
         }
+        aborted = None
         try:
             for num, msg in iter_messages(
                 imap, scan_all=options['all'],
@@ -130,20 +136,48 @@ class Command(BaseCommand):
                     # disabled job: every remaining image-PDF
                     # message would fail the same way, so abort
                     # the run — this message stays UNSEEN (no
-                    # parse_error row was written) for retry.
+                    # parse_error row was written) for retry, and
+                    # the run exits non-zero below.
                     counts['errors'] += 1
+                    partial = getattr(e, 'partial_result', None)
+                    if partial is not None:
+                        # Attachments processed before the failure
+                        # still count in the summary.
+                        counts['created'] += partial.created
+                        counts['skipped'] += partial.skipped
+                        counts['errors'] += partial.errors
+                        counts['ai_pending'] += partial.ai_pending
+                    aborted = e
                     logger.error(
                         'message %s aborted the run: %s',
                         num, e)
                     break
                 except Exception as e:
-                    # Unrecoverable (e.g. even the parse_error row
-                    # failed) — leave UNSEEN for the next run.
+                    # Deterministic per-message failure outside the
+                    # attachment path (e.g. malformed MIME) would
+                    # retry forever — record a parse_error row
+                    # keyed on the message (dedup still applies)
+                    # and mark it seen.
                     counts['errors'] += 1
                     logger.error(
                         'message %s failed unrecoverably: %s',
                         num, e, exc_info=True,
                     )
+                    if not dry_run:
+                        message_id = (
+                            msg.get('Message-ID') or '')[:255]
+                        seq = (
+                            num.decode()
+                            if isinstance(num, bytes)
+                            else str(num)
+                        )
+                        _write_parse_error(
+                            user,
+                            f'msg-{message_id or seq}'[:64],
+                            '', message_id,
+                            traceback.format_exc(),
+                        )
+                        mark_seen(imap, num)
                     continue
                 counts['created'] += result.created
                 counts['skipped'] += result.skipped
@@ -173,3 +207,8 @@ class Command(BaseCommand):
             f"{counts['errors']} error(s), "
             f"{counts['ai_pending']} would need AI extraction."
         ))
+        if aborted is not None:
+            raise CommandError(
+                f'run aborted after {counts["messages"]} '
+                f'message(s): {aborted}'
+            )
