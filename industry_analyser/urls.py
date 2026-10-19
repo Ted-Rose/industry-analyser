@@ -102,6 +102,9 @@ urlpatterns = [
         name='add_keyword',
     ),
     path('tv/', include('tv_programs.urls', namespace='tv_programs')),
+    # Plain Django-template spending dashboard — the receipts app
+    # has no SPA entry.
+    path('receipts/', include('receipts.urls', namespace='receipts')),
     path(
         'classified-ads/',
         include('classified_ads.urls', namespace='classified_ads'),

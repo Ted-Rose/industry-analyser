@@ -14,6 +14,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import IntegrityError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
 
 from ai_providers.errors import (
     AIAllModelsFailedError,
@@ -36,6 +38,7 @@ from receipts.models import (
     CategoryRule,
     Receipt,
     ReceiptItem,
+    Store,
 )
 from receipts.parse_invoice import parse_invoice_text
 
@@ -864,3 +867,47 @@ class CategoryRuleTests(TestCase):
         apply_category_rules(self.user, self.receipt)
         self.item.refresh_from_db()
         self.assertIsNone(self.item.category)
+
+
+class DashboardViewTests(TestCase):
+    """GET /receipts/ — the admin-hardcoded spending dashboard."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username='admin', password='x', email='a@x.com')
+        self.store = Store.objects.create(
+            chain='rimi', name='Rimi Akropolis')
+        self.receipt = Receipt.objects.create(
+            user=self.user, store=self.store,
+            purchased_at=timezone.now(),
+            document_number='2-999888',
+            total=Decimal('5.98'), source_ref='a' * 64)
+        ReceiptItem.objects.create(
+            receipt=self.receipt, raw_name='Piens',
+            quantity=Decimal(1), unit='gab',
+            unit_price=Decimal('5.98'), total=Decimal('5.98'),
+            position=1)
+
+    def test_dashboard_200_shows_receipt_data(self):
+        resp = self.client.get(reverse('receipts:dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Rimi Akropolis')
+        self.assertContains(resp, '2-999888')
+        self.assertContains(resp, '5.98')
+        self.assertContains(resp, 'Piens')
+
+    def test_dashboard_only_shows_admin_receipts(self):
+        other = get_user_model().objects.create_user(
+            username='other', password='x')
+        Receipt.objects.create(
+            user=other, document_number='OTHER-DOC',
+            total=Decimal('99.00'), source_ref='b' * 64)
+        resp = self.client.get(reverse('receipts:dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'OTHER-DOC')
+
+    def test_dashboard_no_admin_user_renders_no_data(self):
+        self.user.delete()   # cascades to the receipt
+        resp = self.client.get(reverse('receipts:dashboard'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'No data')
