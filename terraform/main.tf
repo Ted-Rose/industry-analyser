@@ -868,8 +868,15 @@ resource "google_cloud_run_v2_job" "sync_receipt_emails" {
       service_account = google_service_account.job_runtime.email
 
       containers {
-        image   = local.job_image
-        command = ["python", "manage.py", "sync_receipt_emails"]
+        image = local.job_image
+        # --last-day-only guards the days 28-31 trigger below so the
+        # job actually runs only on the last day of the month.
+        command = [
+          "python",
+          "manage.py",
+          "sync_receipt_emails",
+          "--last-day-only",
+        ]
 
         env {
           name  = "DEBUG"
@@ -947,8 +954,8 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_receipts" {
 
 resource "google_cloud_scheduler_job" "trigger_sync_receipt_emails" {
   name             = "trigger-sync-receipt-emails"
-  description      = "Poll receipt collector inbox daily (20:40 UTC)"
-  schedule         = "40 20 * * *"
+  description      = "Poll receipt collector inbox on the last day of each month (19:50 UTC — an hour before the other jobs, for free-tier Gemini quota)"
+  schedule         = "50 19 28-31 * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
   attempt_deadline = "600s"

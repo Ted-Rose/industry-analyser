@@ -199,7 +199,9 @@ jobs:
             --args=manage.py,link_ads_to_properties,--older-than-days,3
 
           # Receipt inbox sync: IMAP poll of the collector mailbox
+          # (--last-day-only: scheduler fires on days 28-31, the
+          # flag skips all but the actual last day of the month)
           update_job_if_exists sync-receipt-emails \
             --image="${IMAGE}" \
             --command=python \
-            --args=manage.py,sync_receipt_emails
+            --args=manage.py,sync_receipt_emails,--last-day-only

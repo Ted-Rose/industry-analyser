@@ -191,6 +191,7 @@ def _normalize_ai_output(data):
         'vat_number': str(data.get('vat_number') or '')[:30],
         'register_number': str(data.get('register_number') or '')[:20],
         'document_number': str(data.get('document_number') or '')[:50],
+        'fb_number': str(data.get('fb_number') or '')[:30],
         'purchased_at': _parse_purchased_at(data.get('purchased_at')),
         'currency': (str(data.get('currency') or 'EUR'))[:3],
         'total': _to_decimal(data.get('total')),
@@ -290,14 +291,25 @@ def reconcile(parsed, source_filename=''):
         if abs(gross - vat_sum) > ITEMS_SUM_TOLERANCE:
             return Receipt.TOTAL_MISMATCH
     # Filename cross-check (e-receipts): '<kase>-<docnr>.pdf' must
-    # agree with the extracted register/document numbers.
+    # agree with the extracted register number, and docnr (the FB
+    # numurs serial, not Dok. Nr.) must appear in either extracted
+    # number. Leading zeros differ ('3642429' vs '#03642429').
     kase, docnr = _filename_doc_numbers(source_filename)
     register_number = parsed.get('register_number') or ''
     document_number = parsed.get('document_number') or ''
+    fb_number = parsed.get('fb_number') or ''
     if kase and register_number and kase != register_number:
         return Receipt.TOTAL_MISMATCH
-    if docnr and document_number and docnr not in document_number:
-        return Receipt.TOTAL_MISMATCH
+    if docnr and (document_number or fb_number):
+        serial = docnr.lstrip('0')
+        hits = (
+            serial in document_number.lstrip('0')
+            or serial in fb_number.lstrip('0')
+            or docnr in document_number
+            or docnr in fb_number
+        )
+        if not hits:
+            return Receipt.TOTAL_MISMATCH
     return Receipt.PARSED
 
 
@@ -356,6 +368,7 @@ def _write_receipt(user, parsed, sha, filename, message_id, status):
         # parseable receipt would poison the message into
         # parse_error).
         document_number=(parsed.get('document_number') or '')[:50],
+        fb_number=(parsed.get('fb_number') or '')[:30],
         # max_length=20 — parsers/filename enrichment can hand
         # over longer strings.
         register_number=(parsed.get('register_number') or '')[:20],
@@ -456,13 +469,14 @@ def apply_category_rules(user, receipt):
 
 
 def _enrich_from_filename(parsed, filename):
-    """Fill register/document numbers from '<kase>-<docnr>.pdf'
-    when the parser did not produce them (free signal)."""
+    """Fill register/fb numbers from '<kase>-<docnr>.pdf' when the
+    parser did not produce them (free signal). The filename docnr
+    is the FB numurs serial, not Dok. Nr."""
     kase, docnr = _filename_doc_numbers(filename)
     if kase and not parsed.get('register_number'):
         parsed['register_number'] = kase
-    if docnr and not parsed.get('document_number'):
-        parsed['document_number'] = docnr
+    if docnr and not parsed.get('fb_number'):
+        parsed['fb_number'] = docnr
 
 
 def _process_attachment(user, pdf_bytes, filename, message_id,

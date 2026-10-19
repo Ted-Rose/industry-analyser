@@ -46,6 +46,9 @@ class Receipt(models.Model):
     )
     purchased_at = models.DateTimeField(null=True, blank=True)
     document_number = models.CharField(max_length=50, blank=True)
+    # Fiscal/Fb number ('FB numurs: ... #03642429') — distinct from
+    # Dok. Nr.; e-receipt filenames '<kase>-<docnr>' carry this.
+    fb_number = models.CharField(max_length=30, blank=True)
     register_number = models.CharField(max_length=20, blank=True)
     total = models.DecimalField(
         max_digits=10, decimal_places=2, null=True, blank=True)
