@@ -7,6 +7,6 @@ RECEIPT_EXTRACT = AIJobSpec(
     description='Rimi receipt/invoice PDF → structured JSON items',
     roles=('extract',),
     default_assignments={
-        'extract': [('gemini', 'gemini-2.5-flash-lite')],
+        'extract': [('gemini', 'gemini-3.5-flash-lite')],
     },
 )
