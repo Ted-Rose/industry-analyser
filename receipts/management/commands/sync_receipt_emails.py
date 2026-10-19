@@ -14,9 +14,11 @@ but a broken run must fail loudly.
 
 import logging
 import traceback
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from ai_providers.client import get_job_client
 from ai_providers.errors import AIJobError
@@ -61,6 +63,13 @@ class Command(BaseCommand):
                  'calls, and leave messages UNSEEN',
         )
         parser.add_argument(
+            '--last-day-only',
+            action='store_true',
+            help='Exit early unless today is the last day of the '
+                 'month — for schedulers firing on days 28-31 '
+                 '(GCP unix-cron has no L token)',
+        )
+        parser.add_argument(
             '--max-api-requests',
             type=int,
             default=None,
@@ -90,6 +99,13 @@ class Command(BaseCommand):
         return user
 
     def handle(self, *args, **options):
+        if options['last_day_only']:
+            tomorrow = timezone.now().date() + timedelta(days=1)
+            if tomorrow.day != 1:
+                self.stdout.write(
+                    'Not the last day of the month — skipping.'
+                )
+                return
         user = self._resolve_user(options['user'])
         dry_run = options['dry_run']
 

@@ -196,6 +196,7 @@ def _parsed_dict(**overrides):
         'total_discount': Decimal(0),
         'register_number': '2',
         'document_number': '2-999888',
+        'fb_number': '',
         'items': [
             {
                 'raw_name': 'Piens', 'quantity': Decimal(2),
@@ -306,6 +307,26 @@ class ReconcileTests(SimpleTestCase):
         parsed = _parsed_dict()
         self.assertEqual(
             reconcile(parsed, source_filename='2-111111.pdf'),
+            Receipt.TOTAL_MISMATCH,
+        )
+
+    def test_filename_docnr_matches_fb_number(self):
+        """docnr is the FB numurs serial — a match there also
+        clears the check (real-world: '3642429' vs '#03642429')."""
+        parsed = _parsed_dict(
+            register_number='36', document_number='171/180789',
+            fb_number='03642429')
+        self.assertEqual(
+            reconcile(parsed, source_filename='36-3642429.pdf'),
+            Receipt.PARSED,
+        )
+
+    def test_filename_docnr_in_neither_is_mismatch(self):
+        parsed = _parsed_dict(
+            register_number='36', document_number='171/180789',
+            fb_number='0111')
+        self.assertEqual(
+            reconcile(parsed, source_filename='36-3642429.pdf'),
             Receipt.TOTAL_MISMATCH,
         )
 
@@ -564,8 +585,9 @@ class IngestTests(TestCase):
     @patch('receipts.ingest.parse_invoice_text')
     def test_long_filename_docnr_is_truncated(
             self, parse_invoice, _extract):
-        """Same truncation for the '<kase>-<docnr>.pdf' filename
-        enrichment path — docnr is an unbounded [A-Za-z0-9]+."""
+        """'<kase>-<docnr>.pdf' filename enrichment fills fb_number
+        (the docnr is the FB numurs serial, not Dok. Nr.) —
+        unbounded [A-Za-z0-9]+ truncated to max_length=30."""
         parse_invoice.return_value = _parsed_dict(
             register_number='', document_number='')
         docnr = 'B' * 60
@@ -573,7 +595,8 @@ class IngestTests(TestCase):
             [_build_eml(filename=f'2-{docnr}.pdf')])
         self.assertEqual(results[0].created, 1)
         receipt = Receipt.objects.get()
-        self.assertEqual(receipt.document_number, docnr[:50])
+        self.assertEqual(receipt.fb_number, docnr[:30])
+        self.assertEqual(receipt.document_number, '')
         self.assertEqual(receipt.register_number, '2')
 
     @patch('receipts.ingest._extract_pdf_text', return_value='')

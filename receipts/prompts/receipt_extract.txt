@@ -12,6 +12,7 @@ commentary — with this shape:
   "vat_number": "PVN reģ. nr. or empty string",
   "register_number": "checkout/register (kase) number or empty",
   "document_number": "receipt/invoice number or empty string",
+  "fb_number": "FB numurs digits (e.g. '#03642429' -> '03642429') or empty string",
   "purchased_at": "YYYY-MM-DD HH:MM",
   "currency": "EUR",
   "total": 12.34,
