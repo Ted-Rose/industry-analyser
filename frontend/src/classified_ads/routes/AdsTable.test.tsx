@@ -58,8 +58,14 @@ function makeTable(overrides: Partial<AdsTableOut> = {}): AdsTableOut {
     filters: {
       district: '',
       rooms: null,
+      rooms_min: null,
+      rooms_max: null,
+      size_min: null,
+      size_max: null,
       price_min: null,
       price_max: null,
+      total_min: null,
+      total_max: null,
     },
     ...overrides,
   };
@@ -91,8 +97,9 @@ beforeEach(() => {
 describe('AdsTable', () => {
   it('passes URL filter params through to the API', async () => {
     renderTable(
-      '/apartments/rent?district=Centrs&rooms=2&price_min=5' +
-        '&price_max=10&page=2',
+      '/apartments/rent?district=Centrs&rooms_min=2&rooms_max=4' +
+        '&size_min=40&size_max=60&price_min=5&price_max=10' +
+        '&total_min=200&total_max=400&page=2',
     );
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
     const url = calledUrls()[0];
@@ -100,10 +107,21 @@ describe('AdsTable', () => {
     expect(url).toContain('kind=apartment');
     expect(url).toContain('deal=rent');
     expect(url).toContain('district=Centrs');
-    expect(url).toContain('rooms=2');
+    expect(url).toContain('rooms_min=2');
+    expect(url).toContain('rooms_max=4');
+    expect(url).toContain('size_min=40');
+    expect(url).toContain('size_max=60');
     expect(url).toContain('price_min=5');
     expect(url).toContain('price_max=10');
+    expect(url).toContain('total_min=200');
+    expect(url).toContain('total_max=400');
     expect(url).toContain('page=2');
+  });
+
+  it('maps the legacy exact-match rooms param to rooms_min', async () => {
+    renderTable('/apartments/rent?rooms=2');
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    expect(calledUrls()[0]).toContain('rooms_min=2');
   });
 
   it('drops non-numeric filters instead of 422ing', async () => {

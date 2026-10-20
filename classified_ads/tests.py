@@ -229,6 +229,40 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(resp.json()['total_count'], 0)
 
+    def test_ads_table_range_filters(self):
+        kept = self._rent_ad(
+            rooms=3, size=65.0, monthly_price=450.0
+        )
+        self._rent_ad()
+        resp = self.client.get(
+            f'{self.API}/ads/',
+            {
+                'kind': 'apartment', 'deal': 'rent',
+                'rooms_min': '3', 'rooms_max': '4',
+                'size_min': '60', 'size_max': '70',
+                'total_min': '400', 'total_max': '500',
+            },
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['ads'][0]['ad_id'], kept.ad_id)
+        self.assertEqual(body['filters']['rooms_min'], 3)
+        self.assertEqual(body['filters']['total_max'], 500.0)
+
+    def test_ads_table_sale_total_price_filter(self):
+        kept = self._sale_ad(total_price=150000.0)
+        self._sale_ad(total_price=80000.0)
+        resp = self.client.get(
+            f'{self.API}/ads/',
+            {
+                'kind': 'apartment', 'deal': 'sale',
+                'total_min': '100000', 'total_max': '200000',
+            },
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['ads'][0]['ad_id'], kept.ad_id)
+
     def test_ads_table_sale_uses_price_per_sqm(self):
         self._sale_ad(price_per_sqm=2000.0)
         self._sale_ad(price_per_sqm=500.0)

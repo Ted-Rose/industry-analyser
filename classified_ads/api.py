@@ -152,8 +152,14 @@ class AdsFiltersOut(Schema):
     """Echo of the applied filters — the template's selected_* context."""
     district: str
     rooms: Optional[int]
+    rooms_min: Optional[int]
+    rooms_max: Optional[int]
+    size_min: Optional[float]
+    size_max: Optional[float]
     price_min: Optional[float]
     price_max: Optional[float]
+    total_min: Optional[float]
+    total_max: Optional[float]
 
 
 class AdsTableOut(Schema):
@@ -575,13 +581,19 @@ def ads_table(
     deal: Deal,
     district: str = Query('', max_length=255),
     rooms: Optional[int] = None,
+    rooms_min: Optional[int] = None,
+    rooms_max: Optional[int] = None,
+    size_min: Optional[float] = None,
+    size_max: Optional[float] = None,
     price_min: Optional[float] = None,
     price_max: Optional[float] = None,
+    total_min: Optional[float] = None,
+    total_max: Optional[float] = None,
     page: int = 1,
 ):
     """Ads table page — mirrors the four retired *_ads_table views.
-    Rent tables filter on monthly_price_per_sqm, sale tables on
-    price_per_sqm (the template's '€/m² min/max' inputs)."""
+    Rent tables filter per-m² on monthly_price_per_sqm and totals on
+    monthly_price; sale tables on price_per_sqm and total_price."""
     model = ADS_TABLE_MODELS[(kind, deal)]
     qs = model.objects.all().order_by('-post_date')
 
@@ -600,13 +612,26 @@ def ads_table(
         qs = qs.filter(district=district)
     if rooms is not None:
         qs = qs.filter(rooms=rooms)
+    if rooms_min is not None:
+        qs = qs.filter(rooms__gte=rooms_min)
+    if rooms_max is not None:
+        qs = qs.filter(rooms__lte=rooms_max)
+    if size_min is not None:
+        qs = qs.filter(size__gte=size_min)
+    if size_max is not None:
+        qs = qs.filter(size__lte=size_max)
     price_field = (
         'monthly_price_per_sqm' if deal == 'rent' else 'price_per_sqm'
     )
+    total_field = 'monthly_price' if deal == 'rent' else 'total_price'
     if price_min is not None:
         qs = qs.filter(**{f'{price_field}__gte': price_min})
     if price_max is not None:
         qs = qs.filter(**{f'{price_field}__lte': price_max})
+    if total_min is not None:
+        qs = qs.filter(**{f'{total_field}__gte': total_min})
+    if total_max is not None:
+        qs = qs.filter(**{f'{total_field}__lte': total_max})
 
     # The template called ad.days_active (a sightings.count() per row);
     # the annotation is the same count without the N+1.
@@ -629,8 +654,14 @@ def ads_table(
         filters=AdsFiltersOut(
             district=district,
             rooms=rooms,
+            rooms_min=rooms_min,
+            rooms_max=rooms_max,
+            size_min=size_min,
+            size_max=size_max,
             price_min=price_min,
             price_max=price_max,
+            total_min=total_min,
+            total_max=total_max,
         ),
     )
 

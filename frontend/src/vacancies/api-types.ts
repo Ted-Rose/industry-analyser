@@ -262,8 +262,8 @@ export interface paths {
         /**
          * Ads Table
          * @description Ads table page — mirrors the four retired *_ads_table views.
-         *     Rent tables filter on monthly_price_per_sqm, sale tables on
-         *     price_per_sqm (the template's '€/m² min/max' inputs).
+         *     Rent tables filter per-m² on monthly_price_per_sqm and totals on
+         *     monthly_price; sale tables on price_per_sqm and total_price.
          */
         get: operations["classified_ads_api_ads_table"];
         put?: never;
@@ -940,10 +940,22 @@ export interface components {
             district: string;
             /** Rooms */
             rooms: number | null;
+            /** Rooms Min */
+            rooms_min: number | null;
+            /** Rooms Max */
+            rooms_max: number | null;
+            /** Size Min */
+            size_min: number | null;
+            /** Size Max */
+            size_max: number | null;
             /** Price Min */
             price_min: number | null;
             /** Price Max */
             price_max: number | null;
+            /** Total Min */
+            total_min: number | null;
+            /** Total Max */
+            total_max: number | null;
         };
         /**
          * AdsTableOut
@@ -1760,8 +1772,14 @@ export interface operations {
                 deal: "rent" | "sale";
                 district?: string;
                 rooms?: number | null;
+                rooms_min?: number | null;
+                rooms_max?: number | null;
+                size_min?: number | null;
+                size_max?: number | null;
                 price_min?: number | null;
                 price_max?: number | null;
+                total_min?: number | null;
+                total_max?: number | null;
                 page?: number;
             };
             header?: never;

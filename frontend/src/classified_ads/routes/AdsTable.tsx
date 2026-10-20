@@ -19,26 +19,63 @@ const TITLES: Record<Kind, Record<Deal, string>> = {
 
 interface Draft {
   district: string;
-  rooms: string;
+  roomsMin: string;
+  roomsMax: string;
+  sizeMin: string;
+  sizeMax: string;
   priceMin: string;
   priceMax: string;
+  totalMin: string;
+  totalMax: string;
+}
+
+/** Draft field ↔ URL param pairs, in display order. The legacy
+ *  exact-match `rooms` param folds into rooms_min — "from 2" is what
+ *  users meant by picking 2. */
+const RANGE_FILTERS = [
+  { label: 'Rooms', minKey: 'roomsMin', maxKey: 'roomsMax',
+    minParam: 'rooms_min', maxParam: 'rooms_max', step: '1' },
+  { label: 'Size m²', minKey: 'sizeMin', maxKey: 'sizeMax',
+    minParam: 'size_min', maxParam: 'size_max', step: 'any' },
+  { label: '€/m²', minKey: 'priceMin', maxKey: 'priceMax',
+    minParam: 'price_min', maxParam: 'price_max', step: 'any' },
+  { label: 'Total €', minKey: 'totalMin', maxKey: 'totalMax',
+    minParam: 'total_min', maxParam: 'total_max', step: 'any' },
+] as const;
+
+function readDraft(p: URLSearchParams): Draft {
+  const draft = { district: p.get('district') ?? '' } as Draft;
+  for (const f of RANGE_FILTERS) {
+    draft[f.minKey] = p.get(f.minParam) ?? '';
+    draft[f.maxKey] = p.get(f.maxParam) ?? '';
+  }
+  if (!draft.roomsMin && p.get('rooms')) {
+    draft.roomsMin = p.get('rooms') ?? '';
+  }
+  return draft;
 }
 
 /**
  * React port of the four *_ads_table templates — one component
  * parameterized by kind (apartment|house) and deal (rent|sale), the
  * same way the views were parameterized by model. All filters live in
- * the URL (district/rooms/price_min/price_max/page); the form stages
- * draft state and applies on Filter, clearing the page — bookmarkable
- * like the old GET form.
+ * the URL (district, rooms/size/price/total min+max ranges, page);
+ * the form stages draft state and applies on Filter, clearing the
+ * page — bookmarkable like the old GET form.
  */
 export default function AdsTable({ kind, deal }: { kind: Kind; deal: Deal }) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const draft0 = readDraft(searchParams);
   const params = {
     district: searchParams.get('district'),
-    rooms: searchParams.get('rooms'),
+    roomsMin: searchParams.get('rooms_min') ?? searchParams.get('rooms'),
+    roomsMax: searchParams.get('rooms_max'),
+    sizeMin: searchParams.get('size_min'),
+    sizeMax: searchParams.get('size_max'),
     priceMin: searchParams.get('price_min'),
     priceMax: searchParams.get('price_max'),
+    totalMin: searchParams.get('total_min'),
+    totalMax: searchParams.get('total_max'),
     page: searchParams.get('page'),
   };
 
@@ -57,29 +94,19 @@ export default function AdsTable({ kind, deal }: { kind: Kind; deal: Deal }) {
   // Filter is pressed. Re-synced when the URL changes (pagination,
   // back/forward).
   const paramsKey = searchParams.toString();
-  const [draft, setDraft] = useState<Draft>({
-    district: params.district ?? '',
-    rooms: params.rooms ?? '',
-    priceMin: params.priceMin ?? '',
-    priceMax: params.priceMax ?? '',
-  });
+  const [draft, setDraft] = useState<Draft>(draft0);
   useEffect(() => {
-    const p = new URLSearchParams(paramsKey);
-    setDraft({
-      district: p.get('district') ?? '',
-      rooms: p.get('rooms') ?? '',
-      priceMin: p.get('price_min') ?? '',
-      priceMax: p.get('price_max') ?? '',
-    });
+    setDraft(readDraft(new URLSearchParams(paramsKey)));
   }, [paramsKey]);
 
   const applyFilters = (e: React.FormEvent) => {
     e.preventDefault();
     const next = new URLSearchParams();
     if (draft.district) next.set('district', draft.district);
-    if (draft.rooms) next.set('rooms', draft.rooms);
-    if (draft.priceMin) next.set('price_min', draft.priceMin);
-    if (draft.priceMax) next.set('price_max', draft.priceMax);
+    for (const f of RANGE_FILTERS) {
+      if (draft[f.minKey]) next.set(f.minParam, draft[f.minKey]);
+      if (draft[f.maxKey]) next.set(f.maxParam, draft[f.maxKey]);
+    }
     // Filters changed — land back on page 1.
     setSearchParams(next);
   };
@@ -88,13 +115,12 @@ export default function AdsTable({ kind, deal }: { kind: Kind; deal: Deal }) {
 
   const hasFilters =
     !!params.district ||
-    !!params.rooms ||
-    !!params.priceMin ||
-    !!params.priceMax;
+    RANGE_FILTERS.some(
+      (f) => searchParams.get(f.minParam) || searchParams.get(f.maxParam),
+    ) ||
+    !!searchParams.get('rooms');
 
   const isApartment = kind === 'apartment';
-  const pricePlaceholders =
-    deal === 'rent' ? ['e.g. 5', 'e.g. 20'] : ['e.g. 500', 'e.g. 2000'];
   const colSpan = 11;
 
   const ads = data?.ads ?? [];
@@ -134,58 +160,45 @@ export default function AdsTable({ kind, deal }: { kind: Kind; deal: Deal }) {
                 </select>
               </div>
 
-              <div className="col-md-2 mb-2">
-                <label className="filter-label" htmlFor="id_rooms">
-                  Rooms
-                </label>
-                <select
-                  id="id_rooms"
-                  className="form-control form-control-sm"
-                  value={draft.rooms}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, rooms: e.target.value }))
-                  }
-                >
-                  <option value="">Any</option>
-                  {data?.room_choices.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="col-md-2 mb-2">
-                <label className="filter-label" htmlFor="id_price_min">
-                  €/m² min
-                </label>
-                <input
-                  type="number"
-                  id="id_price_min"
-                  className="form-control form-control-sm"
-                  placeholder={pricePlaceholders[0]}
-                  value={draft.priceMin}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, priceMin: e.target.value }))
-                  }
-                />
-              </div>
-
-              <div className="col-md-2 mb-2">
-                <label className="filter-label" htmlFor="id_price_max">
-                  €/m² max
-                </label>
-                <input
-                  type="number"
-                  id="id_price_max"
-                  className="form-control form-control-sm"
-                  placeholder={pricePlaceholders[1]}
-                  value={draft.priceMax}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, priceMax: e.target.value }))
-                  }
-                />
-              </div>
+              {RANGE_FILTERS.map((f) => (
+                <div className="col-md-2 mb-2" key={f.minParam}>
+                  <label className="filter-label" htmlFor={f.minParam}>
+                    {f.label}
+                  </label>
+                  <div className="d-flex gap-1">
+                    <input
+                      type="number"
+                      id={f.minParam}
+                      className="form-control form-control-sm"
+                      placeholder="From"
+                      aria-label={`${f.label} from`}
+                      step={f.step}
+                      value={draft[f.minKey]}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          [f.minKey]: e.target.value,
+                        }))
+                      }
+                    />
+                    <input
+                      type="number"
+                      id={f.maxParam}
+                      className="form-control form-control-sm"
+                      placeholder="To"
+                      aria-label={`${f.label} to`}
+                      step={f.step}
+                      value={draft[f.maxKey]}
+                      onChange={(e) =>
+                        setDraft((d) => ({
+                          ...d,
+                          [f.maxKey]: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
+              ))}
 
               <div className="col-md-1 mb-2 d-flex align-items-end">
                 <button

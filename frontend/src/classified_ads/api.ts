@@ -64,15 +64,21 @@ function setDate(
 
 export interface AdsTableParams {
   district?: string | null;
-  rooms?: string | null;
+  roomsMin?: string | null;
+  roomsMax?: string | null;
+  sizeMin?: string | null;
+  sizeMax?: string | null;
   priceMin?: string | null;
   priceMax?: string | null;
+  totalMin?: string | null;
+  totalMax?: string | null;
   page?: string | null;
 }
 
-/** GET /api/classified-ads/ads/?kind=&deal=&district=&rooms=
- *  &price_min=&price_max=&page= — one table page plus the district /
- *  rooms filter option lists (single fat endpoint). */
+/** GET /api/classified-ads/ads/?kind=&deal=&district=&rooms_min=
+ *  &rooms_max=&size_min=&size_max=&price_min=&price_max=&total_min=
+ *  &total_max=&page= — one table page plus the district / rooms
+ *  filter option lists (single fat endpoint). */
 export function fetchAdsTable(
   kind: Kind,
   deal: Deal,
@@ -82,9 +88,14 @@ export function fetchAdsTable(
   qs.set('kind', kind);
   qs.set('deal', deal);
   if (params.district) qs.set('district', params.district);
-  setNumber(qs, 'rooms', params.rooms);
+  setNumber(qs, 'rooms_min', params.roomsMin);
+  setNumber(qs, 'rooms_max', params.roomsMax);
+  setNumber(qs, 'size_min', params.sizeMin);
+  setNumber(qs, 'size_max', params.sizeMax);
   setNumber(qs, 'price_min', params.priceMin);
   setNumber(qs, 'price_max', params.priceMax);
+  setNumber(qs, 'total_min', params.totalMin);
+  setNumber(qs, 'total_max', params.totalMax);
   appendPage(qs, params.page);
   return apiGet<AdsTableOut>(`${API}/ads/?${qs}`);
 }
