@@ -18,7 +18,7 @@
     ]
   },
   "src/classified_ads/main.tsx": {
-    "file": "classified_ads/classified_ads.OBUkh41Z.js",
+    "file": "classified_ads/classified_ads.C1XckCir.js",
     "name": "classified_ads",
     "src": "src/classified_ads/main.tsx",
     "isEntry": true,
@@ -41,6 +41,18 @@
     ],
     "css": [
       "dashboard/dashboard.D2nn-dgU.css"
+    ]
+  },
+  "src/receipts/main.tsx": {
+    "file": "receipts/receipts.x2NtYk1a.js",
+    "name": "receipts",
+    "src": "src/receipts/main.tsx",
+    "isEntry": true,
+    "imports": [
+      "_queryClient.DwvlsYN7.js"
+    ],
+    "css": [
+      "receipts/receipts.C11Dblta.css"
     ]
   },
   "src/tv/main.tsx": {

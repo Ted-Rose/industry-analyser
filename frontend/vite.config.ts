@@ -17,6 +17,7 @@ export default defineConfig({
         tv: 'src/tv/main.tsx',
         classified_ads: 'src/classified_ads/main.tsx',
         dashboard: 'src/dashboard/main.tsx',
+        receipts: 'src/receipts/main.tsx',
       },
       output: {
         entryFileNames: '[name]/[name].[hash].js',

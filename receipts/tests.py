@@ -42,7 +42,7 @@ from receipts.models import (
     Store,
 )
 from receipts.parse_invoice import parse_invoice_text
-from receipts.views import _default_range
+from receipts.api import _default_range
 
 INVOICE_TEXT = """\
 RIMI LATVIJA, SIA
@@ -871,8 +871,13 @@ class CategoryRuleTests(TestCase):
         self.assertIsNone(self.item.category)
 
 
-class DashboardViewTests(TestCase):
-    """GET /receipts/ — the admin-hardcoded spending dashboard."""
+class ReceiptsApiTests(TestCase):
+    """GET /api/receipts/ — the admin-hardcoded spending dashboard
+    payload plus the /receipts/ SPA-shell cutover (the retired
+    DashboardViewTests asserted on rendered HTML/context; the SPA
+    now consumes this one fat GET)."""
+
+    API = '/api/receipts/'
 
     def setUp(self):
         self.user = get_user_model().objects.create_superuser(
@@ -890,29 +895,48 @@ class DashboardViewTests(TestCase):
             unit_price=Decimal('5.98'), total=Decimal('5.98'),
             position=1)
 
-    def test_dashboard_200_shows_receipt_data(self):
-        resp = self.client.get(reverse('receipts:dashboard'))
+    def test_api_200_returns_receipt_data(self):
+        resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'Rimi Akropolis')
-        self.assertContains(resp, '2-999888')
-        self.assertContains(resp, '5.98')
-        self.assertContains(resp, 'Piens')
+        body = resp.json()
+        self.assertTrue(body['owner_exists'])
+        self.assertEqual(
+            body['by_store'][0]['store_name'], 'Rimi Akropolis')
+        self.assertEqual(body['summary'], {
+            'total_spend': 5.98, 'receipt_count': 1})
+        row = body['receipts'][0]
+        self.assertEqual(row['document_number'], '2-999888')
+        self.assertEqual(row['total'], 5.98)
+        self.assertEqual(row['store_name'], 'Rimi Akropolis')
+        self.assertEqual(row['items'][0]['raw_name'], 'Piens')
 
-    def test_dashboard_only_shows_admin_receipts(self):
+    def test_api_only_shows_admin_receipts(self):
         other = get_user_model().objects.create_user(
             username='other', password='x')
         Receipt.objects.create(
             user=other, document_number='OTHER-DOC',
             total=Decimal('99.00'), source_ref='b' * 64)
-        resp = self.client.get(reverse('receipts:dashboard'))
+        resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(resp, 'OTHER-DOC')
+        docs = [
+            r['document_number']
+            for r in resp.json()['receipts']
+        ]
+        self.assertNotIn('OTHER-DOC', docs)
 
-    def test_dashboard_no_admin_user_renders_no_data(self):
+    def test_api_no_admin_user_reports_empty(self):
         self.user.delete()   # cascades to the receipt
-        resp = self.client.get(reverse('receipts:dashboard'))
+        resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'No data')
+        body = resp.json()
+        self.assertFalse(body['owner_exists'])
+        self.assertEqual(body['summary'], {
+            'total_spend': 0, 'receipt_count': 0})
+        self.assertEqual(body['item_count'], 0)
+        self.assertEqual(body['receipts'], [])
+        self.assertEqual(body['categories'], [])
+        self.assertEqual(body['monthly'], [])
+        self.assertEqual(body['by_store'], [])
 
     def test_aggregates_not_inflated_by_item_join(self):
         """Regression: the item_count annotation's items join must
@@ -932,22 +956,23 @@ class DashboardViewTests(TestCase):
                 unit_price=Decimal(amount),
                 total=Decimal(amount), position=position)
 
-        resp = self.client.get(reverse('receipts:dashboard'))
+        resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
+        body = resp.json()
 
-        monthly = list(resp.context['monthly'])
+        monthly = body['monthly']
         self.assertEqual(len(monthly), 1)
         self.assertEqual(monthly[0]['receipt_count'], 1)
-        self.assertEqual(monthly[0]['total'], Decimal('42.08'))
+        self.assertEqual(monthly[0]['total'], 42.08)
 
-        by_store = list(resp.context['by_store'])
+        by_store = body['by_store']
         self.assertEqual(len(by_store), 1)
         self.assertEqual(by_store[0]['receipt_count'], 1)
-        self.assertEqual(by_store[0]['total'], Decimal('42.08'))
+        self.assertEqual(by_store[0]['total'], 42.08)
 
-        self.assertEqual(resp.context['summary'], {
-            'total_spend': Decimal('42.08'), 'receipt_count': 1})
-        self.assertEqual(resp.context['item_count'], 3)
+        self.assertEqual(body['summary'], {
+            'total_spend': 42.08, 'receipt_count': 1})
+        self.assertEqual(body['item_count'], 3)
 
     def test_date_range_filter_narrows_results(self):
         """Receipts outside ?date_from..?date_to drop out of
@@ -964,19 +989,25 @@ class DashboardViewTests(TestCase):
             total=Decimal('99.00'), position=1)
 
         today = timezone.localdate()
-        resp = self.client.get(reverse('receipts:dashboard'), {
+        resp = self.client.get(self.API, {
             'date_from': (today - timedelta(days=30)).isoformat(),
             'date_to': today.isoformat(),
         })
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, '2-999888')
-        self.assertNotContains(resp, 'OUT-1')
-        self.assertNotContains(resp, 'OldItem')
-        self.assertEqual(resp.context['summary'], {
-            'total_spend': Decimal('5.98'), 'receipt_count': 1})
-        self.assertEqual(len(list(resp.context['monthly'])), 1)
-        self.assertEqual(len(list(resp.context['receipts'])), 1)
-        self.assertEqual(resp.context['item_count'], 1)
+        body = resp.json()
+        docs = [r['document_number'] for r in body['receipts']]
+        self.assertIn('2-999888', docs)
+        self.assertNotIn('OUT-1', docs)
+        item_names = [
+            i['raw_name']
+            for r in body['receipts'] for i in r['items']
+        ]
+        self.assertNotIn('OldItem', item_names)
+        self.assertEqual(body['summary'], {
+            'total_spend': 5.98, 'receipt_count': 1})
+        self.assertEqual(len(body['monthly']), 1)
+        self.assertEqual(len(body['receipts']), 1)
+        self.assertEqual(body['item_count'], 1)
 
     def test_default_range_covers_last_12_months(self):
         """No params: an 11-month-old receipt is in, a
@@ -992,19 +1023,39 @@ class DashboardViewTests(TestCase):
             document_number='OUT-13M', total=Decimal('10.00'),
             source_ref='f' * 64)
 
-        resp = self.client.get(reverse('receipts:dashboard'))
+        resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'IN-11M')
-        self.assertNotContains(resp, 'OUT-13M')
+        docs = [
+            r['document_number']
+            for r in resp.json()['receipts']
+        ]
+        self.assertIn('IN-11M', docs)
+        self.assertNotIn('OUT-13M', docs)
 
-    def test_invalid_date_params_fall_back_to_defaults(self):
-        resp = self.client.get(reverse('receipts:dashboard'), {
+    def test_invalid_date_strings_422(self):
+        """The template view silently fell back to defaults on bad
+        input; ninja validates ?date_from/?date_to as ISO dates —
+        a malformed string is a 422."""
+        resp = self.client.get(self.API, {
             'date_from': 'not-a-date', 'date_to': '2026-13-99'})
+        self.assertEqual(resp.status_code, 422)
+
+    def test_inverted_range_falls_back_to_defaults(self):
+        today = timezone.localdate()
+        resp = self.client.get(self.API, {
+            'date_from': today.isoformat(),
+            'date_to': (today - timedelta(days=30)).isoformat(),
+        })
         self.assertEqual(resp.status_code, 200)
-        def_from, def_to = _default_range(timezone.localdate())
-        self.assertEqual(resp.context['date_from'], def_from)
-        self.assertEqual(resp.context['date_to'], def_to)
-        self.assertContains(resp, '2-999888')
+        def_from, def_to = _default_range(today)
+        body = resp.json()
+        self.assertEqual(body['date_from'], def_from.isoformat())
+        self.assertEqual(body['date_to'], def_to.isoformat())
+        docs = [
+            r['document_number']
+            for r in body['receipts']
+        ]
+        self.assertIn('2-999888', docs)
 
     def test_category_spend_groups_averages_and_top_items(self):
         """Items aggregate per category; uncategorized items land
@@ -1034,24 +1085,24 @@ class DashboardViewTests(TestCase):
                 unit_price=Decimal(total), total=Decimal(total),
                 position=pos)
 
-        resp = self.client.get(reverse('receipts:dashboard'), {
+        resp = self.client.get(self.API, {
             'date_from': '2026-01-01', 'date_to': '2026-02-28'})
         self.assertEqual(resp.status_code, 200)
 
-        cats = resp.context['categories']
+        cats = resp.json()['categories']
         self.assertEqual(
             [c['name'] for c in cats],
             ['Augļi', 'Maize', 'Uncategorized'])
-        self.assertEqual(cats[0]['total'], Decimal('18.00'))
+        self.assertEqual(cats[0]['total'], 18.0)
         self.assertEqual(cats[0]['item_count'], 2)
-        self.assertEqual(cats[0]['monthly_avg'], Decimal('9.00'))
-        self.assertEqual(cats[1]['monthly_avg'], Decimal('3.50'))
-        self.assertEqual(cats[2]['monthly_avg'], Decimal('2.50'))
+        self.assertEqual(cats[0]['monthly_avg'], 9.0)
+        self.assertEqual(cats[1]['monthly_avg'], 3.5)
+        self.assertEqual(cats[2]['monthly_avg'], 2.5)
         self.assertEqual(
             [i['raw_name'] for i in cats[0]['top_items']],
             ['Banāni', 'Āboli'])
 
-    def test_category_rows_render_collapsible_details(self):
+    def test_categories_carry_top_items(self):
         cat = Category.objects.create(
             user=self.user, name='Augļi')
         ReceiptItem.objects.create(
@@ -1059,10 +1110,34 @@ class DashboardViewTests(TestCase):
             quantity=Decimal(1), unit='gab',
             unit_price=Decimal('1.00'), total=Decimal('1.00'),
             position=2)
+        resp = self.client.get(self.API)
+        self.assertEqual(resp.status_code, 200)
+        cats = {c['name']: c for c in resp.json()['categories']}
+        self.assertIn('Augļi', cats)
+        top_names = [
+            i['raw_name'] for i in cats['Augļi']['top_items']]
+        self.assertEqual(top_names, ['Banāni'])
+
+    # --- URL cutover / shell ---
+
+    def test_page_serves_spa_shell(self):
         resp = self.client.get(reverse('receipts:dashboard'))
-        self.assertContains(resp, '<details class="cat">')
-        self.assertContains(resp, 'Augļi')
-        self.assertContains(resp, 'Banāni')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="root"')
+        self.assertContains(resp, 'spa-bootstrap')
+
+    def test_deep_link_serves_shell(self):
+        resp = self.client.get('/receipts/anything/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="root"')
+
+    def test_post_to_page_404s(self):
+        resp = self.client.post('/receipts/')
+        self.assertEqual(resp.status_code, 404)
+
+    def test_named_route_still_reverses(self):
+        self.assertEqual(
+            reverse('receipts:dashboard'), '/receipts/')
 
 
 class SeedCategoriesCommandTests(TestCase):

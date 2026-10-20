@@ -25,6 +25,7 @@ from fetcher.api import router as vacancies_router
 from tv_programs.api import router as tv_router
 from classified_ads.api import router as classified_ads_router
 from scrape_jobs.api import router as dashboard_router
+from receipts.api import router as receipts_router
 from industry_analyser import views as project_views
 from industry_analyser.api import api
 from industry_analyser.views import react_app, react_app_public
@@ -38,6 +39,7 @@ api.add_router('/classified-ads/', classified_ads_router)
 # The dashboard SPA mounts at the site root — SPA_BASES maps
 # /api/dashboard/* 401 login_urls back to '/'.
 api.add_router('/dashboard/', dashboard_router)
+api.add_router('/receipts/', receipts_router)
 
 # The vacancies SPA owns both /vacancies/* and /companies/* — the
 # company pages are routes of the same React app (entry
@@ -102,8 +104,9 @@ urlpatterns = [
         name='add_keyword',
     ),
     path('tv/', include('tv_programs.urls', namespace='tv_programs')),
-    # Plain Django-template spending dashboard — the receipts app
-    # has no SPA entry.
+    # Receipts spending dashboard — SPA cutover like /tv/: the
+    # shell serves every GET/HEAD path; the name
+    # 'receipts:dashboard' is kept for reverse() callers.
     path('receipts/', include('receipts.urls', namespace='receipts')),
     path(
         'classified-ads/',

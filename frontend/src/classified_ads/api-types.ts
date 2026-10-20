@@ -457,6 +457,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/receipts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Receipts Dashboard
+         * @description The spending dashboard payload — the retired dashboard view
+         *     minus render().
+         */
+        get: operations["receipts_api_receipts_dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1446,6 +1467,159 @@ export interface components {
             /** Avg Duration Seconds */
             avg_duration_seconds: number | null;
         };
+        /**
+         * CategoryOut
+         * @description One collapsible category row — a dict from _by_category.
+         */
+        CategoryOut: {
+            /** Name */
+            name: string;
+            /** Item Count */
+            item_count: number;
+            /** Total */
+            total: number;
+            /** Monthly Avg */
+            monthly_avg: number;
+            /** Top Items */
+            top_items: components["schemas"]["TopItemOut"][];
+        };
+        /**
+         * MonthlyRowOut
+         * @description One by-month row — a values() dict over TruncMonth.
+         */
+        MonthlyRowOut: {
+            /**
+             * Month
+             * Format: date-time
+             */
+            month: string;
+            /** Receipt Count */
+            receipt_count: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * ReceiptItemOut
+         * @description One item row of the per-receipt <details> table.
+         */
+        ReceiptItemOut: {
+            /** Raw Name */
+            raw_name: string;
+            /** Is Fee */
+            is_fee: boolean;
+            /** Quantity */
+            quantity: number;
+            /** Unit */
+            unit: string;
+            /** Unit Price */
+            unit_price: number | null;
+            /** Discount */
+            discount: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * ReceiptRowOut
+         * @description One row of the all-receipts table — a Receipt annotated with
+         *     item_count and select_related('store')/prefetch('items').
+         */
+        ReceiptRowOut: {
+            /** Id */
+            id: number;
+            /** Purchased At */
+            purchased_at: string | null;
+            /** Store Name */
+            store_name: string | null;
+            /** Document Number */
+            document_number: string;
+            /** Total */
+            total: number | null;
+            /** Currency */
+            currency: string;
+            /** Parse Status Label */
+            parse_status_label: string;
+            /** Item Count */
+            item_count: number;
+            /** Items */
+            items: components["schemas"]["ReceiptItemOut"][];
+        };
+        /**
+         * ReceiptsDashboardOut
+         * @description The whole receipts page payload — one fat GET.
+         */
+        ReceiptsDashboardOut: {
+            /** Owner Exists */
+            owner_exists: boolean;
+            summary: components["schemas"]["SummaryOut"];
+            /** Item Count */
+            item_count: number;
+            /** Months */
+            months: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /**
+             * Last Month From
+             * Format: date
+             */
+            last_month_from: string;
+            /**
+             * Last Month To
+             * Format: date
+             */
+            last_month_to: string;
+            /** Monthly */
+            monthly: components["schemas"]["MonthlyRowOut"][];
+            /** By Store */
+            by_store: components["schemas"]["StoreRowOut"][];
+            /** Categories */
+            categories: components["schemas"]["CategoryOut"][];
+            /** Receipts */
+            receipts: components["schemas"]["ReceiptRowOut"][];
+        };
+        /**
+         * StoreRowOut
+         * @description One by-store row — a values('store__name') dict.
+         */
+        StoreRowOut: {
+            /** Store Name */
+            store_name: string | null;
+            /** Receipt Count */
+            receipt_count: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * SummaryOut
+         * @description The summary cards — the base.aggregate() dict with Nones
+         *     coerced to 0/0.00 (the template's |default filters).
+         */
+        SummaryOut: {
+            /** Total Spend */
+            total_spend: number;
+            /** Receipt Count */
+            receipt_count: number;
+        };
+        /**
+         * TopItemOut
+         * @description One row of a category's collapsible top-items table — a dict
+         *     from _by_category's first aggregate pass.
+         */
+        TopItemOut: {
+            /** Raw Name */
+            raw_name: string;
+            /** Item Count */
+            item_count: number;
+            /** Total */
+            total: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -2018,6 +2192,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardOut"];
+                };
+            };
+        };
+    };
+    receipts_api_receipts_dashboard: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptsDashboardOut"];
                 };
             };
         };

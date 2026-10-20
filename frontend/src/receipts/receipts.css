@@ -1,0 +1,145 @@
+/* Ported from the <style> block of the retired
+   receipts/dashboard.html — the same look on top of the
+   Bootstrap 5 loaded by spa_shell.html. The template styled
+   body/table/h2 globally; here every rule is scoped under
+   .receipts-panel so it can't leak onto Bootstrap chrome. */
+
+.receipts-panel {
+  font-family: system-ui, sans-serif;
+  margin: 2rem;
+  color: #222;
+}
+
+.receipts-panel h1 {
+  font-size: 1.4rem;
+}
+
+.receipts-panel h2 {
+  font-size: 1.1rem;
+  margin-top: 2rem;
+}
+
+.receipts-panel table {
+  border-collapse: collapse;
+  min-width: 60%;
+}
+
+.receipts-panel th,
+.receipts-panel td {
+  padding: 0.35rem 0.7rem;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+  vertical-align: top;
+}
+
+.receipts-panel th {
+  background: #f4f4f4;
+}
+
+.receipts-panel td.num,
+.receipts-panel th.num {
+  text-align: right;
+}
+
+.receipts-panel .summary {
+  display: flex;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.receipts-panel .card {
+  background: #f4f4f4;
+  padding: 0.8rem 1.2rem;
+  border-radius: 6px;
+}
+
+.receipts-panel .card .value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.receipts-panel .card .label {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.receipts-panel .items-row td {
+  border-bottom: none;
+}
+
+.receipts-panel .items-row table {
+  min-width: 40%;
+  margin-top: 0.4rem;
+}
+
+.receipts-panel .empty {
+  color: #777;
+  font-style: italic;
+}
+
+.receipts-panel .range-form {
+  display: flex;
+  gap: 0.6rem;
+  align-items: end;
+  flex-wrap: wrap;
+  margin: 1rem 0 0.3rem;
+}
+
+.receipts-panel .range-form label {
+  font-size: 0.8rem;
+  color: #666;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.receipts-panel .range-presets {
+  font-size: 0.85rem;
+  margin: 0.2rem 0 0.8rem;
+}
+
+.receipts-panel .cat-table {
+  min-width: 60%;
+}
+
+.receipts-panel .cat-row {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr 5rem 8rem 8rem;
+  padding: 0.35rem 0.7rem;
+  border-bottom: 1px solid #ddd;
+  align-items: baseline;
+}
+
+.receipts-panel .cat-head {
+  background: #f4f4f4;
+  font-weight: 600;
+}
+
+.receipts-panel .num {
+  text-align: right;
+}
+
+.receipts-panel details.cat summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.receipts-panel details.cat summary::-webkit-details-marker {
+  display: none;
+}
+
+.receipts-panel details.cat summary::before {
+  content: '\25B6\FE0E\00A0';
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.receipts-panel details.cat[open] summary::before {
+  content: '\25BC\FE0E\00A0';
+}
+
+.receipts-panel .cat-items {
+  min-width: 50%;
+  margin: 0.4rem 0 0.8rem 2rem;
+}
