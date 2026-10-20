@@ -3,10 +3,12 @@
 from datetime import date, timedelta
 from unittest import mock
 
+from django.db.utils import InterfaceError, OperationalError
 from django.test import TestCase
 from django.utils import timezone
 
 from core_scraper.base import BaseScraper
+from scrape_jobs.db import retry_on_connection_loss
 from scrape_jobs.models import (
     ScrapeJob,
     ScrapeJobItem,
@@ -507,3 +509,72 @@ class RunIsolationTests(TestCase):
         # 'a' and 'c' were DONE in this cycle; only the FAILED item
         # 'b' is re-processed.
         self.assertEqual(s2.scraped, ['http://x/b'])
+
+
+class ConnectionRetryTests(TestCase):
+    """retry_on_connection_loss: reconnect once when the DB
+    connection was dropped mid-run (a management command holds one
+    connection; no request signals drive close_old_connections())."""
+
+    def test_retries_once_when_connection_dead(self):
+        calls = []
+
+        @retry_on_connection_loss
+        def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise InterfaceError('connection already closed')
+            return 'ok'
+
+        with mock.patch(
+            'scrape_jobs.db.connection.is_usable', return_value=False
+        ), mock.patch(
+            'scrape_jobs.db.connection.close'
+        ) as close:
+            self.assertEqual(flaky(), 'ok')
+        self.assertEqual(len(calls), 2)
+        close.assert_called_once_with()
+
+    def test_no_retry_when_connection_alive(self):
+        calls = []
+
+        @retry_on_connection_loss
+        def deadlocking():
+            calls.append(1)
+            raise OperationalError('deadlock detected')
+
+        with mock.patch(
+            'scrape_jobs.db.connection.is_usable', return_value=True
+        ), mock.patch(
+            'scrape_jobs.db.connection.close'
+        ) as close:
+            with self.assertRaises(OperationalError):
+                deadlocking()
+        self.assertEqual(len(calls), 1)
+        close.assert_not_called()
+
+    def test_item_failed_recovers_after_reconnect(self):
+        runner = _make_runner()
+        items = runner.sync_items(_entries(('a', 0)))
+        real = ScrapeJobRunItem.objects.update_or_create
+        calls = []
+
+        def flaky(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise InterfaceError('connection already closed')
+            return real(*args, **kwargs)
+
+        with mock.patch.object(
+            ScrapeJobRunItem.objects, 'update_or_create',
+            side_effect=flaky,
+        ), mock.patch(
+            'scrape_jobs.db.connection.is_usable', return_value=False
+        ), mock.patch('scrape_jobs.db.connection.close'):
+            runner.item_failed(items[0], ValueError('x'))
+
+        self.assertEqual(len(calls), 2)
+        run_item = ScrapeJobRunItem.objects.get(
+            run=runner.run, item=items[0]
+        )
+        self.assertEqual(run_item.status, ScrapeJobRunItem.FAILED)

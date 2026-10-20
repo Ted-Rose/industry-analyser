@@ -27,6 +27,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from .db import retry_on_connection_loss
 from .models import (
     ScrapeJob,
     ScrapeJobItem,
@@ -356,6 +357,10 @@ class ScrapeJobRunner:
         logger.info('%s item done: %s', self.slug, item.key)
         if self.dry_run:
             return
+        self._record_item_done(item)
+
+    @retry_on_connection_loss
+    def _record_item_done(self, item):
         ScrapeJobRunItem.objects.update_or_create(
             run=self.run, item=item,
             defaults={
@@ -380,11 +385,15 @@ class ScrapeJobRunner:
         )
         if self.dry_run:
             return
+        self._record_item_failed(item, str(exc)[:2000])
+
+    @retry_on_connection_loss
+    def _record_item_failed(self, item, error_message):
         ScrapeJobRunItem.objects.update_or_create(
             run=self.run, item=item,
             defaults={
                 'status': ScrapeJobRunItem.FAILED,
-                'error_message': str(exc)[:2000],
+                'error_message': error_message,
             },
         )
         self.touch()
@@ -394,12 +403,14 @@ class ScrapeJobRunner:
         item failures (e.g. the blogs AI request cap)."""
         self._partial = True
 
+    @retry_on_connection_loss
     def touch(self):
         """Heartbeat — one cheap UPDATE; called per item checkpoint
         and between pages inside an item."""
         if self.run is not None:
             self.run.save(update_fields=['updated_at'])
 
+    @retry_on_connection_loss
     def finish(self, status=None, error=''):
         """Close the run. Default status: PARTIAL when any item failed
         (or mark_partial() was called), else SUCCESS."""

@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from ai_providers import errors as ai_errors
 from ai_providers.types import GenerationOptions, PromptSpec
+from scrape_jobs.db import retry_on_connection_loss
 
 logger = logging.getLogger('tv_programs')
 
@@ -317,7 +318,7 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
         show.title_lv, show.enrichment_status, show.enrichment_source,
         show.title_eng, show.imdb_id, show.imdb_rating, show.pg_rating,
     )
-    show.save()
+    retry_on_connection_loss(show.save)()
     return show
 
 
