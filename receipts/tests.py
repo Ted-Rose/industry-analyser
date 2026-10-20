@@ -1152,20 +1152,33 @@ class SeedCategoriesCommandTests(TestCase):
             items['Liellopa antrekots 400g'], 'Liellopu gaļa')
         self.assertEqual(items['Maltā gaļa MIX 400g'], 'Gaļa')
         self.assertEqual(
-            items['Desa Jelgava jubilejas 280g'],
-            'Sendviču piedevas')
-        self.assertEqual(
-            items['Cīsiņi grila 300g'], 'Sendviču piedevas')
+            items['Desa Jelgava jubilejas 280g'], 'Gaļa')
+        self.assertEqual(items['Cīsiņi grila 300g'], 'Gaļa')
 
     def test_obsolete_rules_are_deleted(self):
         galya = Category.objects.create(
             user=self.user, name='Gaļa')
         stale = CategoryRule.objects.create(
-            user=self.user, category=galya, pattern='desa',
+            user=self.user, category=galya, pattern='vist',
             match_type=CategoryRule.CONTAINS, priority=50)
         call_command('seed_categories', '--user', 'admin')
         self.assertFalse(
             CategoryRule.objects.filter(pk=stale.pk).exists())
+
+    def test_obsolete_category_is_deleted(self):
+        old = Category.objects.create(
+            user=self.user, name='Sendviču piedevas')
+        CategoryRule.objects.create(
+            user=self.user, category=old, pattern='desa',
+            match_type=CategoryRule.CONTAINS, priority=50)
+        call_command('seed_categories', '--user', 'admin')
+        self.assertFalse(
+            Category.objects.filter(pk=old.pk).exists())
+        # 'desa' survives only as the freshly seeded Gaļa rule.
+        self.assertTrue(
+            CategoryRule.objects.filter(
+                pattern='desa',
+                category__name='Gaļa').exists())
 
     def test_reapply_recategorizes_all_items(self):
         self._item('Desa Jelgava jubilejas 280g', 1)
@@ -1179,5 +1192,4 @@ class SeedCategoriesCommandTests(TestCase):
         call_command(
             'seed_categories', '--user', 'admin', '--reapply')
         self.assertEqual(
-            ReceiptItem.objects.get().category.name,
-            'Sendviču piedevas')
+            ReceiptItem.objects.get().category.name, 'Gaļa')

@@ -11,6 +11,8 @@ overwritten, and the apply pass only fills items whose category
 is still NULL (``--reapply`` clears all categories first).
 ``OBSOLETE_RULES`` lists seeded patterns removed by taxonomy
 changes — they are deleted so they can't shadow replacements.
+``OBSOLETE_CATEGORIES`` lists retired categories — deleting them
+cascades their rules and NULLs item categories for re-matching.
 
 Rule semantics (``receipts.ingest.apply_category_rules``): rules
 match ``ReceiptItem.raw_name`` case-insensitively ordered by
@@ -97,30 +99,20 @@ SEED_CATEGORIES = [
         ('jaut', 10),             # jauta / jautinas (archaic)
         ('teļ', 10),              # teļa gaļa (veal)
     ]),
-    ('Gaļa', [                  # generic catch-all
+    ('Gaļa', [                  # incl. sausages & cold cuts
         ('gaļa', 50),             # maltā gaļa / tītara gaļa ...
         ('kotlet', 50),
         ('steik', 50),
         ('tītar', 50),            # tītara gaļa
         ('pīl', 50),              # pīle / pīlēns (duck)
-    ]),
-    ('Sendviču piedevas', [
         # 'desa' also matches 'deserts' — a desert category rule
-        # added later must run at priority < 10.
-        ('desa', 10),             # vārītā / kūpināta desa
-        ('cīsiņ', 10),            # cīsiņi (small sausages)
+        # added later must run at a lower priority number.
+        ('desa', 50),             # vārītā / kūpināta desa
+        ('cīsiņ', 50),            # cīsiņi (small sausages)
         ('bekon', 50),
         ('šķiņķ', 50),            # šķiņķis (ham)
         ('pastēt', 50),           # pastēte
         ('salami', 50),
-        ('majonez', 50),
-        ('kečup', 50),
-        ('sinep', 50),            # sinepes
-        ('mērce', 50),            # sauces / condiments
-        ('olīvas', 50),           # olives (not 'olīveļļa'!)
-        ('olīvu', 50),
-        ('sālīti', 50),           # sālīti gurķi (pickles)
-        ('pesto', 50),
     ]),
     ('Mājsaimniecība', [
         ('tīrīšan', 50),          # tīrīšanas līdzeklis
@@ -147,9 +139,15 @@ SEED_CATEGORIES = [
 # be deleted explicitly — get_or_create never removes rows, and
 # a stale lower-pk rule would keep shadowing its replacement.
 OBSOLETE_RULES = {
-    # Meat split + sausage move to Sendviču piedevas.
-    'Gaļa': ['desa', 'cīsiņ', 'vist', 'cūk', 'liellop', 'bekon'],
+    # Meat split: specific kinds moved to their own categories.
+    'Gaļa': ['vist', 'cūk', 'liellop'],
 }
+
+# Retired categories — deleting cascades their rules and SET_NULLs
+# item.category, so the apply pass re-matches affected items.
+OBSOLETE_CATEGORIES = [
+    'Sendviču piedevas',          # sausages/cuts moved to Gaļa
+]
 
 
 class Command(BaseCommand):
@@ -252,6 +250,14 @@ class Command(BaseCommand):
             self.stdout.write(
                 f'{prefix}{obsolete_deleted} obsolete rule(s) '
                 'deleted')
+        for cat_name in OBSOLETE_CATEGORIES:
+            qs = Category.objects.filter(user=user, name=cat_name)
+            if not qs.exists():
+                continue
+            self.stdout.write(
+                f'{prefix}obsolete category {cat_name}: deleted')
+            if not dry_run:
+                qs.delete()
 
         self.stdout.write(
             f'{prefix}{cat_created} category(ies), '
