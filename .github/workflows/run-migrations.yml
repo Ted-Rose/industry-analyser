@@ -62,10 +62,6 @@ jobs:
       - name: Run migrations via Cloud Run Job
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          ENV_SECRET_KEY: ${{ secrets.TF_VAR_secret_key }}
-          ENV_DATABASE_URL: ${{ secrets.TF_VAR_database_url }}
-          ENV_BASE_URL: ${{ secrets.TF_VAR_base_url }}
-          ENV_DB_SSL_CERT: ${{ secrets.TF_VAR_db_ssl_cert }}
         run: |
           set -euo pipefail
 
@@ -79,18 +75,16 @@ jobs:
               --quiet
           fi
 
-          # Create fresh migration job with current configuration
+          # Create fresh migration job with current configuration.
+          # All config ships in the single `env-file` secret, injected
+          # as DOTENV (settings.py loads it like a .env file).
           gcloud run jobs create run-migrations \
             --image="${IMAGE}" \
             --region="${REGION}" \
             --project="${PROJECT_ID}" \
             --command=python \
             --args=manage.py,migrate \
-            --update-env-vars="SECRET_KEY=${ENV_SECRET_KEY}" \
-            --update-env-vars="DATABASE_URL=${ENV_DATABASE_URL}" \
-            --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
-            --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
-            --update-env-vars="DEBUG=False" \
+            --set-secrets="DOTENV=env-file:latest" \
             --task-timeout=3600 \
             --max-retries=0 \
             --quiet

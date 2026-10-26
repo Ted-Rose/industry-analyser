@@ -21,6 +21,9 @@ echo "Building Docker image..."
 gcloud builds submit --tag $IMAGE_NAME --project $PROJECT_ID
 
 echo "Deploying to Cloud Run..."
+# All runtime config lives in the single `env-file` secret — its
+# payload is the full .env file, injected as DOTENV and loaded by
+# industry_analyser/settings.py like a local .env.
 gcloud run deploy $SERVICE_NAME \
   --image $IMAGE_NAME \
   --platform managed \
@@ -32,8 +35,7 @@ gcloud run deploy $SERVICE_NAME \
   --cpu 1 \
   --timeout 300 \
   --project $PROJECT_ID \
-  --set-env-vars "DEBUG=False" \
-  --set-secrets "SECRET_KEY=django-secret-key:latest,DATABASE_URL=database-url:latest,DB_SSL_CERT=db-ssl-cert:latest,GEMINI_API_KEY=gemini-api-key:latest,HARD_CODED_PASSWORD=hard-coded-password:latest"
+  --set-secrets "DOTENV=env-file:latest"
 
 echo "Deployment complete!"
 echo "Service URL:"
