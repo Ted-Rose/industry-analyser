@@ -19,7 +19,30 @@ on:
       - 'staticfiles/**'
       - 'frontend/**'
       - '.github/workflows/deploy-web-service.yml'
+  pull_request:
+    paths:
+      - '**/*.py'
+      - '*.py'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'requirements.txt'
+      - 'industry_analyser/**'
+      - 'classified_ads/**'
+      - 'fetcher/**'
+      - 'tv_programs/**'
+      - 'blogs/**'
+      - 'accounts/**'
+      - 'staticfiles/**'
+      - 'frontend/**'
+      - '.github/workflows/deploy-web-service.yml'
   workflow_dispatch:
+    inputs:
+      service_suffix:
+        description: >-
+          Suffix appended to the staging service name
+          (industry-analyser<suffix>). Empty = deploy prod only.
+        required: false
+        default: '-staging'
 
 concurrency:
   group: deploy-web-service-${{ github.ref }}
@@ -31,6 +54,9 @@ env:
 
 jobs:
   build-and-deploy:
+    # Prod deploy: pushes to master and manual runs. PRs only get the
+    # staging deploy below.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -62,16 +88,12 @@ jobs:
       - name: Deploy to Cloud Run Service
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          ENV_SECRET_KEY: ${{ secrets.TF_VAR_secret_key }}
-          ENV_DATABASE_URL: ${{ secrets.TF_VAR_database_url }}
-          ENV_BASE_URL: ${{ secrets.TF_VAR_base_url }}
-          ENV_DB_SSL_CERT: ${{ secrets.TF_VAR_db_ssl_cert }}
-          ENV_HARD_CODED_PASSWORD: ${{ secrets.TF_VAR_hard_coded_password }}
-          ENV_GEMINI_API_KEY: ${{ secrets.TF_VAR_gemini_api_key }}
         run: |
           set -euo pipefail
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}"
-          
+
+          # All runtime config lives in the single `env-file` secret
+          # (full .env payload injected as DOTENV; settings.py loads it).
           gcloud run deploy ${SERVICE_NAME} \
             --image="${IMAGE}" \
             --platform=managed \
@@ -83,13 +105,7 @@ jobs:
             --memory=512Mi \
             --cpu=1 \
             --timeout=300 \
-            --update-env-vars="DEBUG=False" \
-            --update-env-vars="SECRET_KEY=${ENV_SECRET_KEY}" \
-            --update-env-vars="DATABASE_URL=${ENV_DATABASE_URL}" \
-            --update-env-vars="BASE_URL=${ENV_BASE_URL}" \
-            --update-env-vars="DB_SSL_CERT=${ENV_DB_SSL_CERT}" \
-            --update-env-vars="HARD_CODED_PASSWORD=${ENV_HARD_CODED_PASSWORD}" \
-            --update-env-vars="GEMINI_API_KEY=${ENV_GEMINI_API_KEY}" \
+            --set-secrets="DOTENV=env-file:latest" \
             --quiet
 
       - name: Get Service URL
@@ -109,10 +125,10 @@ jobs:
         run: |
           echo "Waiting 10 seconds for service to be ready..."
           sleep 10
-          
+
           echo "Running health check on ${SERVICE_URL}"
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${SERVICE_URL} || echo "000")
-          
+
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
             echo "✅ Health check passed (HTTP ${HTTP_CODE})"
           else
@@ -135,3 +151,82 @@ jobs:
           echo "🌐 **Service URL**: ${SERVICE_URL}" >> $GITHUB_STEP_SUMMARY
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+
+  deploy-staging:
+    # Ephemeral staging service for PRs (industry-analyser-pr-<num>)
+    # and manual runs (industry-analyser<service_suffix>, default
+    # -staging). Same image + env-file secret as prod; scales to zero.
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' &&
+       inputs.service_suffix != '')
+    runs-on: ubuntu-latest
+    env:
+      STAGING_NAME: >-
+        ${{ github.event_name == 'pull_request' &&
+        format('industry-analyser-pr-{0}', github.event.pull_request.number)
+        || format('industry-analyser{0}', inputs.service_suffix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push staging image
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}"
+          docker build -t "${IMAGE}:staging-${GITHUB_SHA}" .
+          docker push "${IMAGE}:staging-${GITHUB_SHA}"
+
+      - name: Deploy staging service
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:staging-${GITHUB_SHA}"
+
+          gcloud run deploy "${STAGING_NAME}" \
+            --image="${IMAGE}" \
+            --platform=managed \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --allow-unauthenticated \
+            --min-instances=0 \
+            --max-instances=1 \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=300 \
+            --set-secrets="DOTENV=env-file:latest" \
+            --quiet
+
+      - name: Staging deployment summary
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          SERVICE_URL=$(gcloud run services describe "${STAGING_NAME}" \
+            --platform=managed \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --format='value(status.url)')
+          echo "🚀 Staging deployed: ${SERVICE_URL}"
+          {
+            echo "## Staging Deployment"
+            echo ""
+            echo "✅ **Service**: ${STAGING_NAME}"
+            echo "✅ **Min Instances**: 0 (scales to zero)"
+            echo "🌐 **Service URL**: ${SERVICE_URL}"
+          } >> $GITHUB_STEP_SUMMARY

@@ -116,26 +116,12 @@ resource "google_project_iam_member" "job_runtime_ar_reader" {
   member  = "serviceAccount:${google_service_account.job_runtime.email}"
 }
 
-# Fetcher portal config (Secret Manager, secrets created outside Terraform with gcloud)
-resource "google_secret_manager_secret_iam_member" "fetcher_keywords_accessor" {
+# All runtime config ships in one Secret Manager secret `env-file`
+# (payload = full .env file, injected as the DOTENV env var).
+# Created outside Terraform with gcloud.
+resource "google_secret_manager_secret_iam_member" "env_file_accessor" {
   project   = var.project_id
-  secret_id = "industry-analyser-fetcher-keywords-list"
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.job_runtime.email}"
-}
-
-resource "google_secret_manager_secret_iam_member" "fetcher_portals_accessor" {
-  project   = var.project_id
-  secret_id = "industry-analyser-fetcher-portals"
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.job_runtime.email}"
-}
-
-# OMDb API key for tv_programs show enrichment (secret created
-# outside Terraform with gcloud)
-resource "google_secret_manager_secret_iam_member" "omdb_key_accessor" {
-  project   = var.project_id
-  secret_id = "industry-analyser-omdb-key"
+  secret_id = "env-file"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.job_runtime.email}"
 }
@@ -158,50 +144,13 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
           "scripts/materialize_fetcher_config_and_scrape.py",
         ]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
-        }
-
-        env {
-          name = "FETCHER_KEYWORDS_LIST_JSON"
+          name = "DOTENV"
           value_source {
             secret_key_ref {
-              secret  = "industry-analyser-fetcher-keywords-list"
-              version = "latest"
-            }
-          }
-        }
-
-        env {
-          name = "FETCHER_PORTALS_JSON"
-          value_source {
-            secret_key_ref {
-              secret  = "industry-analyser-fetcher-portals"
+              secret  = "env-file"
               version = "latest"
             }
           }
@@ -220,8 +169,7 @@ resource "google_cloud_run_v2_job" "scrape_vacancy" {
   depends_on = [
     google_artifact_registry_repository.dockerhub_cache,
     google_project_service.apis,
-    google_secret_manager_secret_iam_member.fetcher_keywords_accessor,
-    google_secret_manager_secret_iam_member.fetcher_portals_accessor,
+    google_secret_manager_secret_iam_member.env_file_accessor,
   ]
 
   lifecycle {
@@ -247,40 +195,13 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
         image   = local.job_image
         command = ["python", "manage.py", "scrape_tv_programs"]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
-        }
-
-        env {
-          name = "OMDB_KEY"
+          name = "DOTENV"
           value_source {
             secret_key_ref {
-              secret  = "industry-analyser-omdb-key"
+              secret  = "env-file"
               version = "latest"
             }
           }
@@ -299,7 +220,7 @@ resource "google_cloud_run_v2_job" "scrape_tv_programs" {
   depends_on = [
     google_artifact_registry_repository.dockerhub_cache,
     google_project_service.apis,
-    google_secret_manager_secret_iam_member.omdb_key_accessor,
+    google_secret_manager_secret_iam_member.env_file_accessor,
   ]
 
   lifecycle {
@@ -325,33 +246,16 @@ resource "google_cloud_run_v2_job" "scrape_apartment_ads" {
         image   = local.job_image
         command = ["python", "manage.py", "scrape_apartment_ads"]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
+          name = "DOTENV"
+          value_source {
+            secret_key_ref {
+              secret  = "env-file"
+              version = "latest"
+            }
+          }
         }
 
         resources {
@@ -392,33 +296,16 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
         image   = local.job_image
         command = ["python", "manage.py", "scrape_housing_ads"]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
+          name = "DOTENV"
+          value_source {
+            secret_key_ref {
+              secret  = "env-file"
+              version = "latest"
+            }
+          }
         }
 
         resources {
@@ -459,33 +346,16 @@ resource "google_cloud_run_v2_job" "sync_apartment_regions" {
         image   = local.job_image
         command = ["python", "manage.py", "sync_apartment_regions"]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
+          name = "DOTENV"
+          value_source {
+            secret_key_ref {
+              secret  = "env-file"
+              version = "latest"
+            }
+          }
         }
 
         resources {
@@ -526,33 +396,16 @@ resource "google_cloud_run_v2_job" "sync_housing_regions" {
         image   = local.job_image
         command = ["python", "manage.py", "sync_housing_regions"]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
+          name = "DOTENV"
+          value_source {
+            secret_key_ref {
+              secret  = "env-file"
+              version = "latest"
+            }
+          }
         }
 
         resources {
@@ -793,33 +646,16 @@ resource "google_cloud_run_v2_job" "link_ads_to_properties" {
           "3",
         ]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
+          name = "DOTENV"
+          value_source {
+            secret_key_ref {
+              secret  = "env-file"
+              version = "latest"
+            }
+          }
         }
 
         resources {
@@ -847,15 +683,6 @@ resource "google_cloud_run_v2_job" "link_ads_to_properties" {
 # No Cloud Scheduler trigger on purpose: the job is visible in GCP and
 # run manually via `gcloud run jobs execute link-ads-to-properties`.
 
-# Receipts collector IMAP password (secret created outside
-# Terraform with gcloud — see plan appendix A6/H6)
-resource "google_secret_manager_secret_iam_member" "receipts_imap_accessor" {
-  project   = var.project_id
-  secret_id = "industry-analyser-receipts-imap-password"
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.job_runtime.email}"
-}
-
 resource "google_cloud_run_v2_job" "sync_receipt_emails" {
   name     = "sync-receipt-emails"
   location = var.region
@@ -878,48 +705,17 @@ resource "google_cloud_run_v2_job" "sync_receipt_emails" {
           "--last-day-only",
         ]
 
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
         env {
-          name  = "DEBUG"
-          value = "False"
-        }
-        env {
-          name  = "SECRET_KEY"
-          value = var.secret_key
-        }
-        env {
-          name  = "DATABASE_URL"
-          value = var.database_url
-        }
-        env {
-          name  = "BASE_URL"
-          value = var.base_url
-        }
-        env {
-          name  = "DB_SSL_CERT"
-          value = var.db_ssl_cert
-        }
-        env {
-          name  = "HARD_CODED_PASSWORD"
-          value = var.hard_coded_password
-        }
-        env {
-          name  = "GEMINI_API_KEY"
-          value = var.gemini_api_key
-        }
-        env {
-          name  = "RECEIPTS_IMAP_USER"
-          value = var.receipts_imap_user
-        }
-        env {
-          name = "RECEIPTS_IMAP_PASSWORD"
+          name = "DOTENV"
           value_source {
             secret_key_ref {
-              secret  = "industry-analyser-receipts-imap-password"
+              secret  = "env-file"
               version = "latest"
             }
           }
         }
-
         resources {
           limits = {
             cpu    = "1"
@@ -933,7 +729,7 @@ resource "google_cloud_run_v2_job" "sync_receipt_emails" {
   depends_on = [
     google_artifact_registry_repository.dockerhub_cache,
     google_project_service.apis,
-    google_secret_manager_secret_iam_member.receipts_imap_accessor,
+    google_secret_manager_secret_iam_member.env_file_accessor,
   ]
 
   lifecycle {

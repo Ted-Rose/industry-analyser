@@ -34,46 +34,7 @@ variable "container_image" {
   default     = ""
 }
 
-variable "secret_key" {
-  type        = string
-  description = "Django SECRET_KEY"
-  sensitive   = true
-}
-
-variable "database_url" {
-  type        = string
-  description = "Postgres DATABASE_URL"
-  sensitive   = true
-}
-
-variable "base_url" {
-  type        = string
-  description = "Django BASE_URL"
-  sensitive   = true
-}
-
-variable "db_ssl_cert" {
-  type        = string
-  description = "Aiven or other CA PEM for Postgres (full certificate text)"
-  sensitive   = true
-}
-
-variable "hard_coded_password" {
-  type        = string
-  description = "Optional HARD_CODED_PASSWORD"
-  default     = ""
-  sensitive   = true
-}
-
-variable "gemini_api_key" {
-  type        = string
-  description = "Optional GEMINI_API_KEY"
-  default     = ""
-  sensitive   = true
-}
-
-variable "receipts_imap_user" {
-  description = "Collector Gmail address for receipt IMAP polling"
-  type        = string
-  default     = ""
-}
+# All app secrets/config now ship in the single Secret Manager
+# secret `env-file` (a full .env payload injected as the DOTENV env
+# var). secret_key/database_url/etc. variables were removed — update
+# `env-file` to change runtime config.

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 """
 
 from pathlib import Path
+import io
 import os
 import sys
 import getpass
@@ -28,7 +29,28 @@ env = environ.Env(
     BASE_URL=(str, 'http://127.0.0.1:8000'),
 )
 
-environ.Env.read_env(os.path.join(BASE_DIR, '.env'), overwrite=False)
+
+def _load_env_file() -> None:
+    """Load .env-style config without overriding real env vars.
+
+    Precedence:
+    1. ``DOTENV`` env var — its value IS the .env contents
+       (Cloud Run injects the ``env-file`` secret this way).
+    2. ``DOTENV_PATH`` env var — path to a .env file.
+    3. ``BASE_DIR/.env`` when it exists (local dev).
+    """
+    dotenv = os.environ.get('DOTENV')
+    if dotenv:
+        environ.Env.read_env(io.StringIO(dotenv), overwrite=False)
+        return
+    dotenv_path = os.environ.get('DOTENV_PATH')
+    if dotenv_path:
+        environ.Env.read_env(dotenv_path, overwrite=False)
+        return
+    environ.Env.read_env(os.path.join(BASE_DIR, '.env'), overwrite=False)
+
+
+_load_env_file()
 
 # CA PEM from env (DB_SSL_CERT or legacy capem), written to /tmp
 # Same pattern as Vercel/GCP.
@@ -97,6 +119,8 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     '0.0.0.0',
     'industry-analyser-180632294935.europe-north1.run.app',
+    # Covers staging/PR Cloud Run services (e.g. industry-analyser-staging).
+    '.run.app',
     '.vercel.app'
 ]
 
@@ -112,6 +136,7 @@ if _extra_host:
 # CSRF trusted origins for Cloud Run and Vercel
 CSRF_TRUSTED_ORIGINS = [
     'https://industry-analyser-180632294935.europe-north1.run.app',
+    'https://*.run.app',
     'https://*.vercel.app',
 ]
 
