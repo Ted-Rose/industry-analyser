@@ -19,23 +19,27 @@ on:
       - 'staticfiles/**'
       - 'frontend/**'
       - '.github/workflows/deploy-web-service.yml'
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    paths:
-      - '**/*.py'
-      - '*.py'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'requirements.txt'
-      - 'industry_analyser/**'
-      - 'classified_ads/**'
-      - 'fetcher/**'
-      - 'tv_programs/**'
-      - 'blogs/**'
-      - 'accounts/**'
-      - 'staticfiles/**'
-      - 'frontend/**'
-      - '.github/workflows/deploy-web-service.yml'
+  # PR previews disabled to avoid Artifact Registry image buildup.
+  # Uncomment the pull_request block below to re-enable automatic
+  # private previews; workflow_dispatch still deploys one manually
+  # via the service_suffix input.
+  # pull_request:
+  #   types: [opened, synchronize, reopened, closed]
+  #   paths:
+  #     - '**/*.py'
+  #     - '*.py'
+  #     - 'Dockerfile'
+  #     - '.dockerignore'
+  #     - 'requirements.txt'
+  #     - 'industry_analyser/**'
+  #     - 'classified_ads/**'
+  #     - 'fetcher/**'
+  #     - 'tv_programs/**'
+  #     - 'blogs/**'
+  #     - 'accounts/**'
+  #     - 'staticfiles/**'
+  #     - 'frontend/**'
+  #     - '.github/workflows/deploy-web-service.yml'
   workflow_dispatch:
     inputs:
       service_suffix:
