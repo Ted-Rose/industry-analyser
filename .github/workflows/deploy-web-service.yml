@@ -20,6 +20,7 @@ on:
       - 'frontend/**'
       - '.github/workflows/deploy-web-service.yml'
   pull_request:
+    types: [opened, synchronize, reopened, closed]
     paths:
       - '**/*.py'
       - '*.py'
@@ -153,11 +154,19 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
 
   deploy-staging:
-    # Ephemeral staging service for PRs (industry-analyser-pr-<num>)
-    # and manual runs (industry-analyser<service_suffix>, default
-    # -staging). Same image + env-file secret as prod; scales to zero.
+    # Ephemeral PRIVATE staging service for PRs
+    # (industry-analyser-pr-<num>) and manual runs
+    # (industry-analyser<service_suffix>, default -staging). Same
+    # image + env-file secret as prod; scales to zero. --no-allow-
+    # unauthenticated means the URL 403s at Google's edge — a public
+    # preview cannot be abused into spend. Browse it via
+    # `gcloud run services proxy` (needs roles/run.invoker). PR
+    # previews are deleted by the cleanup job when the PR closes;
+    # manual-dispatch staging is not auto-deleted — remove it with
+    # `gcloud run services delete` when done.
     if: >
-      github.event_name == 'pull_request' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action != 'closed') ||
       (github.event_name == 'workflow_dispatch' &&
        inputs.service_suffix != '')
     runs-on: ubuntu-latest
@@ -204,7 +213,7 @@ jobs:
             --platform=managed \
             --region="${REGION}" \
             --project="${PROJECT_ID}" \
-            --allow-unauthenticated \
+            --no-allow-unauthenticated \
             --min-instances=0 \
             --max-instances=1 \
             --memory=512Mi \
@@ -212,6 +221,37 @@ jobs:
             --timeout=300 \
             --set-secrets="DOTENV=env-file:latest" \
             --quiet
+
+      # Private service: let the deploy SA invoke it so the smoke
+      # check below can prove the container actually boots.
+      - name: Grant deploy SA invoker access
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          DEPLOYER=$(gcloud auth list \
+            --filter=status:ACTIVE --format='value(account)')
+          gcloud run services add-iam-policy-binding "${STAGING_NAME}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --member="serviceAccount:${DEPLOYER}" \
+            --role="roles/run.invoker" \
+            --quiet
+
+      - name: Smoke check (authenticated)
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          SERVICE_URL=$(gcloud run services describe "${STAGING_NAME}" \
+            --platform=managed \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --format='value(status.url)')
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $(gcloud auth print-identity-token)" \
+            "${SERVICE_URL}/admin/login/")
+          echo "GET /admin/login/ -> ${CODE}"
+          test "${CODE}" = "200"
 
       - name: Staging deployment summary
         env:
@@ -222,11 +262,46 @@ jobs:
             --region="${REGION}" \
             --project="${PROJECT_ID}" \
             --format='value(status.url)')
-          echo "🚀 Staging deployed: ${SERVICE_URL}"
+          echo "🚀 Staging deployed (private): ${SERVICE_URL}"
           {
             echo "## Staging Deployment"
             echo ""
             echo "✅ **Service**: ${STAGING_NAME}"
             echo "✅ **Min Instances**: 0 (scales to zero)"
+            echo "🔒 **Private**: unauthenticated → 403 at edge"
             echo "🌐 **Service URL**: ${SERVICE_URL}"
+            echo "Browse via \`gcloud run services proxy ${STAGING_NAME} --region=${REGION} --project=${PROJECT_ID}\`"
           } >> $GITHUB_STEP_SUMMARY
+
+  cleanup-staging:
+    # Delete the PR's preview service when the pull request closes
+    # (merged or not) so previews never outlive their review.
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    env:
+      STAGING_NAME: >-
+        ${{ format('industry-analyser-pr-{0}',
+        github.event.pull_request.number) }}
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Delete staging service
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          gcloud run services delete "${STAGING_NAME}" \
+            --platform=managed \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --quiet \
+            || echo "Service ${STAGING_NAME} not found - nothing to delete"
