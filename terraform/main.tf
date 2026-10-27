@@ -331,169 +331,172 @@ resource "google_cloud_run_v2_job" "scrape_housing_ads" {
   }
 }
 
-resource "google_cloud_run_v2_job" "sync_apartment_regions" {
-  name     = "sync-apartment-regions"
-  location = var.region
-
-  template {
-    task_count = 1
-    template {
-      timeout         = "1800s"
-      max_retries     = 0
-      service_account = google_service_account.job_runtime.email
-
-      containers {
-        image   = local.job_image
-        command = ["python", "manage.py", "sync_apartment_regions"]
-
-        # Single consolidated secret: payload is the full .env file,
-        # loaded by settings.py via the DOTENV env var.
-        env {
-          name = "DOTENV"
-          value_source {
-            secret_key_ref {
-              secret  = "env-file"
-              version = "latest"
-            }
-          }
-        }
-
-        resources {
-          limits = {
-            cpu    = "1"
-            memory = "512Mi"
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [
-    google_artifact_registry_repository.dockerhub_cache,
-    google_project_service.apis,
-  ]
-
-  lifecycle {
-    ignore_changes = [
-      template[0].template[0].containers[0].image,
-    ]
-    prevent_destroy = true
-  }
-}
-
-resource "google_cloud_run_v2_job" "sync_housing_regions" {
-  name     = "sync-housing-regions"
-  location = var.region
-
-  template {
-    task_count = 1
-    template {
-      timeout         = "1800s"
-      max_retries     = 0
-      service_account = google_service_account.job_runtime.email
-
-      containers {
-        image   = local.job_image
-        command = ["python", "manage.py", "sync_housing_regions"]
-
-        # Single consolidated secret: payload is the full .env file,
-        # loaded by settings.py via the DOTENV env var.
-        env {
-          name = "DOTENV"
-          value_source {
-            secret_key_ref {
-              secret  = "env-file"
-              version = "latest"
-            }
-          }
-        }
-
-        resources {
-          limits = {
-            cpu    = "1"
-            memory = "512Mi"
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [
-    google_artifact_registry_repository.dockerhub_cache,
-    google_project_service.apis,
-  ]
-
-  lifecycle {
-    ignore_changes = [
-      template[0].template[0].containers[0].image,
-    ]
-    prevent_destroy = true
-  }
-}
-
-resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_apartment_regions" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.sync_apartment_regions.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
-}
-
-resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_housing_regions" {
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_job.sync_housing_regions.name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
-}
-
-resource "google_cloud_scheduler_job" "trigger_sync_apartment_regions" {
-  name             = "trigger-sync-apartment-regions"
-  description      = "Sync ss.com apartment regions to DB monthly (1st day 20:50 UTC)"
-  schedule         = "50 20 1 * *"
-  time_zone        = "Etc/UTC"
-  region           = var.scheduler_region
-  attempt_deadline = "600s"
-
-  http_target {
-    http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_apartment_regions.name}:run"
-    body        = base64encode("{}")
-
-    oauth_token {
-      service_account_email = google_service_account.scheduler_invoker.email
-    }
-  }
-
-  depends_on = [
-    google_cloud_run_v2_job.sync_apartment_regions,
-    google_project_service.apis,
-  ]
-}
-
-resource "google_cloud_scheduler_job" "trigger_sync_housing_regions" {
-  name             = "trigger-sync-housing-regions"
-  description      = "Sync ss.com housing regions to DB monthly (1st day 21:20 UTC)"
-  schedule         = "20 21 1 * *"
-  time_zone        = "Etc/UTC"
-  region           = var.scheduler_region
-  attempt_deadline = "600s"
-
-  http_target {
-    http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_housing_regions.name}:run"
-    body        = base64encode("{}")
-
-    oauth_token {
-      service_account_email = google_service_account.scheduler_invoker.email
-    }
-  }
-
-  depends_on = [
-    google_cloud_run_v2_job.sync_housing_regions,
-    google_project_service.apis,
-  ]
-}
+# Removed to stay within the 3-free-jobs Cloud Scheduler quota
+# ($0.10/job/mo beyond 3 per billing account).
+# Uncomment to re-enable.
+# resource "google_cloud_run_v2_job" "sync_apartment_regions" {
+#   name     = "sync-apartment-regions"
+#   location = var.region
+#
+#   template {
+#     task_count = 1
+#     template {
+#       timeout         = "1800s"
+#       max_retries     = 0
+#       service_account = google_service_account.job_runtime.email
+#
+#       containers {
+#         image   = local.job_image
+#         command = ["python", "manage.py", "sync_apartment_regions"]
+#
+#         # Single consolidated secret: payload is the full .env file,
+#         # loaded by settings.py via the DOTENV env var.
+#         env {
+#           name = "DOTENV"
+#           value_source {
+#             secret_key_ref {
+#               secret  = "env-file"
+#               version = "latest"
+#             }
+#           }
+#         }
+#
+#         resources {
+#           limits = {
+#             cpu    = "1"
+#             memory = "512Mi"
+#           }
+#         }
+#       }
+#     }
+#   }
+#
+#   depends_on = [
+#     google_artifact_registry_repository.dockerhub_cache,
+#     google_project_service.apis,
+#   ]
+#
+#   lifecycle {
+#     ignore_changes = [
+#       template[0].template[0].containers[0].image,
+#     ]
+#     prevent_destroy = true
+#   }
+# }
+#
+# resource "google_cloud_run_v2_job" "sync_housing_regions" {
+#   name     = "sync-housing-regions"
+#   location = var.region
+#
+#   template {
+#     task_count = 1
+#     template {
+#       timeout         = "1800s"
+#       max_retries     = 0
+#       service_account = google_service_account.job_runtime.email
+#
+#       containers {
+#         image   = local.job_image
+#         command = ["python", "manage.py", "sync_housing_regions"]
+#
+#         # Single consolidated secret: payload is the full .env file,
+#         # loaded by settings.py via the DOTENV env var.
+#         env {
+#           name = "DOTENV"
+#           value_source {
+#             secret_key_ref {
+#               secret  = "env-file"
+#               version = "latest"
+#             }
+#           }
+#         }
+#
+#         resources {
+#           limits = {
+#             cpu    = "1"
+#             memory = "512Mi"
+#           }
+#         }
+#       }
+#     }
+#   }
+#
+#   depends_on = [
+#     google_artifact_registry_repository.dockerhub_cache,
+#     google_project_service.apis,
+#   ]
+#
+#   lifecycle {
+#     ignore_changes = [
+#       template[0].template[0].containers[0].image,
+#     ]
+#     prevent_destroy = true
+#   }
+# }
+#
+# resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_apartment_regions" {
+#   project  = var.project_id
+#   location = var.region
+#   name     = google_cloud_run_v2_job.sync_apartment_regions.name
+#   role     = "roles/run.invoker"
+#   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+# }
+#
+# resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_sync_housing_regions" {
+#   project  = var.project_id
+#   location = var.region
+#   name     = google_cloud_run_v2_job.sync_housing_regions.name
+#   role     = "roles/run.invoker"
+#   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+# }
+#
+# resource "google_cloud_scheduler_job" "trigger_sync_apartment_regions" {
+#   name             = "trigger-sync-apartment-regions"
+#   description      = "Sync ss.com apartment regions to DB monthly (1st day 20:50 UTC)"
+#   schedule         = "50 20 1 * *"
+#   time_zone        = "Etc/UTC"
+#   region           = var.scheduler_region
+#   attempt_deadline = "600s"
+#
+#   http_target {
+#     http_method = "POST"
+#     uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_apartment_regions.name}:run"
+#     body        = base64encode("{}")
+#
+#     oauth_token {
+#       service_account_email = google_service_account.scheduler_invoker.email
+#     }
+#   }
+#
+#   depends_on = [
+#     google_cloud_run_v2_job.sync_apartment_regions,
+#     google_project_service.apis,
+#   ]
+# }
+#
+# resource "google_cloud_scheduler_job" "trigger_sync_housing_regions" {
+#   name             = "trigger-sync-housing-regions"
+#   description      = "Sync ss.com housing regions to DB monthly (1st day 21:20 UTC)"
+#   schedule         = "20 21 1 * *"
+#   time_zone        = "Etc/UTC"
+#   region           = var.scheduler_region
+#   attempt_deadline = "600s"
+#
+#   http_target {
+#     http_method = "POST"
+#     uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.sync_housing_regions.name}:run"
+#     body        = base64encode("{}")
+#
+#     oauth_token {
+#       service_account_email = google_service_account.scheduler_invoker.email
+#     }
+#   }
+#
+#   depends_on = [
+#     google_cloud_run_v2_job.sync_housing_regions,
+#     google_project_service.apis,
+#   ]
+# }
 
 # DISABLED: Uncomment to re-enable
 # resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_vacancy" {
