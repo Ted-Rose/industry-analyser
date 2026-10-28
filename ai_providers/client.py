@@ -302,7 +302,10 @@ class JobClient:
         # Every assigned model failed — an upstream outage, not an
         # app bug: warning-level Sentry event. Expected outcomes
         # (cap reached, disabled job, blocked content) never reach
-        # this line, so they are never sent.
+        # this line, so they are never sent. A full-provider outage
+        # emits one warning event per generate() call per run —
+        # that volume is the trend signal; revisit coalescing only
+        # if quota pressure shows.
         capture_provider_exception(
             exc,
             'rate_limited'

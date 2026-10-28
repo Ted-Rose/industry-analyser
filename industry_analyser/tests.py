@@ -3,9 +3,13 @@ site root must not swallow misses under prefixes owned by earlier
 mounts (/api/, /admin/, /static/).
 """
 
-from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+import json
+from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
+from django.test import RequestFactory, SimpleTestCase, TestCase
+
+from industry_analyser import api as api_module
 from industry_analyser.sentry import (
     capture_internal_exception,
     capture_provider_exception,
@@ -138,3 +142,40 @@ class SentryHelpersTests(SimpleTestCase):
         self.assertIs(sentry_before_send(event, {}), event)
         event = {}
         self.assertIs(sentry_before_send(event, {}), event)
+
+    def test_before_send_strips_body_when_url_undeterminable(self):
+        """Fail closed: a missing or malformed url can't be checked
+        against the sensitive prefixes, so the body goes anyway."""
+        for request in (
+            {'data': {'password': 's3cret'}},
+            {'url': 'not-a-url', 'data': {'password': 's3cret'}},
+            {'url': '', 'data': {'password': 's3cret'}},
+        ):
+            event = {'request': dict(request)}
+            result = sentry_before_send(event, {})
+            self.assertNotIn('data', result['request'], request)
+
+
+class UnhandledApiErrorTests(SimpleTestCase):
+    """_on_unhandled_error replaced ninja's default Exception
+    handler — it must keep the uniform 500 body, report to Sentry,
+    and log the traceback itself so DSN-less environments (local
+    dev, pre-secret deploys) don't lose it."""
+
+    def test_raising_endpoint_returns_uniform_500_and_captures(self):
+        exc = RuntimeError('boom')
+        request = RequestFactory().get('/api/vacancies/')
+        with self.assertLogs('industry_analyser', level='ERROR'), \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as capture:
+            resp = api_module._on_unhandled_error(request, exc)
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            json.loads(resp.content),
+            {
+                'error': 'server_error',
+                'detail': 'Internal Server Error',
+            },
+        )
+        capture.assert_called_once_with(exc)

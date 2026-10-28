@@ -431,6 +431,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
+        'industry_analyser': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
         'tv_archive': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',

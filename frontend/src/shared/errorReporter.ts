@@ -106,13 +106,15 @@ function handleGlobalError(event: Event): void {
     if (src.startsWith('blob:')) {
       return;
     }
-    // Report each failing resource once.
-    if (reportedResources.has(src)) return;
-    reportedResources.add(src);
     // Asset URLs can embed signed/credential query strings —
     // strip '?'/'#' and everything after before the URL reaches
-    // Sentry. The toast keeps the full src.
+    // Sentry, and dedup on the stripped URL so a rotating signed
+    // URL that keeps failing reports only once. The toast keeps
+    // the full src.
     const sentrySrc = src.split(/[?#]/)[0];
+    // Report each failing resource once.
+    if (reportedResources.has(sentrySrc)) return;
+    reportedResources.add(sentrySrc);
     reportError(
       new Error(`Failed to load resource: ${src}`),
       'Resource load error',

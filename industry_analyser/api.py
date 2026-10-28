@@ -6,6 +6,7 @@ industry_analyser/urls.py (e.g. api.add_router('/vacancies/', router)
 CSRF enforced on unsafe methods) with JSON 401s instead of redirects.
 Public read endpoints opt out per-op with auth=None.
 """
+import logging
 from urllib.parse import urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
@@ -15,6 +16,8 @@ from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import django_auth
 
 from industry_analyser.sentry import capture_internal_exception
+
+logger = logging.getLogger('industry_analyser')
 
 api = NinjaAPI(
     title='industry-analyser API',
@@ -153,6 +156,10 @@ def _on_unhandled_error(request, exc):
     of the error contract) and the error_code:internal_error tag;
     capture depends solely on capture_internal_exception.
     """
+    # This handler swallows the exception ninja's default would have
+    # re-raised — log the traceback here or a DSN-less environment
+    # (local dev, pre-secret deploys) sees only the bare 500 body.
+    logger.exception('unhandled API exception', exc_info=exc)
     capture_internal_exception(exc)
     return api.create_response(request, {
         'error': 'server_error',

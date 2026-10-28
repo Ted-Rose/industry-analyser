@@ -37,12 +37,21 @@ _PROVIDER_ERROR_CODES = frozenset({'rate_limited', 'provider_error'})
 
 
 def sentry_before_send(event, hint):
-    """Scrub sensitive request data before a Sentry event sends."""
+    """Scrub sensitive request data before a Sentry event sends.
+
+    Fails closed: when the request path cannot be determined (a
+    missing or malformed ``url`` never yields a ``/``-leading path)
+    the body is stripped anyway — a false positive only costs
+    debuggability, a false negative leaks credentials.
+    """
     request = event.get('request')
     if not isinstance(request, dict):
         return event
     path = urlparse(request.get('url') or '').path
-    if path.startswith(_SENSITIVE_PATH_PREFIXES):
+    if (
+        not path.startswith('/')
+        or path.startswith(_SENSITIVE_PATH_PREFIXES)
+    ):
         request.pop('data', None)
     return event
 

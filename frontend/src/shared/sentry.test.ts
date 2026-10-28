@@ -60,6 +60,14 @@ describe('sentryBeforeSend', () => {
       .toBeNull();
   });
 
+  it('drops ChunkLoadError via the exception type alone', () => {
+    // A ChunkLoadError whose message wording is unusual must still
+    // be dropped — the type string rides the match haystack.
+    const ev = exceptionEvent('asset blew up', 'ChunkLoadError');
+    expect(sentryBeforeSend(ev, hintOf(new Error('x'))))
+      .toBeNull();
+  });
+
   it('drops message-only stale-chunk onerror events', () => {
     // Stale tabs after a deploy hit window.onerror with no
     // exception object — only event.message carries the text.

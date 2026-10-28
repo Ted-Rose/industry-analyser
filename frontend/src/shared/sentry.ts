@@ -36,8 +36,8 @@ function readBootstrap(): BootstrapPayload {
 // Stale tabs after a deploy fail chunk/CSS loads; these surface
 // both as exceptions AND as message-only window.onerror events
 // (no exception object), so the match covers `event.message` and
-// the first exception value. ResizeObserver loop errors are a
-// benign browser quirk.
+// the first exception value plus its type. ResizeObserver loop
+// errors are a benign browser quirk.
 const DROP_MESSAGE_PATTERNS = [
   /ChunkLoadError/,
   /Loading chunk \d+ failed/,
@@ -55,6 +55,10 @@ const NETWORK_ERROR_PATTERN =
 
 function exceptionValue(event: ErrorEvent): string {
   return event.exception?.values?.[0]?.value ?? '';
+}
+
+function exceptionType(event: ErrorEvent): string {
+  return event.exception?.values?.[0]?.type ?? '';
 }
 
 function isNetworkTypeError(event: ErrorEvent, err: unknown): boolean {
@@ -91,7 +95,12 @@ export function sentryBeforeSend(
   ) {
     return null;
   }
-  const haystack = `${event.message ?? ''}\n${exceptionValue(event)}`;
+  // The exception type rides the haystack too so a ChunkLoadError
+  // with unusual wording is still dropped.
+  const haystack =
+    `${event.message ?? ''}\n` +
+    `${exceptionValue(event)}\n` +
+    `${exceptionType(event)}`;
   if (DROP_MESSAGE_PATTERNS.some((p) => p.test(haystack))) {
     return null;
   }
