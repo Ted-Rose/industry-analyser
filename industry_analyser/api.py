@@ -14,6 +14,8 @@ from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import django_auth
 
+from industry_analyser.sentry import capture_internal_exception
+
 api = NinjaAPI(
     title='industry-analyser API',
     version='0.1.0',
@@ -139,6 +141,23 @@ def _on_validation_error(request, exc):
         'error': 'validation_error',
         'detail': exc.errors,
     }, status=422)
+
+
+@api.exception_handler(Exception)
+def _on_unhandled_error(request, exc):
+    """Unhandled endpoint bug → uniform 500 + Sentry event.
+
+    ninja 1.7.1 re-raises unhandled exceptions under DEBUG=False, so
+    they already reach DjangoIntegration — registering this handler
+    buys the uniform {error:'server_error'} body (matching the rest
+    of the error contract) and the error_code:internal_error tag;
+    capture depends solely on capture_internal_exception.
+    """
+    capture_internal_exception(exc)
+    return api.create_response(request, {
+        'error': 'server_error',
+        'detail': 'Internal Server Error',
+    }, status=500)
 
 
 @api.exception_handler(HttpError)

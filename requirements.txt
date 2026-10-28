@@ -24,3 +24,5 @@ django-ninja==1.7.1
 # newer pydantic emits a Decimal `pattern` the checked-in file lacks.
 pydantic==2.9.2
 pypdf==6.21.1
+# DSN-gated error monitoring — SDK is inert without SENTRY_DSN.
+sentry-sdk==2.73.0

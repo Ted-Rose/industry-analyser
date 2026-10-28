@@ -47,6 +47,7 @@ from ai_providers.models import (
 from ai_providers.prompts import render_prompt
 from ai_providers.providers import PROVIDER_CLASSES
 from ai_providers.types import GenerationOptions, PromptSpec
+from industry_analyser.sentry import capture_provider_exception
 
 logger = logging.getLogger('ai_providers')
 
@@ -293,11 +294,22 @@ class JobClient:
                     served_model=served,
                     ai_request=ai_request,
                 )
-        raise errors.AIAllModelsFailedError(
+        exc = errors.AIAllModelsFailedError(
             f"All assigned models failed for job '{self.job.slug}' "
             f"role '{role}'. Last error: {last_error}",
             last_error=last_error,
         )
+        # Every assigned model failed — an upstream outage, not an
+        # app bug: warning-level Sentry event. Expected outcomes
+        # (cap reached, disabled job, blocked content) never reach
+        # this line, so they are never sent.
+        capture_provider_exception(
+            exc,
+            'rate_limited'
+            if isinstance(last_error, errors.AIRateLimitError)
+            else 'provider_error',
+        )
+        raise exc
 
     @staticmethod
     def _coerce_prompt(prompt):

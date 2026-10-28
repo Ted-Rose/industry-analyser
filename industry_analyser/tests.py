@@ -4,7 +4,13 @@ mounts (/api/, /admin/, /static/).
 """
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
+
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_provider_exception,
+    sentry_before_send,
+)
 
 
 class CatchAllDrainTests(TestCase):
@@ -69,3 +75,66 @@ class CatchAllDrainTests(TestCase):
         resp = self.client.get('/some/client/route')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="root"')
+
+
+class SentryHelpersTests(SimpleTestCase):
+    """sentry.py capture helpers are complete no-ops when the SDK
+    was never initialized (no SENTRY_DSN — always true in tests)."""
+
+    def test_capture_helpers_noop_without_dsn(self):
+        # No exception, no configured transport — the calls must
+        # simply return None.
+        self.assertIsNone(
+            capture_internal_exception(RuntimeError('boom'))
+        )
+        self.assertIsNone(
+            capture_provider_exception(
+                RuntimeError('boom'), 'provider_error'
+            )
+        )
+        self.assertIsNone(
+            capture_provider_exception(
+                RuntimeError('boom'), 'rate_limited'
+            )
+        )
+
+    def test_provider_error_code_allowlist(self):
+        with self.assertRaises(ValueError):
+            capture_provider_exception(
+                RuntimeError('boom'), 'internal_error'
+            )
+        with self.assertRaises(ValueError):
+            capture_provider_exception(
+                RuntimeError('boom'), 'nonsense'
+            )
+
+    def test_before_send_strips_admin_request_body(self):
+        event = {
+            'request': {
+                'url': 'https://x.example/admin/login/',
+                'method': 'POST',
+                'data': {'password': 's3cret'},
+            }
+        }
+        result = sentry_before_send(event, {})
+        self.assertNotIn('data', result['request'])
+        # URL and method survive so the event stays debuggable.
+        self.assertEqual(result['request']['method'], 'POST')
+
+    def test_before_send_keeps_other_request_bodies(self):
+        event = {
+            'request': {
+                'url': 'https://x.example/api/vacancies/',
+                'data': {'keywords': 'python'},
+            }
+        }
+        result = sentry_before_send(event, {})
+        self.assertEqual(
+            result['request']['data'], {'keywords': 'python'}
+        )
+
+    def test_before_send_tolerates_missing_or_nondict_request(self):
+        event = {'request': 'not-a-dict'}
+        self.assertIs(sentry_before_send(event, {}), event)
+        event = {}
+        self.assertIs(sentry_before_send(event, {}), event)
