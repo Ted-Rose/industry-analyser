@@ -15,22 +15,16 @@ output "scheduler_invoker_service_account" {
 
 output "cloud_run_job_names" {
   value = [
-    google_cloud_run_v2_job.scrape_vacancy.name,
-    google_cloud_run_v2_job.scrape_tv_programs.name,
-    # sync-*-regions jobs removed — see main.tf. Uncomment to re-enable.
-    # google_cloud_run_v2_job.sync_apartment_regions.name,
-    # google_cloud_run_v2_job.sync_housing_regions.name,
-    google_cloud_run_v2_job.link_ads_to_properties.name,
+    google_cloud_run_v2_job.all_jobs.name,
   ]
+  description = "Cloud Run jobs managed by Terraform (run-migrations is CI-ad-hoc)"
 }
 
 output "cloud_scheduler_job_names" {
   value = [
-    google_cloud_scheduler_job.trigger_scrape_tv_programs.name,
-    # sync-*-regions triggers removed — see main.tf.
-    # google_cloud_scheduler_job.trigger_sync_apartment_regions.name,
-    # google_cloud_scheduler_job.trigger_sync_housing_regions.name,
+    google_cloud_scheduler_job.all_jobs_daily.name,
   ]
+  description = "Cloud Scheduler triggers managed by Terraform"
 }
 
 output "job_image_uri" {
@@ -55,12 +49,8 @@ output "notification_channel_email" {
 
 output "alert_policies" {
   value = length(google_monitoring_notification_channel.email) > 0 ? [
-    google_monitoring_alert_policy.scrape_vacancy_failure[0].name,
-    google_monitoring_alert_policy.scrape_tv_programs_failure[0].name,
-    # sync-*-regions alert policies removed — see monitoring.tf.
-    # google_monitoring_alert_policy.sync_apartment_regions_failure[0].name,
-    # google_monitoring_alert_policy.sync_housing_regions_failure[0].name,
-    google_monitoring_alert_policy.link_ads_to_properties_failure[0].name,
+    google_monitoring_alert_policy.all_jobs_failure[0].name,
+    google_monitoring_alert_policy.scrape_item_failure[0].name,
   ] : []
-  description = "Cloud Run job failure alert policies"
+  description = "Alert policies managed by Terraform"
 }

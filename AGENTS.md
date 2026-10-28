@@ -16,9 +16,9 @@ the code win.
 Django 5.2 / Python 3.12 monolith that scrapes Latvian web
 portals and stores structured data for analysis, plus a React 19
 + TypeScript + Vite SPA frontend (`frontend/`, per-app entry
-points). Deployed on GCP as a Cloud Run web service plus
-scheduled Cloud Run jobs (region `europe-north1`); infra in
-`terraform/`.
+points). Deployed on GCP as a Cloud Run web service plus one
+scheduled `all-jobs` Cloud Run job (region `europe-north1`);
+infra in `terraform/`.
 
 Single git repo: `origin` is the user's own
 `Ted-Rose/industry-analyser` (verified NOT a fork), default
@@ -338,9 +338,12 @@ apartment|house`. `link_vacancies_to_companies` takes `--ids` and
 `--employers-only`. `refetch_vacancies` takes
 `--exclude-keywords`, `--no-ocr` — see
 `docs/vacancy_refetch_usage.md`. `run_all_jobs` is the master
-`all-jobs` Cloud Run entry point: its `JOBS` list runs each
-sub-job whose UTC schedule matches today; `--only`/`--force`
-override the schedule, `--dry-run` prints the plan.
+`all-jobs` Cloud Run entry point — the only Cloud Run job left
+after the Phase-2 consolidation: the `all-jobs-daily` Cloud
+Scheduler fires it at 19:50 UTC and its `JOBS` list runs each
+sub-job whose UTC schedule matches today (the JOBS list is the
+enable/disable point); `--only`/`--force` override the
+schedule, `--dry-run` prints the plan.
 
 ## Configuration
 
@@ -565,7 +568,8 @@ Universal rules (apply to every task):
 Push to `master` triggers GitHub Actions
 (`.github/workflows/deploy-scraper-jobs.yml` and
 `deploy-web-service.yml`): Docker build/push to Artifact
-Registry → update Cloud Run jobs + web service. Legacy
+Registry → update the `all-jobs` Cloud Run job + web service.
+Legacy
 `cloudbuild.yaml`, `deploy-cloudrun.sh`, and `vercel.json` also
 exist (see Known gaps). Don't hand-edit Terraform-managed
 resources; change `terraform/*.tf` and let CI apply — never run

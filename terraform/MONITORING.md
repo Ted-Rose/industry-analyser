@@ -6,7 +6,12 @@ This document explains the Cloud Monitoring alert setup for Cloud Run job failur
 
 The monitoring setup includes:
 - **Email notification channel** - Sends alerts to your specified email address
-- **Alert policies** - One for each Cloud Run job (scrape-vacancy, scrape-tv-programs, scrape-apartment-ads, scrape-blogs)
+- **Job failure alert policy** - One policy for the `all-jobs` master
+  Cloud Run job (the former per-task jobs were consolidated into
+  `all-jobs`; it exits non-zero when any enabled sub-job in the
+  `run_all_jobs` JOBS list fails)
+- **Item failure alert policy** - A log-based policy that mails on each
+  `SCRAPE_ITEM_FAILED` marker while a run continues
 - **Comprehensive failure detection** - Catches ALL failure types including:
   - Application errors (non-zero exit codes)
   - OOM (Out of Memory) kills
@@ -60,14 +65,15 @@ You can also verify in the GCP Console:
 
 ### Metric Monitored
 
-The alerts monitor the `run.googleapis.com/job/completed_execution_count` metric with:
+The job-failure alert monitors the `run.googleapis.com/job/completed_execution_count` metric with:
 - `result="failed"` label
-- Specific job name and region filters
+- `job_name="all-jobs"` and region filters
 
 ### Alert Behavior
 
-- **Trigger**: Any failed job execution (threshold > 0)
-- **Notification rate limit**: Maximum one notification every 5 minutes per job
+- **Trigger**: Any failed all-jobs execution (threshold > 0)
+- **Notification rate limit**: Maximum one notification every 5 minutes
+  (per-item SCRAPE_ITEM_FAILED policy)
 - **Auto-close**: Incidents auto-close after 24 hours
 - **Documentation**: Each alert includes a direct link to the job's Cloud Run logs
 
@@ -84,13 +90,13 @@ To test that alerts are working:
 
 1. **Manually trigger a job to fail** (optional - for testing only):
    ```bash
-   # Update a job to use a command that will fail
-   gcloud run jobs update scrape-vacancy \
+   # Update the job to use a command that will fail
+   gcloud run jobs update all-jobs \
      --region=europe-north1 \
      --command="sh,-c,exit 1"
    
    # Execute the job
-   gcloud run jobs execute scrape-vacancy --region=europe-north1
+   gcloud run jobs execute all-jobs --region=europe-north1
    
    # Restore the original command after testing
    terraform apply
@@ -110,7 +116,7 @@ Cloud Monitoring pricing (as of 2024):
 - **Metric ingestion**: First 150 MB/month free, then $0.258/MB
 - **API calls**: First 1M calls/month free
 
-For this setup with 4 jobs, the cost should be **minimal to free** under normal usage.
+For this setup with a single monitored job, the cost should be **minimal to free** under normal usage.
 
 ## Customization
 

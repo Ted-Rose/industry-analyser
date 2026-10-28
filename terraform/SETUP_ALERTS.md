@@ -2,13 +2,10 @@
 
 ## What This Does
 
-Automatically sends you an email whenever any of your Cloud Run jobs fail:
-- `scrape-vacancy`
-- `scrape-tv-programs`
-- `scrape-apartment-ads`
-- `scrape-housing-ads`
-- `sync-apartment-regions`
-- `sync-housing-regions`
+Automatically sends you an email whenever the `all-jobs` Cloud Run
+job fails (it runs every enabled sub-job from the `run_all_jobs`
+JOBS list and exits non-zero when any of them fails). A second
+log-based policy mails on individual `SCRAPE_ITEM_FAILED` markers.
 
 ## Setup (3 minutes)
 
@@ -54,7 +51,7 @@ terraform output notification_channel_email
 terraform output alert_policies
 ```
 
-You should see the notification channel name and 5 alert policy names.
+You should see the notification channel name and 2 alert policy names.
 
 To verify the email (without exposing it in terraform output):
 
@@ -67,7 +64,8 @@ gcloud secrets versions access latest \
 ## What Gets Created
 
 - **1 Email notification channel** - Reads your email from Secret Manager
-- **5 Alert policies** - One for each Cloud Run job
+- **2 Alert policies** - `all-jobs` execution failures + per-item
+  SCRAPE_ITEM_FAILED log alerts
 - **Monitoring API enabled** - If not already enabled
 
 ## Security Benefits
@@ -93,7 +91,7 @@ To test that alerts work (optional):
 
 Or manually trigger a job failure:
 ```bash
-gcloud run jobs execute scrape-vacancy --region=europe-north1
+gcloud run jobs execute all-jobs --region=europe-north1
 # (if it fails, you'll get an email)
 ```
 
