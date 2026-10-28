@@ -209,6 +209,36 @@ class RunAllJobsTests(SimpleTestCase):
                     'bad_tuple'):
             self.assertIn(bad, str(ctx.exception), msg=bad)
 
+    def test_degenerate_entries_fail_cleanly(self):
+        # Entries that aren't a 4-tuple at all, or whose label
+        # isn't a string, are recorded as failures via a clean
+        # CommandError — never an uncaught TypeError from job[0]
+        # or ', '.join(failed) — while valid entries still run.
+        jobs = [
+            ('ok_first', 'command', [], 'daily'),
+            42,
+            (123, 'command', [], 'daily'),
+            ('ok_last', 'command', [], 'daily'),
+        ]
+        with mock.patch(f'{MODULE}.JOBS', jobs):
+            with mock.patch.object(Command, '_run_entry') as run:
+                with self.assertRaises(CommandError) as ctx:
+                    call_command('run_all_jobs', force=True)
+        self.assertEqual(
+            self._labels(run), ['ok_first', 'ok_last']
+        )
+        self.assertIn('42', str(ctx.exception))
+        self.assertIn('123', str(ctx.exception))
+
+        # The --only pre-scan reads entry labels before validation
+        # too — it must not crash on a non-subscriptable entry.
+        with mock.patch(f'{MODULE}.JOBS', jobs):
+            with mock.patch.object(Command, '_run_entry') as run:
+                with self.assertRaises(CommandError) as ctx:
+                    call_command('run_all_jobs', only='ok_first')
+        self.assertEqual(self._labels(run), ['ok_first'])
+        self.assertIn('42', str(ctx.exception))
+
     def test_dry_run_also_validates_specs(self):
         jobs = [('bad', 'command', [], 'dom:funday')]
         with mock.patch(f'{MODULE}.JOBS', jobs):

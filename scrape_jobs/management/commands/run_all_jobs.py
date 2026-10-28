@@ -97,6 +97,19 @@ def is_due(schedule, today):
     raise ValueError(f'unknown schedule {schedule!r}')
 
 
+def _entry_label(job):
+    """Best-effort string label for a JOBS entry — never raises.
+
+    Used on paths that run before (or while recovering from) entry
+    validation, so a degenerate entry — a bare ``42``, a non-string
+    label — can't crash the pass with a TypeError or poison the
+    ``', '.join(failed)`` error message.
+    """
+    if isinstance(job, (list, tuple)) and job:
+        return str(job[0])
+    return repr(job)
+
+
 def _validate_job_spec(label, kind, argv, schedule, today):
     """Raise ValueError when a JOBS entry's spec is malformed.
 
@@ -105,6 +118,10 @@ def _validate_job_spec(label, kind, argv, schedule, today):
     its entry before anything runs instead of crashing the pass
     halfway through.
     """
+    if not isinstance(label, str) or not label:
+        raise ValueError(
+            f'label must be a non-empty string, got {label!r}'
+        )
     if kind not in ('command', 'script'):
         raise ValueError(f'{label}: unknown kind {kind!r}')
     if (not isinstance(argv, (list, tuple))
@@ -154,7 +171,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         today = datetime.now(timezone.utc).date()
         only = options['only']
-        if only is not None and all(job[0] != only for job in JOBS):
+        if only is not None and all(
+                _entry_label(job) != only for job in JOBS):
             raise CommandError(f'no JOBS entry labelled {only!r}')
 
         # Validate every spec up front so a bad entry fails before
@@ -172,11 +190,7 @@ class Command(BaseCommand):
                 )
             except (TypeError, ValueError):
                 logger.exception('invalid JOBS entry: %r', job)
-                failed.append(
-                    job[0]
-                    if isinstance(job, (list, tuple)) and job
-                    else repr(job)
-                )
+                failed.append(_entry_label(job))
                 continue
             entries.append((label, kind, argv, schedule))
 
