@@ -575,6 +575,36 @@ exist (see Known gaps). Don't hand-edit Terraform-managed
 resources; change `terraform/*.tf` and let CI apply — never run
 `terraform apply` locally.
 
+## Sentry event streams
+
+Sentry (org `industry-analyser-ue`, EU de.sentry.io; projects
+`industry-analyser-api` + `industry-analyser-web`) is DSN-gated:
+empty `SENTRY_DSN`/`SENTRY_WEB_DSN` = complete no-op. DSNs live
+in the `env-file` GCP secret (mounted as `DOTENV` on the web
+service AND every scheduled job — one update covers all entry
+points); the web DSN reaches the SPA inside the `spa-bootstrap`
+JSON (`bootstrap.sentry.{dsn,environment,release}`) — no VITE_*
+build vars. Environment tag: `SENTRY_ENVIRONMENT` → `VERCEL_ENV`
+→ `production` on Cloud Run (`K_SERVICE`) → `development`.
+Release: `K_REVISION` → `VERCEL_GIT_COMMIT_SHA`. Helpers live in
+`industry_analyser/sentry.py`; plan:
+`docs/plans/sentry-integration-plan.md`.
+
+`is:unresolved level:error environment:production` =
+agent-fixable bugs only:
+
+| Stream | Transport | Level | Tag |
+|---|---|---|---|
+| Unhandled 500s | DjangoIntegration | error | — |
+| Caught API/job bugs | capture_internal_exception | error | `error_code:internal_error` |
+| Browser exceptions | captureException | error | — |
+| Scraper/AI upstream | capture_provider_exception | warning | `error_code:{rate_limited,provider_error}` |
+| Resource loads | captureMessage | warning | `reportType:resource-load` |
+
+Logs are breadcrumbs only (`event_level=None`) — the per-app
+loggers emit a lot of DEBUG/INFO; none become events. Expected
+outcomes (AI cap reached, empty scrape results) are never sent.
+
 ## Guardrails
 
 - **The default DB is production** — `.env`'s `DATABASE_URL`

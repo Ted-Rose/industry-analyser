@@ -10,6 +10,8 @@ import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
 
+from industry_analyser.sentry import capture_provider_exception
+
 logger = logging.getLogger('core_scraper')
 
 _UNSET = object()
@@ -211,6 +213,16 @@ class BaseScraper(abc.ABC):
             return response
         except MaxRetryError as e:
             logger.error(f"Max retries exceeded: {e}")
+            # Retries exhausted — an upstream failure, not a bug:
+            # warning-level Sentry event. 429s land on the
+            # rate_limited code so quota exhaustion queries stay
+            # separate from other provider outages.
+            reason = getattr(e, 'reason', None) or e
+            error_code = (
+                'rate_limited' if '429' in str(reason)
+                else 'provider_error'
+            )
+            capture_provider_exception(e, error_code)
             return None
 
     def parse_json(self, content):

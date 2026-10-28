@@ -112,6 +112,14 @@ def _spa_shell(request, entry, title=''):
         ),
         'bootstrap': {
             'user': request.user.get_username() or None,
+            # Web Sentry config ships inside the page — the SPA reads
+            # it before createRoot, so no VITE_* build vars are
+            # needed. Empty dsn leaves the browser SDK uninitialized.
+            'sentry': {
+                'dsn': settings.SENTRY_WEB_DSN,
+                'environment': settings.SENTRY_ENVIRONMENT,
+                'release': settings.SENTRY_RELEASE,
+            },
         },
     })
 

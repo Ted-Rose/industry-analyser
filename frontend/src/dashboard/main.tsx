@@ -5,7 +5,14 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import queryClient from '../shared/queryClient';
+import ErrorBoundary from '../shared/components/ErrorBoundary';
+import { initSentry } from '../shared/sentry';
+import { initGlobalErrorHandlers } from '../shared/errorReporter';
 import './dashboard.css';
+
+// DSN-gated — no-ops until the spa-bootstrap payload carries one.
+initSentry();
+initGlobalErrorHandlers();
 
 const root = document.getElementById('root');
 if (root) {
@@ -20,7 +27,9 @@ if (root) {
             bundle ever runs. basename '/' — routes are absolute
             site paths. */}
         <BrowserRouter basename="/">
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </BrowserRouter>
       </QueryClientProvider>
     </StrictMode>,

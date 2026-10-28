@@ -25,6 +25,8 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
+from industry_analyser.sentry import capture_internal_exception
+
 logger = logging.getLogger('scrape_jobs')
 
 # One sub-job per line: (label, kind, argv, schedule).
@@ -215,12 +217,13 @@ class Command(BaseCommand):
             logger.info('starting %s', label)
             try:
                 self._run_entry(label, kind, argv)
-            except (Exception, SystemExit):
+            except (Exception, SystemExit) as e:
                 # SystemExit included so a sub-command calling
                 # sys.exit() is recorded as a failure instead of
                 # aborting the whole pass. KeyboardInterrupt and
                 # GeneratorExit still propagate.
                 logger.exception('job %s failed', label)
+                capture_internal_exception(e)
                 failed.append(label)
                 continue
             logger.info('finished %s', label)

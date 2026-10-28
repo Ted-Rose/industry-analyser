@@ -3,8 +3,18 @@ site root must not swallow misses under prefixes owned by earlier
 mounts (/api/, /admin/, /static/).
 """
 
+import json
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
+
+from industry_analyser import api as api_module
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_provider_exception,
+    sentry_before_send,
+)
 
 
 class CatchAllDrainTests(TestCase):
@@ -69,3 +79,103 @@ class CatchAllDrainTests(TestCase):
         resp = self.client.get('/some/client/route')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="root"')
+
+
+class SentryHelpersTests(SimpleTestCase):
+    """sentry.py capture helpers are complete no-ops when the SDK
+    was never initialized (no SENTRY_DSN — always true in tests)."""
+
+    def test_capture_helpers_noop_without_dsn(self):
+        # No exception, no configured transport — the calls must
+        # simply return None.
+        self.assertIsNone(
+            capture_internal_exception(RuntimeError('boom'))
+        )
+        self.assertIsNone(
+            capture_provider_exception(
+                RuntimeError('boom'), 'provider_error'
+            )
+        )
+        self.assertIsNone(
+            capture_provider_exception(
+                RuntimeError('boom'), 'rate_limited'
+            )
+        )
+
+    def test_provider_error_code_allowlist(self):
+        with self.assertRaises(ValueError):
+            capture_provider_exception(
+                RuntimeError('boom'), 'internal_error'
+            )
+        with self.assertRaises(ValueError):
+            capture_provider_exception(
+                RuntimeError('boom'), 'nonsense'
+            )
+
+    def test_before_send_strips_admin_request_body(self):
+        event = {
+            'request': {
+                'url': 'https://x.example/admin/login/',
+                'method': 'POST',
+                'data': {'password': 's3cret'},
+            }
+        }
+        result = sentry_before_send(event, {})
+        self.assertNotIn('data', result['request'])
+        # URL and method survive so the event stays debuggable.
+        self.assertEqual(result['request']['method'], 'POST')
+
+    def test_before_send_keeps_other_request_bodies(self):
+        event = {
+            'request': {
+                'url': 'https://x.example/api/vacancies/',
+                'data': {'keywords': 'python'},
+            }
+        }
+        result = sentry_before_send(event, {})
+        self.assertEqual(
+            result['request']['data'], {'keywords': 'python'}
+        )
+
+    def test_before_send_tolerates_missing_or_nondict_request(self):
+        event = {'request': 'not-a-dict'}
+        self.assertIs(sentry_before_send(event, {}), event)
+        event = {}
+        self.assertIs(sentry_before_send(event, {}), event)
+
+    def test_before_send_strips_body_when_url_undeterminable(self):
+        """Fail closed: a missing or malformed url can't be checked
+        against the sensitive prefixes, so the body goes anyway."""
+        for request in (
+            {'data': {'password': 's3cret'}},
+            {'url': 'not-a-url', 'data': {'password': 's3cret'}},
+            {'url': '', 'data': {'password': 's3cret'}},
+        ):
+            event = {'request': dict(request)}
+            result = sentry_before_send(event, {})
+            self.assertNotIn('data', result['request'], request)
+
+
+class UnhandledApiErrorTests(SimpleTestCase):
+    """_on_unhandled_error replaced ninja's default Exception
+    handler — it must keep the uniform 500 body, report to Sentry,
+    and log the traceback itself so DSN-less environments (local
+    dev, pre-secret deploys) don't lose it."""
+
+    def test_raising_endpoint_returns_uniform_500_and_captures(self):
+        exc = RuntimeError('boom')
+        request = RequestFactory().get('/api/vacancies/')
+        with self.assertLogs('industry_analyser', level='ERROR'), \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as capture:
+            resp = api_module._on_unhandled_error(request, exc)
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            json.loads(resp.content),
+            {
+                'error': 'server_error',
+                'detail': 'Internal Server Error',
+            },
+        )
+        capture.assert_called_once_with(exc)

@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import io
+import logging
 import os
 import sys
 import getpass
@@ -110,6 +111,62 @@ RECEIPTS_IMAP_PASSWORD = env('RECEIPTS_IMAP_PASSWORD', default='')
 # AIProvider row can only reference one of these (never SECRET_KEY or
 # DATABASE_URL).
 AI_API_KEY_SETTINGS = ('GEMINI_API_KEY', 'OPENROUTER_API_KEY')
+
+# --- Sentry error monitoring ---
+# Both DSNs are optional in every environment: absent or empty leaves
+# the SDK uninitialized (a complete no-op), so local dev, CI, and a
+# deploy made before the secret exists all stay silent.
+# SENTRY_DSN      — backend (DjangoIntegration + capture_* helpers).
+# SENTRY_WEB_DSN  — shipped to the SPA inside the spa-bootstrap JSON.
+SENTRY_DSN = env('SENTRY_DSN', default='')
+SENTRY_WEB_DSN = env('SENTRY_WEB_DSN', default='')
+
+# Environment tag: explicit override (staging/PR services share the
+# env-file secret) -> Vercel -> 'production' under Cloud Run (K_SERVICE
+# is set on the web service AND every scheduled job) -> 'development'.
+SENTRY_ENVIRONMENT = (
+    os.environ.get('SENTRY_ENVIRONMENT')
+    or os.environ.get('VERCEL_ENV')
+    or ('production' if os.environ.get('K_SERVICE') else 'development')
+)
+# Cloud Run sets K_REVISION per deploy — free release tracking with no
+# CI changes; VERCEL_GIT_COMMIT_SHA covers the legacy Vercel path.
+SENTRY_RELEASE = (
+    os.environ.get('K_REVISION')
+    or os.environ.get('VERCEL_GIT_COMMIT_SHA')
+    or None
+)
+
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    from .sentry import sentry_before_send
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[
+            DjangoIntegration(),
+            # INFO+ log records become breadcrumbs but are NOT turned
+            # into events — the per-app loggers emit a lot of
+            # DEBUG/INFO noise. Real failures reach Sentry via
+            # DjangoIntegration (unhandled 500s) and the explicit
+            # capture_* helpers in industry_analyser.sentry.
+            LoggingIntegration(
+                level=logging.INFO,
+                event_level=None,
+            ),
+        ],
+        # Admin/receipts request bodies can carry credentials —
+        # sentry_before_send drops them; send_default_pii=False keeps
+        # IPs/usernames off events as well.
+        before_send=sentry_before_send,
+        send_default_pii=False,
+        environment=SENTRY_ENVIRONMENT,
+        release=SENTRY_RELEASE,
+        traces_sample_rate=0.1,
+    )
 
 # Admin is the only login UI; the root dashboard bounces anonymous
 # visitors there via login_required.
@@ -372,6 +429,11 @@ LOGGING = {
         'django': {
             'handlers': ['console', 'file_debug'],
             'level': 'INFO',
+            'propagate': True,
+        },
+        'industry_analyser': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
             'propagate': True,
         },
         'tv_archive': {

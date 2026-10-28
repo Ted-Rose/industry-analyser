@@ -168,6 +168,23 @@ class RunAllJobsTests(SimpleTestCase):
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
+    def test_failure_reports_to_sentry_and_continues(self):
+        # Each sub-job failure is captured as an internal_error
+        # event; with no SENTRY_DSN the capture call is a no-op,
+        # so the loop is unaffected either way.
+        with _patched_today(date(2026, 10, 19)):
+            with mock.patch.object(Command, '_run_entry') as run:
+                run.side_effect = [RuntimeError('boom'), None, None]
+                with mock.patch(
+                    f'{MODULE}.capture_internal_exception'
+                ) as capture:
+                    with self.assertRaises(CommandError):
+                        call_command('run_all_jobs')
+        capture.assert_called_once()
+        self.assertIsInstance(
+            capture.call_args.args[0], RuntimeError
+        )
+
     def test_system_exit_in_subjob_does_not_abort_pass(self):
         # A sub-command calling sys.exit() is recorded as a failure,
         # not allowed to abort the remaining entries.
