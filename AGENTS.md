@@ -324,6 +324,8 @@ python manage.py link_ads_to_properties [--dry-run] [--relink]
 python manage.py link_vacancies_to_companies [--limit N]
 python manage.py refetch_vacancies --keyword-id K --dry-run
 python manage.py reclassify_tv_programs
+python manage.py run_all_jobs \
+  [--only LABEL] [--force] [--dry-run]
 ```
 
 Command detail: `scrape_vacancies` runs all configured portals
@@ -335,7 +337,10 @@ calls. `scrape_tv_programs` also takes `--days-past N`,
 apartment|house`. `link_vacancies_to_companies` takes `--ids` and
 `--employers-only`. `refetch_vacancies` takes
 `--exclude-keywords`, `--no-ocr` — see
-`docs/vacancy_refetch_usage.md`.
+`docs/vacancy_refetch_usage.md`. `run_all_jobs` is the master
+`all-jobs` Cloud Run entry point: its `JOBS` list runs each
+sub-job whose UTC schedule matches today; `--only`/`--force`
+override the schedule, `--dry-run` prints the plan.
 
 ## Configuration
 
