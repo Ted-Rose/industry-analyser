@@ -398,8 +398,9 @@ source of truth. Same for portal config (`FETCHER_PORTALS_JSON`).
 
 ## 8. Guardrails (project-specific)
 
-- **Never run `makemigrations` or `migrate`** — write models and
-  ask the user to run them (`.devin/rules/no-migrations.md`).
+- **Never `migrate` against prod** — `makemigrations` is fine;
+  apply only against `DATABASE_URL=sqlite:///db.sqlite3`
+  (`.devin/rules/migrations.md`).
 - Prod migrations are applied manually — the `run-migrations.yml`
   CI workflow was removed.
 - `python manage.py check` + `python manage.py test scrape_jobs`

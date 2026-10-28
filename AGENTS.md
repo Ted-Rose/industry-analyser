@@ -586,10 +586,11 @@ resources; change `terraform/*.tf` and let CI apply — never run
   above — never `migrate` against the default prod connection.
   There is no CI migration step (the `run-migrations` Cloud Run
   job and its workflow were removed): prod migrations are
-  applied manually by the maintainer — commit the migration
-  files, then run `python manage.py migrate` deliberately
-  against the prod `DATABASE_URL` (the `.env` default) or via a
-  one-off job in the GCP console.
+  applied manually by the maintainer — after the migration
+  files land on `master`, the maintainer runs
+  `python manage.py migrate` against the prod `DATABASE_URL`
+  (the `.env` default) or via a one-off job in the GCP
+  console.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate`, `.devin/config.local.json` —
