@@ -5,7 +5,14 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import queryClient from '../shared/queryClient';
+import ErrorBoundary from '../shared/components/ErrorBoundary';
+import { initSentry } from '../shared/sentry';
+import { initGlobalErrorHandlers } from '../shared/errorReporter';
 import './classified_ads.css';
+
+// DSN-gated — no-ops until the spa-bootstrap payload carries one.
+initSentry();
+initGlobalErrorHandlers();
 
 const root = document.getElementById('root');
 if (root) {
@@ -20,7 +27,9 @@ if (root) {
             illegal in SPA_ENTRY_RE); only the URL base is
             hyphenated. */}
         <BrowserRouter basename="/classified-ads">
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </BrowserRouter>
       </QueryClientProvider>
     </StrictMode>,

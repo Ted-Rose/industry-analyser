@@ -5,7 +5,14 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import queryClient from '../shared/queryClient';
+import ErrorBoundary from '../shared/components/ErrorBoundary';
+import { initSentry } from '../shared/sentry';
+import { initGlobalErrorHandlers } from '../shared/errorReporter';
 import './vacancies.css';
+
+// DSN-gated — no-ops until the spa-bootstrap payload carries one.
+initSentry();
+initGlobalErrorHandlers();
 
 const root = document.getElementById('root');
 if (root) {
@@ -17,7 +24,9 @@ if (root) {
             app) — so the router mounts without a basename and every
             route declares its absolute path. */}
         <BrowserRouter>
-          <App />
+          <ErrorBoundary>
+            <App />
+          </ErrorBoundary>
         </BrowserRouter>
       </QueryClientProvider>
     </StrictMode>,

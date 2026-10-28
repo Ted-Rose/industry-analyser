@@ -1,82 +1,82 @@
 {
-  "_queryClient.DwvlsYN7.js": {
-    "file": "shared/queryClient.DwvlsYN7.js",
-    "name": "queryClient"
+  "_sentry.4D6NZAus.js": {
+    "file": "shared/sentry.4D6NZAus.js",
+    "name": "sentry"
   },
-  "_useBootstrap.DwAwjiUh.js": {
-    "file": "shared/useBootstrap.DwAwjiUh.js",
+  "_useBootstrap.Rea1MiAL.js": {
+    "file": "shared/useBootstrap.Rea1MiAL.js",
     "name": "useBootstrap",
     "imports": [
-      "_queryClient.DwvlsYN7.js"
+      "_sentry.4D6NZAus.js"
     ]
   },
-  "_useMutation.CCZbXQjZ.js": {
-    "file": "shared/useMutation.CCZbXQjZ.js",
+  "_useMutation.DfAMnqeK.js": {
+    "file": "shared/useMutation.DfAMnqeK.js",
     "name": "useMutation",
     "imports": [
-      "_queryClient.DwvlsYN7.js"
+      "_sentry.4D6NZAus.js"
     ]
   },
   "src/classified_ads/main.tsx": {
-    "file": "classified_ads/classified_ads.C1XckCir.js",
+    "file": "classified_ads/classified_ads.BN-rVmuA.js",
     "name": "classified_ads",
     "src": "src/classified_ads/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.DwvlsYN7.js",
-      "_useMutation.CCZbXQjZ.js",
-      "_useBootstrap.DwAwjiUh.js"
+      "_sentry.4D6NZAus.js",
+      "_useMutation.DfAMnqeK.js",
+      "_useBootstrap.Rea1MiAL.js"
     ],
     "css": [
       "classified_ads/classified_ads.D626iJKb.css"
     ]
   },
   "src/dashboard/main.tsx": {
-    "file": "dashboard/dashboard.CZbCE-LK.js",
+    "file": "dashboard/dashboard.D7tF-N3N.js",
     "name": "dashboard",
     "src": "src/dashboard/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.DwvlsYN7.js"
+      "_sentry.4D6NZAus.js"
     ],
     "css": [
       "dashboard/dashboard.D2nn-dgU.css"
     ]
   },
   "src/receipts/main.tsx": {
-    "file": "receipts/receipts.x2NtYk1a.js",
+    "file": "receipts/receipts.C460IxOX.js",
     "name": "receipts",
     "src": "src/receipts/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.DwvlsYN7.js"
+      "_sentry.4D6NZAus.js"
     ],
     "css": [
       "receipts/receipts.C11Dblta.css"
     ]
   },
   "src/tv/main.tsx": {
-    "file": "tv/tv.D1bDB5Vx.js",
+    "file": "tv/tv.AGw4A_UE.js",
     "name": "tv",
     "src": "src/tv/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.DwvlsYN7.js",
-      "_useMutation.CCZbXQjZ.js"
+      "_sentry.4D6NZAus.js",
+      "_useMutation.DfAMnqeK.js"
     ],
     "css": [
       "tv/tv.YqnPDMHD.css"
     ]
   },
   "src/vacancies/main.tsx": {
-    "file": "vacancies/vacancies.CJWMLg4e.js",
+    "file": "vacancies/vacancies.B1KFcTOK.js",
     "name": "vacancies",
     "src": "src/vacancies/main.tsx",
     "isEntry": true,
     "imports": [
-      "_queryClient.DwvlsYN7.js",
-      "_useMutation.CCZbXQjZ.js",
-      "_useBootstrap.DwAwjiUh.js"
+      "_sentry.4D6NZAus.js",
+      "_useMutation.DfAMnqeK.js",
+      "_useBootstrap.Rea1MiAL.js"
     ],
     "css": [
       "vacancies/vacancies.B_nxqsow.css"
