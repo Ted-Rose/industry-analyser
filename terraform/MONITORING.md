@@ -72,8 +72,9 @@ The job-failure alert monitors the `run.googleapis.com/job/completed_execution_c
 ### Alert Behavior
 
 - **Trigger**: Any failed all-jobs execution (threshold > 0)
-- **Notification rate limit**: Maximum one notification every 5 minutes
-  (per-item SCRAPE_ITEM_FAILED policy)
+- **Notification rate limit**: None — every failed execution notifies.
+  (The 5-minute `notification_rate_limit` in `monitoring.tf` applies
+  only to the per-item SCRAPE_ITEM_FAILED policy, not this one.)
 - **Auto-close**: Incidents auto-close after 24 hours
 - **Documentation**: Each alert includes a direct link to the job's Cloud Run logs
 

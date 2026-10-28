@@ -154,8 +154,13 @@ resource "google_cloud_run_v2_job" "all_jobs" {
       service_account = google_service_account.job_runtime.email
 
       containers {
-        image   = local.job_image
-        command = ["python", "manage.py", "run_all_jobs"]
+        image = local.job_image
+        # Keep command/args split matching what CI's
+        # `gcloud run jobs update --command=python
+        # --args=manage.py,run_all_jobs` writes, so plan shows no
+        # perpetual in-place drift on this job.
+        command = ["python"]
+        args    = ["manage.py", "run_all_jobs"]
 
         # Single consolidated secret: payload is the full .env file,
         # loaded by settings.py via the DOTENV env var.
