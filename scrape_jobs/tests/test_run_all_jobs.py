@@ -183,6 +183,38 @@ class RunAllJobsTests(SimpleTestCase):
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
+    def test_bad_specs_fail_up_front_and_are_skipped(self):
+        # Malformed entries are validated before anything runs:
+        # they count as failures and are skipped, while valid
+        # entries still run — the failure doesn't depend on where
+        # the bad spec sits in JOBS. --force is used on purpose:
+        # it never calls is_due, so a bad schedule would otherwise
+        # go unnoticed.
+        jobs = [
+            ('ok_first', 'command', [], 'daily'),
+            ('bad_schedule', 'command', [], 'weekly:funday'),
+            ('bad_kind', 'bogus', [], 'daily'),
+            ('bad_script_argv', 'script', [], 'daily'),
+            ('bad_tuple', 'command'),
+            ('ok_last', 'command', [], 'daily'),
+        ]
+        with mock.patch(f'{MODULE}.JOBS', jobs):
+            with mock.patch.object(Command, '_run_entry') as run:
+                with self.assertRaises(CommandError) as ctx:
+                    call_command('run_all_jobs', force=True)
+        self.assertEqual(
+            self._labels(run), ['ok_first', 'ok_last']
+        )
+        for bad in ('bad_schedule', 'bad_kind', 'bad_script_argv',
+                    'bad_tuple'):
+            self.assertIn(bad, str(ctx.exception), msg=bad)
+
+    def test_dry_run_also_validates_specs(self):
+        jobs = [('bad', 'command', [], 'dom:funday')]
+        with mock.patch(f'{MODULE}.JOBS', jobs):
+            with self.assertRaises(CommandError):
+                call_command('run_all_jobs', dry_run=True)
+
     def test_command_entry_dispatches_call_command(self):
         with mock.patch(f'{MODULE}.call_command') as cc:
             call_command('run_all_jobs', only='scrape_tv_programs')

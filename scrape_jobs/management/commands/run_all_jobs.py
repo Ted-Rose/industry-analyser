@@ -97,6 +97,33 @@ def is_due(schedule, today):
     raise ValueError(f'unknown schedule {schedule!r}')
 
 
+def _validate_job_spec(label, kind, argv, schedule, today):
+    """Raise ValueError when a JOBS entry's spec is malformed.
+
+    Checked up front for every entry — including under --force,
+    which never calls is_due — so a typo'd schedule or kind fails
+    its entry before anything runs instead of crashing the pass
+    halfway through.
+    """
+    if kind not in ('command', 'script'):
+        raise ValueError(f'{label}: unknown kind {kind!r}')
+    if (not isinstance(argv, (list, tuple))
+            or not all(isinstance(arg, str) for arg in argv)):
+        raise ValueError(
+            f'{label}: argv must be a list of strings'
+        )
+    if kind == 'script' and not argv:
+        raise ValueError(
+            f'{label}: script entries need a non-empty argv'
+        )
+    if not isinstance(schedule, str):
+        raise ValueError(
+            f'{label}: schedule must be a string, got '
+            f'{schedule!r}'
+        )
+    is_due(schedule, today)  # raises ValueError on a bad spec
+
+
 class Command(BaseCommand):
     help = (
         'Run every enabled JOBS entry whose schedule matches '
@@ -130,8 +157,30 @@ class Command(BaseCommand):
         if only is not None and all(job[0] != only for job in JOBS):
             raise CommandError(f'no JOBS entry labelled {only!r}')
 
+        # Validate every spec up front so a bad entry fails before
+        # anything runs rather than aborting the pass mid-way —
+        # and surfaces under --force/--dry-run, which never call
+        # is_due otherwise. Bad entries count as failures and are
+        # skipped; valid entries still run.
         failed = []
-        for label, kind, argv, schedule in JOBS:
+        entries = []
+        for job in JOBS:
+            try:
+                label, kind, argv, schedule = job
+                _validate_job_spec(
+                    label, kind, argv, schedule, today
+                )
+            except (TypeError, ValueError):
+                logger.exception('invalid JOBS entry: %r', job)
+                failed.append(
+                    job[0]
+                    if isinstance(job, (list, tuple)) and job
+                    else repr(job)
+                )
+                continue
+            entries.append((label, kind, argv, schedule))
+
+        for label, kind, argv, schedule in entries:
             if only is not None:
                 due = label == only
             elif options['force']:
