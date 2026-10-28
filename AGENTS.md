@@ -580,7 +580,8 @@ resources; change `terraform/*.tf` and let CI apply — never run
 Sentry (org `industry-analyser-ue`, EU de.sentry.io; projects
 `industry-analyser-api` + `industry-analyser-web`) is DSN-gated:
 empty `SENTRY_DSN`/`SENTRY_WEB_DSN` = complete no-op. DSNs live
-in the `env-file` GCP secret (mounted as `DOTENV` on the web
+in the `env-file` GCP secret in project
+`gen-lang-client-0833674612` (mounted as `DOTENV` on the web
 service AND every scheduled job — one update covers all entry
 points); the web DSN reaches the SPA inside the `spa-bootstrap`
 JSON (`bootstrap.sentry.{dsn,environment,release}`) — no VITE_*
@@ -590,20 +591,55 @@ Release: `K_REVISION` → `VERCEL_GIT_COMMIT_SHA`. Helpers live in
 `industry_analyser/sentry.py`; plan:
 `docs/plans/sentry-integration-plan.md`.
 
+**Verified live** since the PR#33 deploy: events tagged
+`error_code:internal_error` land from Cloud Run and the
+`spa-bootstrap` injection serves the web DSN to the SPA. Org
+config worth knowing: per-project inbound filters (web project:
+browser-extensions, web-crawlers, legacy-browsers, localhost),
+org-level dataScrubber + sensitiveFields, and a "New issues and
+regressions (production)" email workflow matching
+`environment:production` + `level:error`. REST `rateLimit` PUTs
+silently no-op — the rate-limits feature is not enabled on
+these orgs.
+
 `is:unresolved level:error environment:production` =
 agent-fixable bugs only:
 
-| Stream | Transport | Level | Tag |
-|---|---|---|---|
-| Unhandled 500s | DjangoIntegration | error | — |
-| Caught API/job bugs | capture_internal_exception | error | `error_code:internal_error` |
-| Browser exceptions | captureException | error | — |
-| Scraper/AI upstream | capture_provider_exception | warning | `error_code:{rate_limited,provider_error}` |
-| Resource loads | captureMessage | warning | `reportType:resource-load` |
+- Unhandled 500s — `DjangoIntegration`, level error.
+- Caught API/job bugs — `capture_internal_exception`, level
+  error, tag `error_code:internal_error`.
+- Browser exceptions — `captureException`, level error.
+- Scraper/AI upstream — `capture_provider_exception`, level
+  warning, tag `error_code:rate_limited` / `provider_error`.
+- Resource loads — `captureMessage`, level warning, tag
+  `reportType:resource-load`.
 
 Logs are breadcrumbs only (`event_level=None`) — the per-app
 loggers emit a lot of DEBUG/INFO; none become events. Expected
 outcomes (AI cap reached, empty scrape results) are never sent.
+
+REST ops (the agent fix queue) — `source
+~/.config/devin/sentry.env` (exports `SENTRY_API_TOKEN`), then:
+
+```bash
+curl -sS -H "Authorization: Bearer $SENTRY_API_TOKEN" \
+  "https://de.sentry.io/api/0/projects/<org>/<proj>/issues/"\
+"?query=is:unresolved+level:error+environment:production"
+```
+
+That issue list IS the fix queue; `GET
+/issues/<id>/events/latest/` for event detail; `PUT
+/issues/<id>/` with `{"status":"resolvedInNextRelease"}` — only
+after the fix merges.
+
+Local-only quirk: this dev machine sits behind a Netskope
+TLS-intercepting proxy — Python→Sentry egress FAILS SILENTLY
+(`SSLCertVerificationError` inside the SDK transport; `flush()`
+returns but events never arrive) unless `SSL_CERT_FILE` points
+at a CA bundle that includes the Netskope root — build one by
+concatenating `certifi.where()` output with
+`/Library/Application Support/Netskope/STAgent/data/nscacert.pem`.
+Prod (Cloud Run) is unaffected.
 
 ## Guardrails
 
