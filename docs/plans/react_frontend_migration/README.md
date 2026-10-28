@@ -283,13 +283,11 @@ directly; for `classified_ads` keep the strangler stage.
 **Migrations — go full-send locally.** The dev DB is the gitignored
 SQLite `db.sqlite3`, so the implementing agent runs
 `python manage.py makemigrations` **and** `migrate` freely — generate
-and apply after every model change, no asking. Production is covered
-by CI: a push to `master` that changes `migrations/` files triggers
-`.github/workflows/run-migrations.yml`, which creates and executes a
-`run-migrations` Cloud Run job (`python manage.py migrate`) against
-the prod database. Committing the generated migration files is all
-that's needed — never point a local `migrate` at the prod
-`DATABASE_URL`.
+and apply after every model change, no asking. Production migrations
+are applied manually (the `run-migrations` CI workflow and Cloud Run
+job were removed) — commit the generated migration files and the
+maintainer runs `migrate` against prod; never point a local `migrate`
+at the prod `DATABASE_URL` casually.
 
 1. **API router** — `<app>/api.py` `Router`; port each view's GET logic
    into ops returning ninja `Schema`s; POST forms become mutation ops
@@ -371,13 +369,10 @@ RUN python manage.py collectstatic --noinput
 `.github/workflows/deploy-web-service.yml` — add `'frontend/**'` to
 `on.push.paths` so frontend-only changes deploy.
 
-Production migrations need no work: `run-migrations.yml` already fires
-after the scraper-jobs deploy on `master` (or via `workflow_dispatch`)
-and runs `python manage.py migrate` in a `run-migrations` Cloud Run
-job. (The django-apps audit flags ephemeral migrate jobs as flaky —
-they moved `migrate` onto the CI runner — but this project's
-`run-migrations` job is established and working; keep it unless it
-proves flaky.)
+Production migrations need no work: they are applied manually (the
+`run-migrations.yml` workflow and `run-migrations` Cloud Run job
+were removed). The maintainer runs `python manage.py migrate`
+against prod after merging migration changes.
 
 ### 5.2 Vercel (secondary — being debugged, but write for it)
 

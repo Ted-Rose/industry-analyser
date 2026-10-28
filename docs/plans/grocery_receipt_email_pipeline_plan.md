@@ -541,8 +541,9 @@ manage.py test receipts`):
   >0.03 → `total_mismatch`; filename kase/docnr disagree →
   `total_mismatch`.
 - CategoryRule first-match ordering.
-- `python manage.py check` + `makemigrations` committed; CI's
-  `run-migrations.yml` applies them on master.
+- `python manage.py check` + `makemigrations` committed; prod
+  migrations are applied manually (CI's `run-migrations.yml` was
+  removed).
 
 Human smoke (H9):
 

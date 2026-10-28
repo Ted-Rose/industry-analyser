@@ -333,8 +333,8 @@ self-resuming, no extra state needed. Optionally a
 - Model `save()` normalizes `reg_code` (strip/upper/collapse).
 - Run `python manage.py makemigrations fetcher` **and** `migrate`
   locally — the dev DB is the gitignored `db.sqlite3`, local
-  migrations are fully allowed; CI applies them to prod on master
-  push (`.github/workflows/run-migrations.yml`).
+  migrations are fully allowed; prod migrations are applied
+  manually (the `run-migrations` CI workflow was removed).
 
 ### PR-2 — Scrape-time linking
 
@@ -461,7 +461,7 @@ self-resuming, no extra state needed. Optionally a
 - Local migrations are allowed and expected — dev DB is the
   gitignored `db.sqlite3`; run `makemigrations`/`migrate` freely,
   commit the generated files. Never point `migrate` at the prod
-  `DATABASE_URL` — CI (`run-migrations.yml`) applies them.
+  `DATABASE_URL` — prod migrations are applied manually.
 - Max line length **79 chars** (`.flake8`);
   `logging.getLogger('fetcher')`, not `__name__`.
 - Detail fetches must go through `BaseScraper.make_request`

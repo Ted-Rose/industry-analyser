@@ -42,6 +42,7 @@ fi
 # Collect static files
 python3 manage.py collectstatic --noinput
 
-# No migrate/scrape here: production migrations run via the
-# run-migrations GitHub workflow, and scraping during a web deploy
-# would hammer portals on every push.
+# No migrate/scrape here: prod migrations are applied manually
+# by the maintainer (the CI migration workflow was removed), and
+# scraping during a web deploy would hammer portals on every
+# push.
