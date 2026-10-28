@@ -584,11 +584,12 @@ resources; change `terraform/*.tf` and let CI apply — never run
 - **Migrations**: generate files freely (`makemigrations`
   touches no DB) and apply them only against the SQLite override
   above — never `migrate` against the default prod connection.
-  Production migrations are applied by
-  `.github/workflows/run-migrations.yml`: push to `master`
-  executes a `run-migrations` Cloud Run job (`python manage.py
-  migrate`) when `migrations/` files changed — committing the
-  migration files is enough.
+  There is no CI migration step (the `run-migrations` Cloud Run
+  job and its workflow were removed): prod migrations are
+  applied manually by the maintainer — commit the migration
+  files, then run `python manage.py migrate` deliberately
+  against the prod `DATABASE_URL` (the `.env` default) or via a
+  one-off job in the GCP console.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate`, `.devin/config.local.json` —

@@ -1,5 +1,5 @@
 ---
-description: "Local migrations allowed; prod migrated by CI"
+description: "Local migrations allowed; prod migrated manually"
 trigger: always_on
 ---
 
@@ -15,9 +15,10 @@ DATABASE_URL=sqlite:///db.sqlite3 python manage.py migrate
 Same override for tests — the test runner creates a database on
 whatever `DATABASE_URL` targets.
 
-Do **not** run migrations against the production database. Production
-migrations are applied by `.github/workflows/run-migrations.yml`: after
-the deploy workflow completes on `master` it detects changed
-`migrations/` files and executes a `run-migrations` Cloud Run job
-(`python manage.py migrate`). Ship migration files in the commit;
-CI applies them.
+Do **not** run migrations against the production database casually.
+There is no CI migration step — the `run-migrations` Cloud Run job
+and `.github/workflows/run-migrations.yml` were removed. Ship
+migration files in the commit, then the maintainer applies them to
+prod **manually**: `python manage.py migrate` with the prod
+`DATABASE_URL` (the `.env` default), or via a one-off job in the
+GCP console.

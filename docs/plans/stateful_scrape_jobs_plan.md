@@ -75,9 +75,8 @@ job executions share progress **as long as they share the same
   get `K_SERVICE`/`K_REVISION`/`K_CONFIGURATION` (services only),
   so GCP detection must check the `CLOUD_RUN_*` vars.
 - DB: SQLite locally (`db.sqlite3`), PostgreSQL in prod.
-  `run-migrations.yml` applies migrations in CI only when
-  `migrations/` changed in `HEAD~1..HEAD` → PRs containing migrations
-  must be squash-merged or the workflow triggered manually.
+  Prod migrations are applied manually — the `run-migrations.yml`
+  CI workflow and Cloud Run job were removed.
 
 ## 3. Design decisions (deltas from the generic plan)
 
@@ -401,8 +400,8 @@ source of truth. Same for portal config (`FETCHER_PORTALS_JSON`).
 
 - **Never run `makemigrations` or `migrate`** — write models and
   ask the user to run them (`.devin/rules/no-migrations.md`).
-- Migration PRs must be squash-merged or `run-migrations.yml`
-  triggered manually (it diffs `HEAD~1..HEAD`).
+- Prod migrations are applied manually — the `run-migrations.yml`
+  CI workflow was removed.
 - `python manage.py check` + `python manage.py test scrape_jobs`
   (or the touched app) for verification; 79-char lines;
   `logging.getLogger('scrape_jobs')`.
