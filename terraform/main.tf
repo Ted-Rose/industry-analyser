@@ -774,3 +774,59 @@ resource "google_cloud_scheduler_job" "trigger_sync_receipt_emails" {
     google_project_service.apis,
   ]
 }
+
+# Master job: runs `python manage.py run_all_jobs`, which executes the
+# enabled sub-jobs in scrape_jobs/management/commands/run_all_jobs.py
+# sequentially. Timeout is the worst-case sum of the sub-job timeouts.
+# No Cloud Scheduler trigger in Phase 1 — run manually via
+# `gcloud run jobs execute all-jobs`.
+resource "google_cloud_run_v2_job" "all_jobs" {
+  name     = "all-jobs"
+  location = var.region
+
+  template {
+    task_count = 1
+    template {
+      timeout         = "36000s"
+      max_retries     = 0
+      service_account = google_service_account.job_runtime.email
+
+      containers {
+        image   = local.job_image
+        command = ["python", "manage.py", "run_all_jobs"]
+
+        # Single consolidated secret: payload is the full .env file,
+        # loaded by settings.py via the DOTENV env var.
+        env {
+          name = "DOTENV"
+          value_source {
+            secret_key_ref {
+              secret  = "env-file"
+              version = "latest"
+            }
+          }
+        }
+
+        resources {
+          limits = {
+            cpu    = "1"
+            memory = "512Mi"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [
+    google_artifact_registry_repository.dockerhub_cache,
+    google_project_service.apis,
+    google_secret_manager_secret_iam_member.env_file_accessor,
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].template[0].containers[0].image,
+    ]
+    prevent_destroy = true
+  }
+}

@@ -191,3 +191,10 @@ jobs:
             --image="${IMAGE}" \
             --command=python \
             --args=manage.py,sync_receipt_emails,--last-day-only
+
+          # Master job: sequential run of all enabled sub-jobs
+          # (JOBS list in scrape_jobs/management/commands/run_all_jobs.py)
+          update_job_if_exists all-jobs \
+            --image="${IMAGE}" \
+            --command=python \
+            --args=manage.py,run_all_jobs
