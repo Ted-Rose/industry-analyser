@@ -141,59 +141,10 @@ jobs:
             fi
           }
 
-          # Vacancy scraper: write config from Secret Manager env, then run management command
-          update_job_if_exists scrape-vacancy \
-            --image="${IMAGE}" \
-            --command=python3 \
-            --args=scripts/materialize_fetcher_config_and_scrape.py
-
-          # TV scraper: standard Django entrypoint
-          update_job_if_exists scrape-tv-programs \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,scrape_tv_programs
-
-          # Apartment ads scraper: standard Django entrypoint
-          update_job_if_exists scrape-apartment-ads \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,scrape_apartment_ads
-
-          # Housing ads scraper: standard Django entrypoint
-          update_job_if_exists scrape-housing-ads \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,scrape_housing_ads
-
-          # Apartment region sync: fetches ss.com region list and upserts into DB
-          update_job_if_exists sync-apartment-regions \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,sync_apartment_regions
-
-          # Housing region sync: fetches ss.com housing region list and upserts into DB
-          update_job_if_exists sync-housing-regions \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,sync_housing_regions
-
-          # Property linking: links unmatched ads to canonical properties,
-          # only ads first seen 3+ days ago
-          update_job_if_exists link-ads-to-properties \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,link_ads_to_properties,--older-than-days,3
-
-          # Receipt inbox sync: IMAP poll of the collector mailbox
-          # (--last-day-only: scheduler fires on days 28-31, the
-          # flag skips all but the actual last day of the month)
-          update_job_if_exists sync-receipt-emails \
-            --image="${IMAGE}" \
-            --command=python \
-            --args=manage.py,sync_receipt_emails,--last-day-only
-
           # Master job: sequential run of all enabled sub-jobs
-          # (JOBS list in scrape_jobs/management/commands/run_all_jobs.py)
+          # (JOBS list in scrape_jobs/management/commands/run_all_jobs.py).
+          # This is the only remaining Cloud Run job — the former
+          # per-task jobs were removed in the Phase-2 consolidation.
           update_job_if_exists all-jobs \
             --image="${IMAGE}" \
             --command=python \

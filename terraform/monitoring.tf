@@ -17,16 +17,25 @@ resource "google_monitoring_notification_channel" "email" {
   depends_on = [google_project_service.apis]
 }
 
-# Alert policy for scrape-vacancy job failures
-resource "google_monitoring_alert_policy" "scrape_vacancy_failure" {
+# Alert policy for the all-jobs master job. The former per-task job
+# failure alerts were consolidated into this single policy: all-jobs
+# runs `python manage.py run_all_jobs` and exits non-zero when any
+# enabled sub-job fails, so one policy covers all scheduled work.
+# Per-item failures inside a scrape still alert via the
+# SCRAPE_ITEM_FAILED log-based policy below.
+resource "google_monitoring_alert_policy" "all_jobs_failure" {
   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
 
-  display_name = "Cloud Run Job Failure: scrape-vacancy"
+  display_name = "Cloud Run Job Failure: all-jobs"
   combiner     = "OR"
 
   documentation {
     content   = <<-EOT
-      The Cloud Run job "scrape-vacancy" has failed.
+      The Cloud Run job "all-jobs" has failed.
+
+      all-jobs runs `python manage.py run_all_jobs`, executing each
+      enabled sub-job in scrape_jobs/management/commands/run_all_jobs.py
+      sequentially; it exits non-zero when any sub-job fails.
 
       This alert monitors the completed_execution_count metric with
       result="failed" label.
@@ -37,7 +46,7 @@ resource "google_monitoring_alert_policy" "scrape_vacancy_failure" {
       - Timeout failures
 
       Check the Cloud Run logs for details:
-      https://console.cloud.google.com/run/jobs/details/${var.region}/scrape-vacancy?project=${var.project_id}
+      https://console.cloud.google.com/run/jobs/details/${var.region}/all-jobs?project=${var.project_id}
     EOT
     mime_type = "text/markdown"
   }
@@ -47,7 +56,7 @@ resource "google_monitoring_alert_policy" "scrape_vacancy_failure" {
     condition_threshold {
       filter = join(" AND ", [
         "resource.type=\"cloud_run_job\"",
-        "resource.labels.job_name=\"scrape-vacancy\"",
+        "resource.labels.job_name=\"all-jobs\"",
         "resource.labels.location=\"${var.region}\"",
         "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
         "metric.labels.result=\"failed\""
@@ -72,257 +81,10 @@ resource "google_monitoring_alert_policy" "scrape_vacancy_failure" {
   }
 
   depends_on = [
-    google_cloud_run_v2_job.scrape_vacancy,
+    google_cloud_run_v2_job.all_jobs,
     google_project_service.apis
   ]
 }
-
-# Alert policy for scrape-tv-programs job failures
-resource "google_monitoring_alert_policy" "scrape_tv_programs_failure" {
-  count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
-
-  display_name = "Cloud Run Job Failure: scrape-tv-programs"
-  combiner     = "OR"
-
-  documentation {
-    content   = <<-EOT
-      The Cloud Run job "scrape-tv-programs" has failed.
-
-      This alert monitors the completed_execution_count metric with
-      result="failed" label.
-      It catches all types of failures including:
-      - Application errors
-      - OOM (Out of Memory) kills
-      - Container startup failures
-      - Timeout failures
-
-      Check the Cloud Run logs for details:
-      https://console.cloud.google.com/run/jobs/details/${var.region}/scrape-tv-programs?project=${var.project_id}
-    EOT
-    mime_type = "text/markdown"
-  }
-
-  conditions {
-    display_name = "Job execution failed"
-    condition_threshold {
-      filter = join(" AND ", [
-        "resource.type=\"cloud_run_job\"",
-        "resource.labels.job_name=\"scrape-tv-programs\"",
-        "resource.labels.location=\"${var.region}\"",
-        "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
-        "metric.labels.result=\"failed\""
-      ])
-      duration        = "0s"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
-
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_RATE"
-      }
-    }
-  }
-
-  notification_channels = [
-    google_monitoring_notification_channel.email[0].id
-  ]
-
-  alert_strategy {
-    auto_close = "86400s"
-  }
-
-  depends_on = [
-    google_cloud_run_v2_job.scrape_tv_programs,
-    google_project_service.apis
-  ]
-}
-
-# DISABLED: Uncomment to re-enable
-# # Alert policy for scrape-apartment-ads job failures
-# resource "google_monitoring_alert_policy" "scrape_apartment_ads_failure" {
-#   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
-#
-#   display_name = "Cloud Run Job Failure: scrape-apartment-ads"
-#   combiner     = "OR"
-#
-#   documentation {
-#     content   = <<-EOT
-#       The Cloud Run job "scrape-apartment-ads" has failed.
-#       
-#       This alert monitors the completed_execution_count metric with 
-#       result="failed" label.
-#       It catches all types of failures including:
-#       - Application errors
-#       - OOM (Out of Memory) kills
-#       - Container startup failures
-#       - Timeout failures
-#       
-#       Note: This job has max_retries=2, so it will retry twice before 
-#       being marked as failed.
-#       
-#       Check the Cloud Run logs for details:
-#       https://console.cloud.google.com/run/jobs/details/${var.region}/scrape-apartment-ads?project=${var.project_id}
-#     EOT
-#     mime_type = "text/markdown"
-#   }
-#
-#   conditions {
-#     display_name = "Job execution failed"
-#     condition_threshold {
-#       filter = join(" AND ", [
-#         "resource.type=\"cloud_run_job\"",
-#         "resource.labels.job_name=\"scrape-apartment-ads\"",
-#         "resource.labels.location=\"${var.region}\"",
-#         "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
-#         "metric.labels.result=\"failed\""
-#       ])
-#       duration        = "0s"
-#       comparison      = "COMPARISON_GT"
-#       threshold_value = 0
-#
-#       aggregations {
-#         alignment_period   = "60s"
-#         per_series_aligner = "ALIGN_RATE"
-#       }
-#     }
-#   }
-#
-#   notification_channels = [
-#     google_monitoring_notification_channel.email[0].id
-#   ]
-#
-#   alert_strategy {
-#     auto_close = "86400s"
-#   }
-#
-#   depends_on = [
-#     google_cloud_run_v2_job.scrape_apartment_ads,
-#     google_project_service.apis
-#   ]
-# }
-
-# DISABLED: Uncomment to re-enable
-# # Alert policy for scrape-housing-ads job failures
-# resource "google_monitoring_alert_policy" "scrape_housing_ads_failure" {
-#   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
-#
-#   display_name = "Cloud Run Job Failure: scrape-housing-ads"
-#   combiner     = "OR"
-#
-#   documentation {
-#     content   = <<-EOT
-#       The Cloud Run job "scrape-housing-ads" has failed.
-#       
-#       This alert monitors the completed_execution_count metric with 
-#       result="failed" label.
-#       It catches all types of failures including:
-#       - Application errors
-#       - OOM (Out of Memory) kills
-#       - Container startup failures
-#       - Timeout failures
-#       
-#       Check the Cloud Run logs for details:
-#       https://console.cloud.google.com/run/jobs/details/${var.region}/scrape-housing-ads?project=${var.project_id}
-#     EOT
-#     mime_type = "text/markdown"
-#   }
-#
-#   conditions {
-#     display_name = "Job execution failed"
-#     condition_threshold {
-#       filter = join(" AND ", [
-#         "resource.type=\"cloud_run_job\"",
-#         "resource.labels.job_name=\"scrape-housing-ads\"",
-#         "resource.labels.location=\"${var.region}\"",
-#         "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
-#         "metric.labels.result=\"failed\""
-#       ])
-#       duration        = "0s"
-#       comparison      = "COMPARISON_GT"
-#       threshold_value = 0
-#
-#       aggregations {
-#         alignment_period   = "60s"
-#         per_series_aligner = "ALIGN_RATE"
-#       }
-#     }
-#   }
-#
-#   notification_channels = [
-#     google_monitoring_notification_channel.email[0].id
-#   ]
-#
-#   alert_strategy {
-#     auto_close = "86400s"
-#   }
-#
-#   depends_on = [
-#     google_cloud_run_v2_job.scrape_housing_ads,
-#     google_project_service.apis
-#   ]
-# }
-
-# Removed with the sync-apartment-regions job (see main.tf) to stay
-# within the 3-free-jobs Cloud Scheduler quota. Uncomment to re-enable.
-# Alert policy for sync-apartment-regions job failures
-# resource "google_monitoring_alert_policy" "sync_apartment_regions_failure" {
-#   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
-#
-#   display_name = "Cloud Run Job Failure: sync-apartment-regions"
-#   combiner     = "OR"
-#
-#   documentation {
-#     content   = <<-EOT
-#       The Cloud Run job "sync-apartment-regions" has failed.
-#
-#       This alert monitors the completed_execution_count metric with
-#       result="failed" label.
-#       It catches all types of failures including:
-#       - Application errors
-#       - OOM (Out of Memory) kills
-#       - Container startup failures
-#       - Timeout failures
-#
-#       Check the Cloud Run logs for details:
-#       https://console.cloud.google.com/run/jobs/details/${var.region}/sync-apartment-regions?project=${var.project_id}
-#     EOT
-#     mime_type = "text/markdown"
-#   }
-#
-#   conditions {
-#     display_name = "Job execution failed"
-#     condition_threshold {
-#       filter = join(" AND ", [
-#         "resource.type=\"cloud_run_job\"",
-#         "resource.labels.job_name=\"sync-apartment-regions\"",
-#         "resource.labels.location=\"${var.region}\"",
-#         "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
-#         "metric.labels.result=\"failed\""
-#       ])
-#       duration        = "0s"
-#       comparison      = "COMPARISON_GT"
-#       threshold_value = 0
-#
-#       aggregations {
-#         alignment_period   = "60s"
-#         per_series_aligner = "ALIGN_RATE"
-#       }
-#     }
-#   }
-#
-#   notification_channels = [
-#     google_monitoring_notification_channel.email[0].id
-#   ]
-#
-#   alert_strategy {
-#     auto_close = "86400s"
-#   }
-#
-#   depends_on = [
-#     google_cloud_run_v2_job.sync_apartment_regions,
-#     google_project_service.apis
-#   ]
-# }
 
 # Log-based alert policies (condition_matched_log) make Monitoring
 # create a logging notification rule, which requires
@@ -385,127 +147,5 @@ resource "google_monitoring_alert_policy" "scrape_item_failure" {
   depends_on = [
     google_project_service.apis,
     google_project_iam_member.deployer_logging_admin,
-  ]
-}
-
-# Removed with the sync-housing-regions job (see main.tf) to stay
-# within the 3-free-jobs Cloud Scheduler quota. Uncomment to re-enable.
-# Alert policy for sync-housing-regions job failures
-# resource "google_monitoring_alert_policy" "sync_housing_regions_failure" {
-#   count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
-#
-#   display_name = "Cloud Run Job Failure: sync-housing-regions"
-#   combiner     = "OR"
-#
-#   documentation {
-#     content   = <<-EOT
-#       The Cloud Run job "sync-housing-regions" has failed.
-#
-#       This alert monitors the completed_execution_count metric with
-#       result="failed" label.
-#       It catches all types of failures including:
-#       - Application errors
-#       - OOM (Out of Memory) kills
-#       - Container startup failures
-#       - Timeout failures
-#
-#       Check the Cloud Run logs for details:
-#       https://console.cloud.google.com/run/jobs/details/${var.region}/sync-housing-regions?project=${var.project_id}
-#     EOT
-#     mime_type = "text/markdown"
-#   }
-#
-#   conditions {
-#     display_name = "Job execution failed"
-#     condition_threshold {
-#       filter = join(" AND ", [
-#         "resource.type=\"cloud_run_job\"",
-#         "resource.labels.job_name=\"sync-housing-regions\"",
-#         "resource.labels.location=\"${var.region}\"",
-#         "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
-#         "metric.labels.result=\"failed\""
-#       ])
-#       duration        = "0s"
-#       comparison      = "COMPARISON_GT"
-#       threshold_value = 0
-#
-#       aggregations {
-#         alignment_period   = "60s"
-#         per_series_aligner = "ALIGN_RATE"
-#       }
-#     }
-#   }
-#
-#   notification_channels = [
-#     google_monitoring_notification_channel.email[0].id
-#   ]
-#
-#   alert_strategy {
-#     auto_close = "86400s"
-#   }
-#
-#   depends_on = [
-#     google_cloud_run_v2_job.sync_housing_regions,
-#     google_project_service.apis
-#   ]
-# }
-
-# Alert policy for link-ads-to-properties job failures
-resource "google_monitoring_alert_policy" "link_ads_to_properties_failure" {
-  count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
-
-  display_name = "Cloud Run Job Failure: link-ads-to-properties"
-  combiner     = "OR"
-
-  documentation {
-    content   = <<-EOT
-      The Cloud Run job "link-ads-to-properties" has failed.
-
-      This alert monitors the completed_execution_count metric with
-      result="failed" label.
-      It catches all types of failures including:
-      - Application errors
-      - OOM (Out of Memory) kills
-      - Container startup failures
-      - Timeout failures
-
-      Check the Cloud Run logs for details:
-      https://console.cloud.google.com/run/jobs/details/${var.region}/link-ads-to-properties?project=${var.project_id}
-    EOT
-    mime_type = "text/markdown"
-  }
-
-  conditions {
-    display_name = "Job execution failed"
-    condition_threshold {
-      filter = join(" AND ", [
-        "resource.type=\"cloud_run_job\"",
-        "resource.labels.job_name=\"link-ads-to-properties\"",
-        "resource.labels.location=\"${var.region}\"",
-        "metric.type=\"run.googleapis.com/job/completed_execution_count\"",
-        "metric.labels.result=\"failed\""
-      ])
-      duration        = "0s"
-      comparison      = "COMPARISON_GT"
-      threshold_value = 0
-
-      aggregations {
-        alignment_period   = "60s"
-        per_series_aligner = "ALIGN_RATE"
-      }
-    }
-  }
-
-  notification_channels = [
-    google_monitoring_notification_channel.email[0].id
-  ]
-
-  alert_strategy {
-    auto_close = "86400s"
-  }
-
-  depends_on = [
-    google_cloud_run_v2_job.link_ads_to_properties,
-    google_project_service.apis
   ]
 }
