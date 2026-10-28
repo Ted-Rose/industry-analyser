@@ -193,6 +193,10 @@ resource "google_cloud_run_v2_job" "all_jobs" {
   lifecycle {
     ignore_changes = [
       template[0].template[0].containers[0].image,
+      # gcloud-stamped annotations rewritten by every
+      # `gcloud run jobs update` in CI — keep them out of plan diffs.
+      client,
+      client_version,
     ]
     prevent_destroy = true
   }
