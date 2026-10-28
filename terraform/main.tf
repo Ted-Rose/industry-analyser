@@ -777,7 +777,12 @@ resource "google_cloud_scheduler_job" "trigger_sync_receipt_emails" {
 
 # Master job: runs `python manage.py run_all_jobs`, which executes the
 # enabled sub-jobs in scrape_jobs/management/commands/run_all_jobs.py
-# sequentially. Timeout is the worst-case sum of the sub-job timeouts.
+# sequentially. Timeout covers the worst-case scheduled pass —
+# sync_receipt_emails (1,800s) plus the three 8,000s scrapers can all
+# be due on one day (e.g. an odd Monday that ends a month) = 25,800s,
+# leaving headroom under 36,000s. `manual` entries (scrape_vacancy,
+# link_ads_to_properties) run only alone via `--only`, so they never
+# stack onto a scheduled pass.
 # No Cloud Scheduler trigger in Phase 1 — run manually via
 # `gcloud run jobs execute all-jobs`.
 resource "google_cloud_run_v2_job" "all_jobs" {

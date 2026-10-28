@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from unittest import mock
 
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
@@ -78,6 +79,17 @@ class SchedulePredicateTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             is_due('bogus', date(2026, 10, 19))
 
+    def test_invalid_weekly_schedule_raises_value_error(self):
+        for schedule in ('weekly:bogus', 'weekly:', 'weekly:monday'):
+            with self.assertRaises(ValueError, msg=schedule):
+                is_due(schedule, date(2026, 10, 19))
+
+    def test_invalid_dom_schedule_raises_value_error(self):
+        for schedule in ('dom:abc', 'dom:', 'dom:1x',
+                         'dom:0', 'dom:32', 'dom:-1'):
+            with self.assertRaises(ValueError, msg=schedule):
+                is_due(schedule, date(2026, 10, 19))
+
     def test_all_jobs_schedules_parse(self):
         for _label, _kind, _argv, schedule in JOBS:
             is_due(schedule, date(2026, 10, 19))
@@ -129,6 +141,12 @@ class RunAllJobsTests(SimpleTestCase):
         with self.assertRaises(CommandError):
             self._handle(only='nosuchjob')
 
+    def test_only_takes_precedence_over_force(self):
+        # With both flags, --only wins: even a `manual` entry runs.
+        run, _ = self._handle(only='link_ads_to_properties',
+                              force=True)
+        self.assertEqual(self._labels(run), ['link_ads_to_properties'])
+
     def test_force_runs_all_non_manual_entries(self):
         run, _ = self._handle(force=True)
         self.assertEqual(
@@ -141,6 +159,21 @@ class RunAllJobsTests(SimpleTestCase):
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
                 run.side_effect = [RuntimeError('boom'), None, None]
+                with self.assertRaises(CommandError) as ctx:
+                    call_command('run_all_jobs')
+        self.assertEqual(
+            self._labels(run),
+            ['scrape_tv_programs', 'scrape_housing_ads',
+             'scrape_apartment_ads'],
+        )
+        self.assertIn('scrape_tv_programs', str(ctx.exception))
+
+    def test_system_exit_in_subjob_does_not_abort_pass(self):
+        # A sub-command calling sys.exit() is recorded as a failure,
+        # not allowed to abort the remaining entries.
+        with _patched_today(date(2026, 10, 19)):
+            with mock.patch.object(Command, '_run_entry') as run:
+                run.side_effect = [SystemExit(1), None, None]
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
@@ -167,6 +200,9 @@ class RunAllJobsTests(SimpleTestCase):
             argv[1].endswith(
                 'scripts/materialize_fetcher_config_and_scrape.py'
             )
+        )
+        self.assertEqual(
+            sp.call_args.kwargs['cwd'], str(settings.BASE_DIR)
         )
 
     def test_script_nonzero_exit_marks_job_failed(self):

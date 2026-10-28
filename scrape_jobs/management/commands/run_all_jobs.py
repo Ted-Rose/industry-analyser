@@ -73,9 +73,27 @@ def is_due(schedule, today):
         dom = schedule.split(':', 1)[1]
         if dom == 'odd':
             return today.day % 2 == 1
-        return today.day == int(dom)
+        try:
+            day = int(dom)
+        except ValueError:
+            raise ValueError(
+                f'invalid schedule {schedule!r}: {dom!r} is '
+                'not an integer day-of-month'
+            ) from None
+        if not 1 <= day <= 31:
+            raise ValueError(
+                f'invalid schedule {schedule!r}: day {day} '
+                'out of range'
+            )
+        return today.day == day
     if schedule.startswith('weekly:'):
-        return today.weekday() == _WEEKDAYS[schedule.split(':', 1)[1]]
+        name = schedule.split(':', 1)[1]
+        if name not in _WEEKDAYS:
+            raise ValueError(
+                f'invalid schedule {schedule!r}: unknown '
+                f'weekday {name!r}'
+            )
+        return today.weekday() == _WEEKDAYS[name]
     raise ValueError(f'unknown schedule {schedule!r}')
 
 
@@ -134,7 +152,11 @@ class Command(BaseCommand):
             logger.info('starting %s', label)
             try:
                 self._run_entry(label, kind, argv)
-            except Exception:
+            except (Exception, SystemExit):
+                # SystemExit included so a sub-command calling
+                # sys.exit() is recorded as a failure instead of
+                # aborting the whole pass. KeyboardInterrupt and
+                # GeneratorExit still propagate.
                 logger.exception('job %s failed', label)
                 failed.append(label)
                 continue
