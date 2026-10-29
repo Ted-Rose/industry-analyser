@@ -108,6 +108,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if not options['twin_fix']:
             raise CommandError('specify a mode: --twin-fix')
+        if options['batch_size'] < 1:
+            raise CommandError('--batch-size must be >= 1')
         self.dry_run = options['dry_run']
         self.batch_size = options['batch_size']
         kinds = (
@@ -131,8 +133,8 @@ class Command(BaseCommand):
             mode, dict(totals),
         )
         logger.info(
-            'twin-fix pk audit list (rent_ad_pk, from_prop, '
-            'to_prop, source_outcome): %s',
+            'twin-fix pk audit list (ad_id, rent_ad_pk, '
+            'from_prop, to_prop, source_outcome): %s',
             moved_audit,
         )
 
@@ -141,6 +143,10 @@ class Command(BaseCommand):
     def _fix_kind(self, kind, prop_model, rent_model, sale_model,
                   limit):
         pairs = plinks.diverged_twin_pairs(rent_model, sale_model)
+        # Fanout is computed over the FULL diverged set even when
+        # --limit truncates processing — intentionally
+        # conservative: a prop that fans out across pairs beyond
+        # the limit is still conflation-suspect.
         fanout = plinks.twin_fanout_props(pairs)
         if limit:
             pairs = pairs[:limit]
@@ -174,11 +180,25 @@ class Command(BaseCommand):
             or sale_ad.property_id != s_prop_id
         ):
             counts['skipped_stale'] += 1
+            review.append((
+                ad_id,
+                getattr(rent_ad, 'pk', None),
+                r_prop_id,
+                s_prop_id,
+                ['stale: ad links changed since pair list'],
+            ))
             return
         source = prop_model.objects.filter(pk=r_prop_id).first()
         target = prop_model.objects.filter(pk=s_prop_id).first()
         if source is None or target is None:
             counts['skipped_stale'] += 1
+            review.append((
+                ad_id,
+                rent_ad.pk,
+                r_prop_id,
+                s_prop_id,
+                ['stale: endpoint property missing'],
+            ))
             return
 
         reasons = self._skip_reasons(
@@ -231,7 +251,7 @@ class Command(BaseCommand):
         counts['moved'] += 1
         counts[f'props_{outcome}'] += 1
         moved.append(
-            (rent_ad.pk, r_prop_id, s_prop_id, outcome)
+            (ad_id, rent_ad.pk, r_prop_id, s_prop_id, outcome)
         )
         logger.info(
             'twin-fix %s %s',
@@ -256,6 +276,9 @@ class Command(BaseCommand):
         # already holds >=2 distinct apartment numbers, or sits in
         # the >=2-target twin fan-out signature, is a suspect
         # merge endpoint (conflation plan §3c/§3d).
+        # Target apt_nos also feed the hard gate below — compute
+        # once, reuse inside the endpoint loop.
+        target_nos = pm._property_apartment_nos(target)
         for label, prop in (('source', source), ('target', target)):
             if prop.pk in fanout:
                 reasons.append(
@@ -263,7 +286,10 @@ class Command(BaseCommand):
                     'twin targets'
                 )
                 continue
-            nos = pm._property_apartment_nos(prop)
+            nos = (
+                target_nos if label == 'target'
+                else pm._property_apartment_nos(prop)
+            )
             if len(nos) >= 2:
                 reasons.append(
                     f'{label} prop {prop.pk} holds >=2 apt_nos '
@@ -273,7 +299,6 @@ class Command(BaseCommand):
         # with link_ads_to_properties._twin_link (§3a.1): a
         # repurposed listing lands in review, not in a merge.
         ad_no = pm._ad_apartment_no(rent_ad)
-        target_nos = pm._property_apartment_nos(target)
         if pm._hard_reject(rent_ad, target, ad_no, target_nos):
             reasons.append(
                 f'hard-gate vs target prop {target.pk}'

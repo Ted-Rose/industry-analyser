@@ -3269,3 +3269,29 @@ class RelinkPropertyAdsTwinFixTest(TestCase):
         out = self._run('--twin-fix')
         self.assertIn('Twin pairs found:       0', out)
         self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_cross_model_pk_collision_keeps_source_prop(self):
+        """Regression: discard_linked_ad used to match on pk
+        alone, so discarding the moved rent ad also evicted a
+        same-pk ad of the OTHER model still linked to the source
+        prop — the cache looked empty, the live prop was deleted
+        and the remaining ad's property FK was SET_NULL'd while
+        its match status stayed 'auto'."""
+        rent, prop_r, prop_s = self._split_apartment_pair(pk=100)
+        # Cross-table pk collisions are routine — force one: a
+        # second linked ad of the OTHER model sharing rent's pk.
+        other = self._sale_ad(ad_id='other', pk=rent.pk)
+        self._link(prop_r, other)
+
+        dry = self._run('--twin-fix', '--dry-run')
+        self.assertIn('(source refreshed)', dry)
+
+        out = self._run('--twin-fix')
+
+        rent.refresh_from_db()
+        other.refresh_from_db()
+        prop_r.refresh_from_db()  # raises if wrongly deleted
+        self.assertEqual(rent.property_id, prop_s.pk)
+        self.assertEqual(other.property_id, prop_r.pk)
+        self.assertEqual(other.property_match_status, 'auto')
+        self.assertIn('Source props refreshed: 1', out)

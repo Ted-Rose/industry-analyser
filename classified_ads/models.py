@@ -123,10 +123,20 @@ class BaseProperty(models.Model):
             cache.append(ad)
 
     def discard_linked_ad(self, ad):
-        """Drop an ad from the in-memory cache, if any."""
+        """Drop an ad from the in-memory cache, if any.
+
+        Matches on (class, pk), not pk alone: rent and sale ads
+        live in separate tables, so a cross-model pk collision
+        must not evict a still-linked sibling ad — a cache that
+        only *looks* emptied would delete a live property and
+        SET_NULL the remaining ad's link.
+        """
         cache = getattr(self, '_linked_ads_cache', None)
         if cache is not None:
-            cache[:] = [a for a in cache if a.pk != ad.pk]
+            cache[:] = [
+                a for a in cache
+                if not (isinstance(a, type(ad)) and a.pk == ad.pk)
+            ]
 
     @property
     def days_on_market(self):
