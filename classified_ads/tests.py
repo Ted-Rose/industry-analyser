@@ -121,6 +121,23 @@ class ClassifiedAdsApiTests(TestCase):
         defaults.update(kw)
         return HouseForRent.all_objects.create(**defaults)
 
+    def _house_sale_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hsale_{self._counter}',
+            link=f'https://example.com/hsale/{self._counter}',
+            region=self.house_region,
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=1500.0,
+            total_price=180000.0,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
     # --- URL cutover / shell ---
 
     def test_index_serves_react_shell(self):
@@ -315,6 +332,27 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, 422)
         self.assertEqual(resp.json()['error'], 'validation_error')
+
+    def test_ads_table_120m_fields_on_rent_rows(self):
+        """F13: rent rows expose the 10-year gross rent comparator;
+        total_price on rent rows is the monthly rent."""
+        self._rent_ad()
+        resp = self.client.get(
+            f'{self.API}/ads/', {'kind': 'apartment', 'deal': 'rent'}
+        )
+        ad = resp.json()['ads'][0]
+        self.assertEqual(ad['total_price_120m'], 360.0)
+        self.assertEqual(ad['price_per_sqm_120m'], 7.2)
+        self.assertEqual(ad['total_price'], 300.0)
+
+    def test_ads_table_120m_fields_null_on_sale_rows(self):
+        self._sale_ad()
+        resp = self.client.get(
+            f'{self.API}/ads/', {'kind': 'apartment', 'deal': 'sale'}
+        )
+        ad = resp.json()['ads'][0]
+        self.assertIsNone(ad['total_price_120m'])
+        self.assertIsNone(ad['price_per_sqm_120m'])
 
     # --- GET /api/classified-ads/regions/config/ + POST ---
 
@@ -572,6 +610,160 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(resp.json()['total_count'], 0)
 
+    # --- GET /api/classified-ads/regions/rent-vs-buy/ ---
+
+    def test_rent_vs_buy_medians_ratio_and_counts(self):
+        """F13: per-region medians over active ads plus the
+        price-to-annual-rent ratio (years of rent covering the
+        purchase price per m²)."""
+        rents = [
+            self._rent_ad(monthly_price_per_sqm=6.0),
+            self._rent_ad(monthly_price_per_sqm=8.0),
+            # Subtree ads roll up into the parent region.
+            self._rent_ad(
+                region=self.child, monthly_price_per_sqm=10.0
+            ),
+        ]
+        sales = [
+            self._sale_ad(price_per_sqm=1000.0),
+            self._sale_ad(price_per_sqm=2000.0),
+            self._sale_ad(price_per_sqm=3000.0),
+        ]
+        today = date.today()
+        for ad in rents:
+            ApartmentForRentSighting.objects.create(
+                ad=ad, seen_on=today
+            )
+        for ad in sales:
+            ApartmentForSaleSighting.objects.create(
+                ad=ad, seen_on=today
+            )
+        resp = self.client.get(
+            f'{self.API}/regions/rent-vs-buy/',
+            {'kind': 'apartment',
+             'regions': [str(self.region.id)]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['selected_ids'], [self.region.id])
+        self.assertEqual(len(body['results']), 1)
+        row = body['results'][0]
+        self.assertEqual(row['region']['id'], self.region.id)
+        self.assertEqual(row['n_rent_ads'], 3)
+        self.assertEqual(row['n_sale_ads'], 3)
+        self.assertEqual(row['median_monthly_rent_per_sqm'], 8.0)
+        self.assertEqual(row['median_sale_price_per_sqm'], 2000.0)
+        self.assertAlmostEqual(
+            row['price_to_annual_rent_years'], 2000.0 / (8.0 * 12)
+        )
+
+    def test_rent_vs_buy_empty_regions_means_all_parents(self):
+        """No `regions` filter → one row per parent of the kind; a
+        region with only a rent side gets null sale median/ratio."""
+        today = date.today()
+        rent = self._rent_ad(monthly_price_per_sqm=8.0)
+        sale = self._sale_ad(price_per_sqm=2000.0)
+        ApartmentForRentSighting.objects.create(
+            ad=rent, seen_on=today
+        )
+        ApartmentForSaleSighting.objects.create(
+            ad=sale, seen_on=today
+        )
+        other = Region.objects.create(
+            name='Jūrmala',
+            url='https://www.ss.com/en/real-estate/flats/jurmala/',
+            category='APARTMENT',
+        )
+        lone = self._rent_ad(
+            region=other, monthly_price_per_sqm=5.0
+        )
+        ApartmentForRentSighting.objects.create(
+            ad=lone, seen_on=today
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/rent-vs-buy/', {'kind': 'apartment'}
+        )
+        body = resp.json()
+        rows = {r['region']['name']: r for r in body['results']}
+        self.assertEqual(set(rows), {'Riga', 'Jūrmala'})
+        self.assertIsNotNone(
+            rows['Riga']['price_to_annual_rent_years']
+        )
+        lone_row = rows['Jūrmala']
+        self.assertEqual(lone_row['n_rent_ads'], 1)
+        self.assertEqual(lone_row['n_sale_ads'], 0)
+        self.assertIsNone(lone_row['median_sale_price_per_sqm'])
+        self.assertIsNone(lone_row['price_to_annual_rent_years'])
+
+    def test_rent_vs_buy_active_in_window(self):
+        """F5 semantics: an ad sighted only outside the window is
+        not counted, even though it exists in the region."""
+        today = date.today()
+        stale = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=stale, seen_on=today - timedelta(days=60)
+        )
+        live = self._rent_ad(monthly_price_per_sqm=9.0)
+        ApartmentForRentSighting.objects.create(
+            ad=live, seen_on=today - timedelta(days=5)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/rent-vs-buy/',
+            {'kind': 'apartment',
+             'regions': [str(self.region.id)],
+             'date_from': (today - timedelta(days=30)).isoformat(),
+             'date_to': today.isoformat()},
+        )
+        row = resp.json()['results'][0]
+        self.assertEqual(row['n_rent_ads'], 1)
+        self.assertEqual(row['median_monthly_rent_per_sqm'], 9.0)
+        self.assertEqual(row['n_sale_ads'], 0)
+
+    def test_rent_vs_buy_excludes_flagged_ads(self):
+        """Hidden and is_sale_misclassified ads don't feed the
+        medians or counts (objects managers)."""
+        today = date.today()
+        flagged = [
+            self._rent_ad(is_hidden=True),
+            self._rent_ad(is_sale_misclassified=True),
+            self._rent_ad(),
+            self._sale_ad(is_hidden=True),
+            self._sale_ad(),
+        ]
+        for ad in flagged:
+            sighting_model = (
+                ApartmentForRentSighting
+                if isinstance(ad, ApartmentForRent)
+                else ApartmentForSaleSighting
+            )
+            sighting_model.objects.create(ad=ad, seen_on=today)
+        resp = self.client.get(
+            f'{self.API}/regions/rent-vs-buy/',
+            {'kind': 'apartment',
+             'regions': [str(self.region.id)]},
+        )
+        row = resp.json()['results'][0]
+        self.assertEqual(row['n_rent_ads'], 1)
+        self.assertEqual(row['n_sale_ads'], 1)
+
+    def test_rent_vs_buy_house_kind(self):
+        today = date.today()
+        rent = self._house_rent_ad(monthly_price_per_sqm=5.0)
+        sale = self._house_sale_ad(price_per_sqm=1200.0)
+        HouseForRentSighting.objects.create(ad=rent, seen_on=today)
+        HouseForSaleSighting.objects.create(ad=sale, seen_on=today)
+        resp = self.client.get(
+            f'{self.API}/regions/rent-vs-buy/', {'kind': 'house'}
+        )
+        rows = resp.json()['results']
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['n_rent_ads'], 1)
+        self.assertEqual(row['n_sale_ads'], 1)
+        self.assertAlmostEqual(
+            row['price_to_annual_rent_years'], 1200.0 / (5.0 * 12)
+        )
+
     # --- GET /api/classified-ads/sightings/ ---
 
     def test_daily_sightings_report(self):
@@ -628,6 +820,56 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(resp.status_code, 404)
 
+    def test_daily_sightings_excludes_flagged_ads(self):
+        """F12: sightings on hidden (and, on rent tables,
+        is_sale_misclassified) ads are no longer counted — the
+        report now matches what the ads tables show."""
+        today = date.today()
+        cases = [
+            (self._rent_ad(), ApartmentForRentSighting),
+            (
+                self._rent_ad(is_hidden=True),
+                ApartmentForRentSighting,
+            ),
+            (
+                self._rent_ad(is_sale_misclassified=True),
+                ApartmentForRentSighting,
+            ),
+            (self._sale_ad(), ApartmentForSaleSighting),
+            (
+                self._sale_ad(is_hidden=True),
+                ApartmentForSaleSighting,
+            ),
+            (self._house_rent_ad(), HouseForRentSighting),
+            (
+                self._house_rent_ad(is_hidden=True),
+                HouseForRentSighting,
+            ),
+            (
+                self._house_rent_ad(is_sale_misclassified=True),
+                HouseForRentSighting,
+            ),
+            (self._house_sale_ad(), HouseForSaleSighting),
+            (
+                self._house_sale_ad(is_hidden=True),
+                HouseForSaleSighting,
+            ),
+        ]
+        for ad, sighting_model in cases:
+            sighting_model.objects.create(ad=ad, seen_on=today)
+        resp = self.client.get(
+            f'{self.API}/sightings/',
+            {'date_from': today.isoformat(),
+             'date_to': today.isoformat()},
+        )
+        self.assertEqual(resp.status_code, 200)
+        row = resp.json()['daily_data'][0]
+        self.assertEqual(row['apartment_rent'], 1)
+        self.assertEqual(row['apartment_sale'], 1)
+        self.assertEqual(row['house_rent'], 1)
+        self.assertEqual(row['house_sale'], 1)
+        self.assertEqual(row['grand_total'], 4)
+
     # --- GET /api/classified-ads/properties/ ---
 
     def _property_with_ad(self):
@@ -653,6 +895,28 @@ class ClassifiedAdsApiTests(TestCase):
         self.assertEqual(row['rent_ad_count'], 1)
         self.assertEqual(row['sale_ad_count'], 0)
         self.assertEqual(body['kind_label'], 'Apartment')
+
+    def test_property_list_counts_exclude_flagged_ads(self):
+        """F12: rent_ad_count/sale_ad_count follow the `objects`
+        managers — linked hidden and misclassified ads are not
+        counted (the detail page still lists them)."""
+        prop, _ = self._property_with_ad()
+
+        def _link(ad):
+            ad.property = prop
+            ad.property_match_status = 'auto'
+            ad.save()
+
+        _link(self._rent_ad(is_hidden=True))
+        _link(self._rent_ad(is_sale_misclassified=True))
+        _link(self._sale_ad())
+        _link(self._sale_ad(is_hidden=True))
+        resp = self.client.get(
+            f'{self.API}/properties/', {'kind': 'apartment'}
+        )
+        row = resp.json()['properties'][0]
+        self.assertEqual(row['rent_ad_count'], 1)
+        self.assertEqual(row['sale_ad_count'], 1)
 
     def test_property_list_filters(self):
         prop, _ = self._property_with_ad()
