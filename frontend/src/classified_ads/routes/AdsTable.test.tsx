@@ -42,6 +42,8 @@ function makeAd(overrides: Partial<AdOut> = {}): AdOut {
     total_price: 300,
     monthly_price: 300,
     monthly_price_per_sqm: 6,
+    total_price_120m: 36000,
+    price_per_sqm_120m: 720,
     ...overrides,
   };
 }

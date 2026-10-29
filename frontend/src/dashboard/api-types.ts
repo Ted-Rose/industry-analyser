@@ -327,6 +327,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/classified-ads/regions/rent-vs-buy/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rent Vs Buy
+         * @description Rent-vs-buy comparison per region — for each parent region,
+         *     the median monthly rent EUR/m² of active rent ads vs the
+         *     median sale EUR/m² of active sale ads, plus
+         *     `price_to_annual_rent_years` (median sale EUR/m² ÷ median
+         *     monthly rent EUR/m² ÷ 12): years of rent needed to cover the
+         *     purchase price — LOWER means buying looks cheap relative to
+         *     renting.
+         *
+         *     "Active" is the F5 sighting semantics (a sighting inside
+         *     [date_from, date_to]) and both sides go through the `objects`
+         *     managers, so hidden and is_sale_misclassified rent ads are
+         *     excluded. Rows are returned for every selected region; when a
+         *     side has no active ads its median (and the ratio) is null and
+         *     the n_*_ads count is 0, so the frontend can filter.
+         */
+        get: operations["classified_ads_api_rent_vs_buy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/classified-ads/regions/{region_id}/children/": {
         parameters: {
             query?: never;
@@ -384,6 +417,11 @@ export interface paths {
          * @description Daily sightings report — mirrors the retired
          *     daily_sightings_report view: per-day sighting counts for each of
          *     the four ad tables, optionally restricted to a region subtree.
+         *
+         *     F12 semantic change: counts are manager-aware — sightings on
+         *     is_hidden ads (and is_sale_misclassified rent ads) are excluded,
+         *     matching what the ads tables show. Previously they counted
+         *     every sighting row (~26% inflation on prod).
          */
         get: operations["classified_ads_api_daily_sightings"];
         put?: never;
@@ -405,6 +443,11 @@ export interface paths {
          * Property List
          * @description Property list — mirrors the retired property_list view:
          *     properties with their linked-ad counts, district/street filters.
+         *
+         *     F12: the counts are manager-aware — hidden ads (and
+         *     is_sale_misclassified rent ads) are not counted, matching the
+         *     ads tables. The property detail endpoint still lists every
+         *     linked ad via all_objects.
          */
         get: operations["classified_ads_api_property_list"];
         put?: never;
@@ -946,14 +989,30 @@ export interface components {
             land_area_sqm: number | null;
             /** House Type */
             house_type: string | null;
-            /** Price Per Sqm */
+            /**
+             * Price Per Sqm
+             * @description Sale EUR/m² on sale rows; on rent rows it mirrors monthly_price_per_sqm (monthly rent per m²).
+             */
             price_per_sqm: number;
-            /** Total Price */
+            /**
+             * Total Price
+             * @description Sale price on sale rows; on rent rows it mirrors monthly_price (the monthly rent, not a purchase price).
+             */
             total_price: number;
             /** Monthly Price */
             monthly_price: number | null;
             /** Monthly Price Per Sqm */
             monthly_price_per_sqm: number | null;
+            /**
+             * Total Price 120M
+             * @description monthly_price × 120 on rent rows; null on sale.
+             */
+            total_price_120m: number | null;
+            /**
+             * Price Per Sqm 120M
+             * @description monthly_price_per_sqm × 120 on rent rows; null on sale.
+             */
+            price_per_sqm_120m: number | null;
         };
         /**
          * AdsFiltersOut
@@ -1098,6 +1157,50 @@ export interface components {
             avg_days_tracked: number | null;
             /** Avg Days On Market */
             avg_days_on_market: number | null;
+        };
+        /** RentVsBuyOut */
+        RentVsBuyOut: {
+            /** Kind */
+            kind: string;
+            /** Parent Regions */
+            parent_regions: components["schemas"]["RegionRefOut"][];
+            /** Selected Ids */
+            selected_ids: number[];
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Results */
+            results: components["schemas"]["RentVsBuyRowOut"][];
+        };
+        /**
+         * RentVsBuyRowOut
+         * @description One region row of the rent-vs-buy table. Medians are over
+         *     ads active in the window; `price_to_annual_rent_years` is the
+         *     median sale EUR/m² divided by (median monthly rent EUR/m² ×
+         *     12) — the years of rent needed to cover the purchase price
+         *     (LOWER means buying looks cheap relative to renting). All
+         *     three are null when a side has no active ads; the n_*_ads
+         *     counts let the frontend filter.
+         */
+        RentVsBuyRowOut: {
+            region: components["schemas"]["RegionRefOut"];
+            /** N Rent Ads */
+            n_rent_ads: number;
+            /** N Sale Ads */
+            n_sale_ads: number;
+            /** Median Monthly Rent Per Sqm */
+            median_monthly_rent_per_sqm: number | null;
+            /** Median Sale Price Per Sqm */
+            median_sale_price_per_sqm: number | null;
+            /** Price To Annual Rent Years */
+            price_to_annual_rent_years: number | null;
         };
         /** RegionStatsChildrenOut */
         RegionStatsChildrenOut: {
@@ -2046,6 +2149,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegionStatsOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_rent_vs_buy: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                date_from?: string | null;
+                date_to?: string | null;
+                regions?: number[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentVsBuyOut"];
                 };
             };
         };
