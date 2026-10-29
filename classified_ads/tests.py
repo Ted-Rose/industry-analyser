@@ -19,7 +19,8 @@ from classified_ads.models import (
 )
 from classified_ads.sale_flags import is_sale_misclassified
 from classified_ads.property_matcher import (
-    extract_apartment_no, match_property, normalize_street_name,
+    _ad_apartment_no, extract_apartment_no, match_property,
+    normalize_street_name, normalize_street_no,
 )
 from scrape_jobs.models import ScrapeJob, ScrapeJobRun, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
@@ -1175,6 +1176,44 @@ class StreetNameNormalizationTest(TestCase):
             extract_apartment_no('Dzīvoklis 3. stāvā'), ''
         )
 
+    def test_extract_apartment_no_recall_additions(self):
+        # Conflation plan §3b recall additions.
+        self.assertEqual(extract_apartment_no('кв. 12'), '12')
+        self.assertEqual(extract_apartment_no('Сдаётся кв 8'), '8')
+        self.assertEqual(extract_apartment_no('apt. 7'), '7')
+        self.assertEqual(extract_apartment_no('flat 9'), '9')
+        self.assertEqual(extract_apartment_no('Dz. 12'), '12')
+        # Windowed form: the "Nr." sits within ~30 chars of the
+        # dzīvokl- marker.
+        self.assertEqual(
+            extract_apartment_no(
+                'Pārdod dzīvokli labā stāvoklī, Nr. 15'
+            ),
+            '15',
+        )
+
+    def test_extract_apartment_no_false_positives(self):
+        # "кв. N м" is square metres, not a unit number.
+        self.assertEqual(extract_apartment_no('45 кв.м. platība'), '')
+        self.assertEqual(extract_apartment_no('kopā кв. 45 м'), '')
+        # "квартира N" is dominated by project series names.
+        self.assertEqual(extract_apartment_no('квартира 602'), '')
+        # Room counts must not read as unit numbers.
+        self.assertEqual(extract_apartment_no('dz. 3 istabas'), '')
+        # A bare "Nr." without a flat marker stays gated.
+        self.assertEqual(extract_apartment_no('Mājas Nr. 5'), '')
+
+    def test_normalize_street_no_splits_fused_house_apt(self):
+        # ss.com fuses house+apt into "N-M": house part is the
+        # street_no, the suffix seeds the apartment number.
+        self.assertEqual(normalize_street_no('12-3'), '12')
+        self.assertEqual(normalize_street_no('6-3'), '6')
+        self.assertEqual(normalize_street_no('  12-3  '), '12')
+        # Corpus suffixes and non-pure shapes stay untouched.
+        self.assertEqual(normalize_street_no('5k-1'), '5k-1')
+        self.assertEqual(normalize_street_no('12a'), '12a')
+        self.assertEqual(normalize_street_no(''), '')
+
 
 class PropertyMatcherTest(TestCase):
     def setUp(self):
@@ -1306,6 +1345,171 @@ class PropertyMatcherTest(TestCase):
         self.assertEqual(decision, 'auto')
         self.assertIs(best, prop)
 
+    # --- conflation alarms (F9, conflation plan §3a.2) ---
+
+    def test_multi_aptno_property_demotes_to_candidate(self):
+        """A property already holding >=2 unit numbers is a
+        conflation signature — even a perfect score caps at
+        candidate."""
+        ad1 = self._rent_ad(
+            apartment_no='5', comment='Jauks dzīvoklis centrā'
+        )
+        ad2 = self._rent_ad(apartment_no='7')
+        prop = self._property_from(ad1)
+        prop._linked_ads_cache = [ad1, ad2]
+
+        ad3 = self._rent_ad(comment='Jauks dzīvoklis centrā')
+        best, score, decision = match_property(ad3, [prop])
+
+        self.assertEqual(decision, 'candidate')
+        self.assertIs(best, prop)
+        self.assertGreaterEqual(score, 0.8)
+
+    def test_coexisting_same_deal_ads_demote(self):
+        """Two same-seller, same-deal ads with >=2-day overlapping
+        seen-windows on one property — the batch-absorption
+        signature."""
+        ad1 = self._rent_ad()
+        ad2 = self._rent_ad()
+        prop = self._property_from(ad1)
+        now = timezone.now()
+        ad1.first_seen = now - timedelta(days=10)
+        ad1.last_seen = now - timedelta(days=5)
+        ad2.first_seen = now - timedelta(days=7)
+        ad2.last_seen = now
+        prop._linked_ads_cache = [ad1, ad2]
+
+        ad3 = self._rent_ad()
+        best, score, decision = match_property(ad3, [prop])
+
+        self.assertEqual(decision, 'candidate')
+        self.assertIs(best, prop)
+
+    def test_short_overlap_same_deal_still_autolinks(self):
+        """Same-deal ads seen only on the same day do not trip the
+        coexisting alarm."""
+        ad1 = self._rent_ad()
+        ad2 = self._rent_ad()
+        prop = self._property_from(ad1)
+        prop._linked_ads_cache = [ad1, ad2]
+
+        ad3 = self._rent_ad()
+        best, score, decision = match_property(ad3, [prop])
+
+        self.assertEqual(decision, 'auto')
+        self.assertIs(best, prop)
+
+    def test_floor_dissent_demotes_to_candidate(self):
+        """Unanimous-floor property vs a dissenting new ad."""
+        ad1 = self._rent_ad(floor=3, comment='Jauks dzīvoklis')
+        prop = self._property_from(ad1)
+
+        ad2 = self._rent_ad(floor=1, comment='Jauks dzīvoklis')
+        best, score, decision = match_property(ad2, [prop])
+
+        self.assertEqual(decision, 'candidate')
+        self.assertIs(best, prop)
+        self.assertGreaterEqual(score, 0.8)
+
+    def test_degenerate_block_demotes_without_evidence(self):
+        """street_no == '' is a settlement-level bucket — no auto
+        link without a matching apt_no or a linked twin."""
+        ad1 = self._rent_ad(
+            district='Valka un rajons', street_name='Seda',
+            street_no='',
+        )
+        prop = self._property_from(ad1)
+
+        ad2 = self._rent_ad(
+            district='Valka un rajons', street_name='Seda',
+            street_no='',
+        )
+        best, score, decision = match_property(ad2, [prop])
+
+        self.assertEqual(decision, 'candidate')
+        self.assertIs(best, prop)
+        self.assertGreaterEqual(score, 0.8)
+
+    def test_degenerate_block_aptno_match_autolinks(self):
+        """An apartment-number match is decisive evidence in a
+        degenerate block."""
+        ad1 = self._rent_ad(
+            district='Valka un rajons', street_name='Seda',
+            street_no='', apartment_no='5',
+        )
+        prop = self._property_from(ad1)
+
+        ad2 = self._rent_ad(
+            district='Valka un rajons', street_name='Seda',
+            street_no='', comment='Dzīvoklis Nr. 5, pārdod',
+        )
+        best, score, decision = match_property(ad2, [prop])
+
+        self.assertEqual(decision, 'auto')
+        self.assertIs(best, prop)
+
+    def test_multiple_surviving_candidates_demote(self):
+        """With no decisive evidence the score alone must not pick
+        between lookalike properties."""
+        ad1 = self._rent_ad(comment='Viens')
+        prop_a = self._property_from(ad1)
+        ad2 = self._rent_ad(
+            comment='Divi', seller=self.other_seller
+        )
+        prop_b = self._property_from(ad2)
+
+        ad3 = self._rent_ad(comment='Viens')
+        best, score, decision = match_property(
+            ad3, [prop_a, prop_b]
+        )
+
+        self.assertEqual(decision, 'candidate')
+        self.assertIs(best, prop_a)
+
+    def test_twin_evidence_overrides_multi_candidate(self):
+        """The cross-deal twin's property is decisive — ambiguity
+        alarms are suppressed for it."""
+        ad1 = self._rent_ad(comment='Viens')
+        prop_a = self._property_from(ad1)
+        ad2 = self._rent_ad(
+            comment='Divi', seller=self.other_seller
+        )
+        prop_b = self._property_from(ad2)
+
+        ad3 = self._rent_ad(comment='Viens')
+        best, score, decision = match_property(
+            ad3, [prop_a, prop_b], twin_prop_ids={prop_a.pk}
+        )
+
+        self.assertEqual(decision, 'auto')
+        self.assertIs(best, prop_a)
+
+    # --- fused N-M street numbers (F9, conflation plan §3a.4) ---
+
+    def test_fused_street_no_matches_and_seeds_apt_no(self):
+        """'12-3' lands in block '12' and reads as apt 3."""
+        ad1 = self._rent_ad(street_no='12', apartment_no='3')
+        prop = self._property_from(ad1)
+
+        ad2 = self._rent_ad(street_no='12-3')
+        self.assertEqual(_ad_apartment_no(ad2), '3')
+        best, score, decision = match_property(ad2, [prop])
+
+        self.assertEqual(decision, 'auto')
+        self.assertIs(best, prop)
+
+    def test_fused_street_no_conflicting_apt_rejects(self):
+        """The fused suffix is real apt_no evidence — a different
+        suffix hard-rejects."""
+        ad1 = self._rent_ad(street_no='12', apartment_no='3')
+        prop = self._property_from(ad1)
+
+        ad2 = self._rent_ad(street_no='12-9')
+        best, score, decision = match_property(ad2, [prop])
+
+        self.assertEqual(decision, 'new')
+        self.assertIsNone(best)
+
 
 class LinkAdsToPropertiesCommandTest(TestCase):
     def _rent_ad(self, ad_id, **kw):
@@ -1399,6 +1603,210 @@ class LinkAdsToPropertiesCommandTest(TestCase):
         self.assertIsNotNone(old_ad.property_id)
         self.assertEqual(new_ad.property_match_status, 'unmatched')
         self.assertIsNone(new_ad.property_id)
+
+
+class TwinShortcutCommandTest(TestCase):
+    """Cross-deal twin shortcut in link_ads_to_properties
+    (F9, conflation plan §3a.1)."""
+
+    def _rent_ad(self, ad_id, **kw):
+        defaults = dict(
+            ad_id=ad_id,
+            comment='',
+            link=f'https://example.com/rent/{ad_id}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=6.0,
+            total_price=300.0,
+            monthly_price=300.0,
+            monthly_price_per_sqm=6.0,
+            total_price_120m=360.0,
+            price_per_sqm_120m=7.2,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _sale_ad(self, ad_id, **kw):
+        defaults = dict(
+            ad_id=ad_id,
+            comment='',
+            link=f'https://example.com/sale/{ad_id}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=2000.0,
+            total_price=100000.0,
+        )
+        defaults.update(kw)
+        return ApartmentForSale.all_objects.create(**defaults)
+
+    def _house_rent_ad(self, ad_id, **kw):
+        defaults = dict(
+            ad_id=ad_id,
+            comment='',
+            link=f'https://example.com/hrent/{ad_id}',
+            district='Jūrmala',
+            street_name='Jūras iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, ad_id, **kw):
+        defaults = dict(
+            ad_id=ad_id,
+            comment='',
+            link=f'https://example.com/hsale/{ad_id}',
+            district='Jūrmala',
+            street_name='Jūras iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=1500.0,
+            total_price=180000.0,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def _link_ads(self, *args):
+        call_command('link_ads_to_properties', *args)
+
+    def test_twin_links_to_twin_property_across_blocks(self):
+        """The rent twin has only a settlement-level address — the
+        conflation setup — yet lands on the sale twin's property."""
+        seller = Seller.objects.create(phone='111')
+        sale = self._sale_ad(
+            't1', seller=seller, district='Seda',
+            street_name='Miera iela', street_no='3',
+            apartment_no='4',
+        )
+        self._link_ads('--type', 'apartment', '--deal', 'sale')
+        sale.refresh_from_db()
+        twin_prop_id = sale.property_id
+        self.assertIsNotNone(twin_prop_id)
+
+        rent = self._rent_ad(
+            't1', seller=seller, district='Valka un rajons',
+            street_name='Seda', street_no='',
+        )
+        self._link_ads('--type', 'apartment', '--deal', 'rent')
+        rent.refresh_from_db()
+
+        self.assertEqual(rent.property_id, twin_prop_id)
+        self.assertEqual(rent.property_match_status, 'auto')
+        self.assertEqual(rent.property_match_score, 1.0)
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_twin_attribute_conflict_goes_to_candidate(self):
+        """A linked twin whose hard gates fail means the listing was
+        likely repurposed — review, don't link."""
+        sale = self._sale_ad('t2', rooms=2)
+        self._link_ads('--type', 'apartment', '--deal', 'sale')
+        sale.refresh_from_db()
+
+        rent = self._rent_ad('t2', rooms=3)
+        self._link_ads('--type', 'apartment', '--deal', 'rent')
+        rent.refresh_from_db()
+
+        self.assertEqual(rent.property_match_status, 'candidate')
+        self.assertEqual(
+            rent.candidate_property_id, sale.property_id
+        )
+        self.assertIsNone(rent.property_id)
+
+    def test_twin_shortcut_skipped_on_conflation_alarms(self):
+        """Alarms on the twin's property disable the shortcut."""
+        sale = self._sale_ad('t3', apartment_no='5')
+        self._link_ads('--type', 'apartment', '--deal', 'sale')
+        sale.refresh_from_db()
+        # A second sale ad carrying a different apt_no lands on the
+        # same property — the >=2 apt_nos conflation signature.
+        self._sale_ad(
+            'other', apartment_no='7', property_id=sale.property_id,
+            property_match_status='manual',
+        )
+
+        rent = self._rent_ad(
+            't3', district='Valka un rajons', street_name='Seda',
+            street_no='', apartment_no='5',
+        )
+        self._link_ads('--type', 'apartment', '--deal', 'rent')
+        rent.refresh_from_db()
+
+        # The shortcut was skipped; the normal path found no
+        # candidate in the degenerate block and made a new property.
+        self.assertIsNotNone(rent.property_id)
+        self.assertNotEqual(rent.property_id, sale.property_id)
+        self.assertEqual(rent.property_match_status, 'auto')
+
+    def test_unlinked_twin_falls_back_to_normal_matching(self):
+        """A twin that was scraped but never linked changes
+        nothing."""
+        self._sale_ad('u1')
+        rent = self._rent_ad('u1')
+        self._link_ads('--type', 'apartment', '--deal', 'rent')
+        rent.refresh_from_db()
+
+        self.assertIsNotNone(rent.property_id)
+        self.assertEqual(rent.property_match_status, 'auto')
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_relink_moves_split_twin_onto_shared_property(self):
+        """--relink repairs a pre-F9 split pair: the rent ad migrates
+        to its sale twin's property and the emptied prop dies."""
+        rent = self._rent_ad('r1')
+        self._link_ads('--type', 'apartment', '--deal', 'rent')
+        rent.refresh_from_db()
+
+        sale = self._sale_ad('r1')
+        sale_prop = ApartmentProperty.from_ad(sale)
+        sale_prop.save()
+        sale.property = sale_prop
+        sale.property_match_status = 'auto'
+        sale.save()
+        self.assertEqual(ApartmentProperty.objects.count(), 2)
+
+        self._link_ads(
+            '--type', 'apartment', '--deal', 'rent', '--relink'
+        )
+        rent.refresh_from_db()
+
+        self.assertEqual(rent.property_id, sale_prop.pk)
+        self.assertEqual(rent.property_match_score, 1.0)
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_twin_shortcut_is_symmetric_for_houses(self):
+        rent = self._house_rent_ad('h1')
+        self._link_ads('--type', 'house', '--deal', 'rent')
+        rent.refresh_from_db()
+
+        sale = self._house_sale_ad('h1')
+        self._link_ads('--type', 'house', '--deal', 'sale')
+        sale.refresh_from_db()
+
+        self.assertEqual(sale.property_id, rent.property_id)
+        self.assertEqual(sale.property_match_status, 'auto')
+        self.assertEqual(sale.property_match_score, 1.0)
+        self.assertEqual(HouseProperty.objects.count(), 1)
 
 
 class HouseRentMisclassificationTest(TestCase):
