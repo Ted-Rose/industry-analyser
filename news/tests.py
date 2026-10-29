@@ -988,10 +988,12 @@ class CuratedSeedKeywordTests(TestCase):
             self.by_slug['politics'],
         )
 
-    def test_arlietu_ministra_hits_politics(self):
+    def test_arlietu_ministra_hits_diplomacy(self):
+        # '=ārlietu' + '=ārlietu ministr*' moved to diplomacy
+        # and outscore politics' '=ministra'.
         self.assertEqual(
             self._topic('Ārlietu ministra paziņojums'),
-            self.by_slug['politics'],
+            self.by_slug['diplomacy'],
         )
 
     def test_valdibas_hits_politics(self):
@@ -1037,6 +1039,57 @@ class CuratedSeedKeywordTests(TestCase):
             self.assertEqual(
                 self._topic(title), self.by_slug['politics'],
             )
+
+    # War/diplomacy seeds: positive hits plus the curated
+    # near-miss tokens that must NOT reach them.
+
+    def test_war_declensions_hit_war(self):
+        for title in (
+            'Karš Ukrainā turpinās',
+            'Pēc kara sākas atjaunošana',
+            'Krievija sāka karu pret kaimiņu',
+            'Kaujas pie frontes smagās',
+            'Raķešu uzbrukums Kijivā',
+            'Droni apšauda pozīcijas',
+            'Karavīri dotas nākamajā rotācijā',
+        ):
+            self.assertEqual(
+                self._topic(title), self.by_slug['war'],
+                msg=title,
+            )
+
+    def test_karuselis_does_not_hit_war(self):
+        # 'karuselis' shares only the 'karu' prefix — exact
+        # declension tokens, not 'kara*'/'karu*' prefixes.
+        self.assertIsNone(
+            self._topic('Jaunais karuselis priecē bērnus')
+        )
+
+    def test_karalis_does_not_hit_war(self):
+        # Royals are not war — why the seeds are exact
+        # tokens rather than a 'kara*' prefix.
+        self.assertIsNone(
+            self._topic('Karalis apmeklē jaunatnes svētkus')
+        )
+
+    def test_diplomacy_seeds_hit(self):
+        for title in (
+            'NATO samits Rīgā',
+            'Jaunas sankcijas pret agresoru',
+            'Vēstnieks iesniedz akreditācijas vēstules',
+        ):
+            self.assertEqual(
+                self._topic(title), self.by_slug['diplomacy'],
+                msg=title,
+            )
+
+    def test_partijas_kongress_not_diplomacy(self):
+        # A party congress is domestic politics — the 'samit*'
+        # summit family must not claim it.
+        self.assertEqual(
+            self._topic('Partijas kongress nozīmē vadītāju'),
+            self.by_slug['politics'],
+        )
 
 
 class SeedSyncTests(TestCase):

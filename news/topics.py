@@ -55,11 +55,10 @@ TOPICS = (
             '=ministrs', '=ministra', '=ministram',
             'ministru*', 'ministri*', 'ministre*',
             'partij*', 'vēlēšan*', 'prezident*',
-            'deputāts', 'opozīcija', 'NATO', 'sankcijas',
+            'deputāts', 'opozīcija',
             'likumprojekts', 'referend*', 'Satversm*',
             'premjerministr*', 'premjera*', 'premjeru*',
             '=premjers', 'parlaments',
-            '=ārlietu', '=ārlietu ministr*', 'diplomā*',
             'aizsardzības ministrij*',
         ],
     },
@@ -78,6 +77,50 @@ TOPICS = (
             'atbalsta programma', 'grant*', 'nodokļu atlaides',
             'Eiropas Savienības fondi', 'investīciju atbalsts',
             'pašvaldību finanšu', 'dotācijas',
+        ],
+    },
+    {
+        'slug': 'war',
+        'name': 'Karš',
+        'weight': 1.1,
+        'keywords': [
+            # 'karš' (war) declensions as EXACT tokens — a
+            # 'kara*' prefix would also hit 'karalis'/
+            # 'karaliskā' (royals) and 'karate', and 'karu*'
+            # would hit 'karuselis'. '=karu' (instr./gen.pl.)
+            # is still safe: 'karuselis' is a different
+            # token. The 'karavīr*'/'karaspēk*'/'karadarb*'
+            # families cover the compounds a 'kara*' prefix
+            # would have reached.
+            '=karš', '=kara', '=karam', '=karā', '=karu',
+            '=kari', '=karus', '=karos',
+            'karavīr*', 'karaspēk*', 'karadarb*',
+            # 'uzbrukum*'/'pretuzbrukum*' are also sports
+            # terms (attack phase/counter-attack) and
+            # 'raķeš*' covers space launches — accepted
+            # ambiguity, war usage dominates. 'dron*' even
+            # hits 'dronlaps'.
+            'uzbrukum*', 'pretuzbrukum*', 'raķeš*', 'dron*',
+            'sprādzi*', 'apšaud*', 'bruņot*', 'militā*',
+            'armij*', 'kauj*',
+            'okupācij*', 'aneksij*', 'mobilizācij*',
+        ],
+    },
+    {
+        'slug': 'diplomacy',
+        'name': 'Diplomātija',
+        'weight': 1.0,
+        'keywords': [
+            # 'diplomā*'/'sankcij*'/'=NATO'/'=ārlietu' and
+            # '=ārlietu ministr*' moved here from politics —
+            # a keyword in two topics double-scores.
+            # 'vēstniecīb*' adds the embassy family
+            # 'vēstniek*' cannot reach ('vēstniecība' starts
+            # 'vēstniec', not 'vēstniek'). '=ANO' is the UN
+            # acronym token.
+            'diplomā*', 'sankcij*', '=NATO', '=ANO',
+            'samit*', 'vizīt*', 'vēstniek*', 'vēstniecīb*',
+            'rezolūcij*', '=ārlietu', '=ārlietu ministr*',
         ],
     },
 )
