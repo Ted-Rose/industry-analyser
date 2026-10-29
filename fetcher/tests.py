@@ -47,6 +47,8 @@ from fetcher.professions import (
     normalize_title,
 )
 from fetcher.scraper import VacancyScrapper
+from scrape_jobs.models import ScrapeJob, ScrapeJobRun
+from scrape_jobs.runner import iso_week_cycle_key
 
 CONFIG = {
     'type': 'nextjs',
@@ -2819,3 +2821,87 @@ class ProfessionSavedFilterApiTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertIn('nosuchprofession', resp.json()['detail'])
         self.assertFalse(SavedVacancyFilter.objects.exists())
+
+
+class ScrapeVacanciesGateTests(TestCase):
+    """Per-portal cooldown gate: each portal's slug
+    (``fetcher.vacancies.<pid>``) cools down independently — GCP
+    invocations skip when a SUCCESS completed within the last 13
+    days; local invocations skip once the current ISO-week cycle
+    has a SUCCESS. ``--no-ocr`` disables file fetch/AI OCR."""
+
+    MODULE = 'fetcher.management.commands.scrape_vacancies'
+    SLUG = 'fetcher.vacancies.1'
+
+    def _make_run(self, status, completed_at=None,
+                  cycle_key='2024-W01'):
+        job, _ = ScrapeJob.objects.get_or_create(slug=self.SLUG)
+        return ScrapeJobRun.objects.create(
+            job=job,
+            cycle_key=cycle_key,
+            execution_id='test',
+            executed_by='local',
+            status=status,
+            completed_at=completed_at,
+        )
+
+    def _invoke(self, executed_by, *args, **command_kwargs):
+        """call_command with executed_by patched and the scraper
+        class mocked; returns the scraper class mock."""
+        with mock.patch(
+            f'{self.MODULE}.detect_executed_by',
+            return_value=executed_by,
+        ), mock.patch(f'{self.MODULE}.VacancyScrapper') as cls:
+            call_command('scrape_vacancies', *args, **command_kwargs)
+        return cls
+
+    def test_gcp_skips_after_recent_success(self):
+        self._make_run(
+            ScrapeJobRun.SUCCESS, completed_at=timezone.now(),
+        )
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke('gcp_cloud_run', 1)
+        # Early continue before ScrapeJobRunner(): no new run row.
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_gcp_scrapes_after_stale_success(self):
+        self._make_run(
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(days=14),
+        )
+        scraper_cls = self._invoke('gcp_cloud_run', 1)
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_gcp_scrapes_after_failed_run(self):
+        self._make_run(
+            ScrapeJobRun.FAILED, completed_at=timezone.now(),
+        )
+        scraper_cls = self._invoke('gcp_cloud_run', 1)
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_local_skips_after_same_cycle_success(self):
+        self._make_run(
+            ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now(),
+            cycle_key=iso_week_cycle_key(),
+        )
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke('local', 1)
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_gcp_ignore_cooldown_bypasses_gate(self):
+        self._make_run(
+            ScrapeJobRun.SUCCESS, completed_at=timezone.now(),
+        )
+        scraper_cls = self._invoke(
+            'gcp_cloud_run', 1, ignore_cooldown=True,
+        )
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_no_ocr_marks_scraper_ocr_unavailable(self):
+        scraper_cls = self._invoke('local', 1, no_ocr=True)
+        self.assertIs(
+            scraper_cls.return_value._ocr_unavailable, True
+        )

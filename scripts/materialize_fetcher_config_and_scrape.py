@@ -30,7 +30,10 @@ def main() -> int:
         )
     else:
         portal_ids = ["1"]
-    only = sys.argv[1] if len(sys.argv) > 1 else None
+    args = sys.argv[1:]
+    flags = [a for a in args if a.startswith("-")]
+    positional = [a for a in args if not a.startswith("-")]
+    only = positional[0] if positional else None
     if only is not None:
         portal_ids = [p for p in portal_ids if p == only]
         if not portal_ids:
@@ -44,6 +47,7 @@ def main() -> int:
                 str(BASE / "manage.py"),
                 "scrape_vacancies",
                 str(portal_id),
+                *flags,
             ],
             cwd=str(BASE),
         )
