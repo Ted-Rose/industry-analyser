@@ -1043,9 +1043,9 @@ class GcpHorizonGateTests(TestCase):
 
     MODULE = 'tv_programs.management.commands.scrape_tv_programs'
 
-    def _cover(self, start_time):
+    def _cover(self, start_time, channels=CHANNELS):
         """One Program row per channel at ``start_time``."""
-        for name in CHANNELS:
+        for name in channels:
             channel, _ = Channel.objects.get_or_create(name=name)
             Program.objects.create(
                 title_lv='Show',
@@ -1075,6 +1075,30 @@ class GcpHorizonGateTests(TestCase):
 
     def test_gcp_scrapes_when_coverage_ends_today(self):
         self._cover(timezone.now())
+        scraper_cls = self._invoke('gcp_cloud_run')
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_gcp_skips_when_coverage_ends_exactly_tomorrow(self):
+        # Boundary: a latest start_time on tomorrow's date still
+        # counts as covered.
+        tomorrow = timezone.localdate() + datetime.timedelta(days=1)
+        self._cover(timezone.make_aware(
+            datetime.datetime.combine(tomorrow, datetime.time.min)
+        ))
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke('gcp_cloud_run')
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_gcp_scrapes_when_one_channel_covers_only_today(self):
+        # Two channels covered through tomorrow+ can't hide the
+        # third ending today — partial coverage still scrapes.
+        names = sorted(CHANNELS)
+        self._cover(
+            timezone.now() + datetime.timedelta(days=2),
+            channels=names[:2],
+        )
+        self._cover(timezone.now(), channels=names[2:])
         scraper_cls = self._invoke('gcp_cloud_run')
         self.assertTrue(scraper_cls.return_value.run.called)
 

@@ -2905,3 +2905,32 @@ class ScrapeVacanciesGateTests(TestCase):
         self.assertIs(
             scraper_cls.return_value._ocr_unavailable, True
         )
+
+    def test_gcp_portals_gate_independently(self):
+        # Portal 1 cooled down by a recent SUCCESS, portal 2 with
+        # no runs at all — the no-arg pass skips 1 and scrapes 2.
+        self._make_run(
+            ScrapeJobRun.SUCCESS, completed_at=timezone.now(),
+        )
+        out = io.StringIO()
+        with mock.patch(
+            f'{self.MODULE}.detect_executed_by',
+            return_value='gcp_cloud_run',
+        ), mock.patch(
+            f'{self.MODULE}.load_portals_config',
+            return_value={'1': {}, '2': {}},
+        ), mock.patch(f'{self.MODULE}.VacancyScrapper') as cls:
+            call_command('scrape_vacancies', stdout=out)
+        cls.assert_called_once()
+        self.assertEqual(cls.call_args.kwargs['portal_id'], '2')
+        self.assertIn('fetcher.vacancies.1: skipping', out.getvalue())
+        self.assertEqual(
+            ScrapeJobRun.objects.filter(
+                job__slug=self.SLUG
+            ).count(),
+            1,
+        )
+        run = ScrapeJobRun.objects.get(
+            job__slug='fetcher.vacancies.2'
+        )
+        self.assertEqual(run.status, ScrapeJobRun.SUCCESS)
