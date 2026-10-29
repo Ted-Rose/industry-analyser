@@ -14,6 +14,9 @@ from .models import (
     ApartmentForSale, ApartmentForSaleSighting,
     Project, Region, Seller,
 )
+from .rent_flags import (
+    SHORT_STAY_PERIODS, detect_rate_period, is_room_share,
+)
 from .sale_flags import is_sale_misclassified
 
 logger = logging.getLogger('classified_ads')
@@ -246,6 +249,10 @@ class ApartmentAdScraper(BaseScraper):
                 'alt_price_per_sqm': alt_price_per_sqm,
                 'total_price': total_price,
                 'alt_price': alt_price,
+                # Raw cells keep the billing-period marker that
+                # _clean_price monthlyizes and drops — record it
+                # here, the last point it is observable.
+                'rate_period': detect_rate_period(cells[8], cells[9]),
             })
 
         # ss.com redirects out-of-range pages back to the first
@@ -469,14 +476,26 @@ class ApartmentAdScraper(BaseScraper):
             sale_flag = is_sale_misclassified(
                 comment, monthly_price_per_sqm
             )
-            if enriched_result.get('_heal') and not sale_flag:
-                # A re-enriched existing row must keep a flag set
+            rate_period = enriched_result.get('rate_period', '')
+            room_share = is_room_share(comment)
+            if enriched_result.get('_heal'):
+                # A re-enriched existing row must keep flags set
                 # manually or by an earlier scrape — flagging is
                 # additive, never undone by re-enrichment.
-                sale_flag = ApartmentForRent.all_objects.filter(
+                stored = ApartmentForRent.all_objects.filter(
                     ad_id=enriched_result['ad_id'],
-                    is_sale_misclassified=True,
-                ).exists()
+                ).values_list(
+                    'is_sale_misclassified', 'rate_period',
+                    'is_room_share',
+                ).first()
+                if stored:
+                    sale_flag = sale_flag or stored[0]
+                    if (
+                        stored[1] in SHORT_STAY_PERIODS
+                        and rate_period not in SHORT_STAY_PERIODS
+                    ):
+                        rate_period = stored[1]
+                    room_share = room_share or stored[2]
 
             return ApartmentForRent(
                 **common_kwargs,
@@ -485,6 +504,8 @@ class ApartmentAdScraper(BaseScraper):
                 total_price_120m=enriched_result['alt_price'],
                 price_per_sqm_120m=enriched_result['alt_price_per_sqm'],
                 is_sale_misclassified=sale_flag,
+                rate_period=rate_period,
+                is_room_share=room_share,
             )
         return ApartmentForSale(**common_kwargs)
 
@@ -514,6 +535,7 @@ class ApartmentAdScraper(BaseScraper):
                     'total_price', 'post_date', 'last_seen',
                     'seller', 'house_type', 'facilities',
                     'is_sale_misclassified', 'apartment_no',
+                    'rate_period', 'is_room_share',
                 ],
             )
             logger.info(f"Saved {len(rent_ads)} rent ads.")
