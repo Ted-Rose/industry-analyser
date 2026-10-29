@@ -10,14 +10,21 @@ post-hoc detectors run instead (classified_ads/rent_flags.py):
   consistency ratio — monthly_price/(ppsqm*size) is ~1 for real
   monthly ads but ~30/~4 (or inverse) when exactly one price cell
   was a monthlyized daily/weekly rate. Consistent-ratio short
-  stays (both cells /day — ~54 rows at >=€25/m² per the review)
-  can only be caught by comment wording.
+  stays (both cells /day) can only be caught by comment wording.
 - Houses: monthly_price_per_sqm is derived (price/size), so the
   ratio trick is impossible — comment vocabulary plus an
   implausibly high stored per-m² rent (>15 €/m²) is the residue
   of a x30 daily rate.
-- is_room_share: comment room-share / part-of-property keywords
+- is_room_share: comment room-share / part-of-property patterns
   (LV+RU+EN) on both tables.
+
+is_sale_misclassified rows are skipped entirely: they are sale
+ads misfiled under rent, already excluded from the analytical
+layer (CleanRentalManager), and their sale-scale prices make the
+ppsqm>15 detector fire on ~72% of them — flagging them is noise.
+is_hidden rows ARE still flagged: they remain rent inventory
+(delisted, not misfiled) and the flags stay correct if a row is
+unhidden later.
 
 Only rows with rate_period == '' (unknown) are candidates —
 a stored 'day'/'week'/'month' is positive ingest or manual
@@ -39,8 +46,10 @@ from django.core.management.base import BaseCommand
 from classified_ads.models import ApartmentForRent, HouseForRent
 from classified_ads.rent_flags import (
     SHORT_STAY_PERIODS,
-    apartment_rate_period_posthoc,
-    house_rate_period_posthoc,
+    apartment_ratio_period,
+    comment_rate_period,
+    has_short_stay_comment,
+    house_ppsqm_period,
     is_room_share,
 )
 
@@ -72,56 +81,64 @@ class Command(BaseCommand):
         mode = 'DRY-RUN (nothing written)' if dry_run else 'WRITE'
 
         self.stdout.write(f'flag_short_stay_ads — {mode}')
-        for label, model, period_fn in (
+        for label, model, numeric_fn, numeric_label in (
             (
                 'ApartmentForRent',
                 ApartmentForRent,
-                lambda ad: apartment_rate_period_posthoc(
+                lambda ad: apartment_ratio_period(
                     ad.monthly_price,
                     ad.monthly_price_per_sqm,
                     ad.size,
-                    ad.comment,
                 ),
+                'price-cell ratio ~30/~4',
             ),
             (
                 'HouseForRent',
                 HouseForRent,
-                lambda ad: house_rate_period_posthoc(
+                lambda ad: house_ppsqm_period(
                     ad.monthly_price_per_sqm,
-                    ad.comment,
                 ),
+                'ppsqm > 15',
             ),
         ):
             counts = self._flag_table(
-                model, period_fn, dry_run, batch_size
+                model, numeric_fn, numeric_label, dry_run, batch_size
             )
             self.stdout.write(f'\n{label}:')
-            self.stdout.write(
-                f'  Rows scanned:              {counts["scanned"]}'
+            rows = (
+                ('Rows scanned (excl. misclassified)',
+                 counts['scanned']),
+                ('Skipped is_sale_misclassified',
+                 counts['skipped_misclassified']),
+                ('rate_period already set',
+                 counts['period_known']),
+                ('flagged by comment (period wording)',
+                 counts['period_comment']),
+                ('flagged by comment (generic short-stay)',
+                 counts['period_generic']),
+                (f'flagged by {numeric_label}',
+                 counts['period_numeric']),
+                ('rate_period day/week total',
+                 counts['period_flagged']),
+                ('is_room_share already set',
+                 counts['room_known']),
+                ('is_room_share flagged',
+                 counts['room_flagged']),
             )
-            self.stdout.write(
-                f'  rate_period already set:   '
-                f'{counts["period_known"]}'
-            )
-            self.stdout.write(
-                f'  rate_period day/week found:'
-                f' {counts["period_flagged"]}'
-            )
-            self.stdout.write(
-                f'  is_room_share already set: '
-                f'{counts["room_known"]}'
-            )
-            self.stdout.write(
-                f'  is_room_share flagged:     '
-                f'{counts["room_flagged"]}'
-            )
+            for title, value in rows:
+                self.stdout.write(f'  {title:44s} {value}')
             logger.info('flag_short_stay_ads %s %s: %s',
                         mode, label, counts)
 
-    def _flag_table(self, model, period_fn, dry_run, batch_size):
+    def _flag_table(self, model, numeric_fn, numeric_label,
+                    dry_run, batch_size):
         counts = {
             'scanned': 0,
+            'skipped_misclassified': 0,
             'period_known': 0,
+            'period_comment': 0,
+            'period_generic': 0,
+            'period_numeric': 0,
             'period_flagged': 0,
             'room_known': 0,
             'room_flagged': 0,
@@ -138,13 +155,25 @@ class Command(BaseCommand):
 
         qs = model.all_objects.order_by('id')
         for ad in qs.iterator(chunk_size=batch_size):
+            if ad.is_sale_misclassified:
+                counts['skipped_misclassified'] += 1
+                continue
             counts['scanned'] += 1
             dirty = False
 
             if ad.rate_period:
                 counts['period_known'] += 1
             else:
-                period = period_fn(ad)
+                period = comment_rate_period(ad.comment)
+                if period in SHORT_STAY_PERIODS:
+                    counts['period_comment'] += 1
+                elif has_short_stay_comment(ad.comment):
+                    period = 'day'
+                    counts['period_generic'] += 1
+                else:
+                    period = numeric_fn(ad)
+                    if period in SHORT_STAY_PERIODS:
+                        counts['period_numeric'] += 1
                 if period in SHORT_STAY_PERIODS:
                     ad.rate_period = period
                     counts['period_flagged'] += 1
