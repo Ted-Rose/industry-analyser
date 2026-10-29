@@ -31,6 +31,7 @@ from .models import (
     NewsTopic,
 )
 from .scraper import NewsScraper
+from .topics import TOPICS
 
 FEED_A = b"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -559,8 +560,8 @@ class DigestTests(TestCase):
         result = build_digest(self.today, top_n=5)
         _, _, rationale = result['items'][0]
         # The 'candidate' link awaits admin review — it must not
-        # count as coverage.
-        self.assertEqual(rationale, '1 outlets: a')
+        # count as coverage. Singular count is not pluralized.
+        self.assertEqual(rationale, '1 outlet: a')
 
     def test_all_candidate_story_excluded_from_digest(self):
         story = NewsStory.objects.create(
@@ -589,3 +590,479 @@ class DigestTests(TestCase):
         content = response.content.decode()
         self.assertIn('Ziņa viens', content)
         self.assertNotIn(cand.title, content)
+
+
+class StemClassificationTests(TestCase):
+    """Inflected Latvian must still hit the base-form keyword —
+    the shared stemmer collapses 'Saeimas'/'Saeima' onto the
+    'saei' stem; multi-word keywords need all their stems."""
+
+    def setUp(self):
+        self.funding = NewsTopic.objects.create(
+            slug='government-funding',
+            name='Valsts finansējums',
+            weight=1.3,
+            keywords=[
+                'budžets', 'finansējums', 'ES fondi',
+                'Eiropas Savienības fondi',
+            ],
+        )
+        self.politics = NewsTopic.objects.create(
+            slug='politics',
+            name='Politika',
+            weight=1.0,
+            keywords=['Saeima', 'valdība', 'deputāts'],
+        )
+        self.economics = NewsTopic.objects.create(
+            slug='economics',
+            name='Ekonomika',
+            weight=1.2,
+            keywords=['tarifi', 'elektroenerģija'],
+        )
+        # Topic order decides score ties — funding first so the
+        # 'budž' vs 'vald' tie below resolves to funding.
+        self.topics = [self.funding, self.politics, self.economics]
+
+    def test_inflected_saeima_hits_politics(self):
+        topic = classify_topic(
+            'Saeimas deputāti balso par likumu',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.politics)
+
+    def test_inflected_budget_hits_funding(self):
+        topic = classify_topic(
+            'Valdības budžeta izmaiņas',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.funding)
+
+    def test_inflected_energy_hits_economics(self):
+        topic = classify_topic(
+            'Elektroenerģijas tarifi pieaugs',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.economics)
+
+    def test_unrelated_title_returns_none(self):
+        topic = classify_topic(
+            'Dziedātāja izlaiž jaunu albumu',
+            'Koncertu tūre sākas rudenī.',
+            self.topics,
+        )
+        self.assertIsNone(topic)
+
+    def test_multiword_keyword_all_stems_present(self):
+        # 'ES fondi' stems to {es, fond} — both appear inflected
+        # in the title; 'Eiropas Savienības fondi' only partially
+        # overlaps and does not hit.
+        topic = classify_topic(
+            'ES fondu līdzekļi pašvaldībām',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.funding)
+
+    def test_multiword_keyword_partial_stems_miss(self):
+        # Only 'fond' is present — 'ES fondi' requires 'es' too.
+        topic = classify_topic(
+            'Fondu pārvalde pārskata prioritātes',
+            '',
+            self.topics,
+        )
+        self.assertIsNone(topic)
+
+    def test_title_hits_weigh_double(self):
+        # economics: 'tarifi' in the title (2 points); politics:
+        # 'Saeima' only in the lead (1 point) — the title hit
+        # wins outright rather than tying.
+        topic = classify_topic(
+            'Tarifi pieaugs',
+            'Saeima debatēs.',
+            self.topics,
+        )
+        self.assertEqual(topic, self.economics)
+
+
+class ReclassifyCommandTests(TestCase):
+    def setUp(self):
+        self.source = _source('a')
+        self.politics = NewsTopic.objects.create(
+            slug='politics', name='Politika', weight=2.0,
+            keywords=['Saeima', 'deputāts'],
+        )
+
+    def _clustered_article(self):
+        article = _article(
+            self.source, 'Saeimas deputāti pieņem likumu',
+            published=timezone.now(),
+        )
+        link_unmatched_articles(days=2)
+        article.refresh_from_db()
+        return article
+
+    def test_dry_run_writes_nothing(self):
+        article = self._clustered_article()
+        story = article.story
+        old_importance = story.importance_score
+        call_command(
+            'reclassify_news_articles',
+            '--dry-run',
+            stdout=StringIO(),
+        )
+        article.refresh_from_db()
+        story.refresh_from_db()
+        self.assertIsNone(article.topic_id)
+        self.assertIsNone(story.topic_id)
+        self.assertEqual(story.importance_score, old_importance)
+
+    def test_run_flips_topic_and_refreshes_story(self):
+        article = self._clustered_article()
+        story = article.story
+        self.assertIsNone(story.topic_id)
+        call_command('reclassify_news_articles', stdout=StringIO())
+        article.refresh_from_db()
+        story.refresh_from_db()
+        self.assertEqual(article.topic_id, self.politics.id)
+        # The story adopts the member topic and its refreshed
+        # importance uses that weight (1 source x 2.0 x 1.0).
+        self.assertEqual(story.topic_id, self.politics.id)
+        self.assertEqual(story.importance_score, 2.0)
+
+    def test_all_flag_reclassifies_assigned_articles(self):
+        other = NewsTopic.objects.create(
+            slug='other', name='Cits', keywords=['zzzz'],
+        )
+        article = _article(
+            self.source, 'Saeimas deputāti pieņem likumu',
+            topic=other, published=timezone.now(),
+        )
+        # Default scope touches untopicked articles only.
+        call_command('reclassify_news_articles', stdout=StringIO())
+        article.refresh_from_db()
+        self.assertEqual(article.topic_id, other.id)
+        call_command(
+            'reclassify_news_articles', '--all', stdout=StringIO(),
+        )
+        article.refresh_from_db()
+        self.assertEqual(article.topic_id, self.politics.id)
+
+
+class KeywordMarkerTests(TestCase):
+    """Marker syntax: '=w' = exact token, 'w*' = token prefix,
+    plain 'w' = 4-char stem (news.classification docstring)."""
+
+    def _topic(self, keywords):
+        return NewsTopic.objects.create(
+            slug='t', name='T', weight=1.0, keywords=keywords,
+        )
+
+    def test_exact_marker_requires_literal_token(self):
+        topic = self._topic(['=eiro'])
+        hit = classify_topic('Eiro kurss stabilizējas', '', [topic])
+        miss = classify_topic('Eirozona paplašinās', '', [topic])
+        self.assertEqual(hit, topic)
+        self.assertIsNone(miss)
+
+    def test_prefix_marker_hits_inflection_family_only(self):
+        topic = self._topic(['premjer*'])
+        hit = classify_topic('Premjeru amatā apstiprina', '', [topic])
+        miss = classify_topic('Premiju par sniegumu', '', [topic])
+        self.assertEqual(hit, topic)
+        self.assertIsNone(miss)
+
+    def test_exact_marker_does_not_hit_stem_family(self):
+        # '=Latvenergo' is a proper noun — 'Latvijas' shares the
+        # 'latv' stem and must not match.
+        topic = self._topic(['=Latvenergo'])
+        hit = classify_topic(
+            'Latvenergo peļņa pieaug', '', [topic],
+        )
+        miss = classify_topic(
+            'Latvijas hokeja izlase zaudē', '', [topic],
+        )
+        self.assertEqual(hit, topic)
+        self.assertIsNone(miss)
+
+    def test_marker_inside_multiword_keyword(self):
+        topic = self._topic(['aizsardzības ministrij*'])
+        hit = classify_topic(
+            'Aizsardzības ministrija apstiprina plānu',
+            '',
+            [topic],
+        )
+        miss = classify_topic(
+            'Aizsardzības minimums sasniegts', '', [topic],
+        )
+        self.assertEqual(hit, topic)
+        self.assertIsNone(miss)
+
+    def test_title_double_count_applies_to_marked_specs(self):
+        topic = self._topic(['grant*'])
+        in_title = classify_topic('Grantu konkursā uzvar', '', [topic])
+        in_lead = classify_topic('Ziņa', 'Grantu konkursā.', [topic])
+        self.assertEqual(in_title, topic)
+        self.assertEqual(in_lead, topic)
+
+
+class CuratedSeedKeywordTests(TestCase):
+    """Regression tests for the PR-47 review false positives on
+    the real TOPICS seed list — 4-char stems turned keywords
+    into near-universal matchers ('Latvenergo'->'latv' hit
+    'Latvijas', 'līdzfinansējums'->'līdz' hit the preposition,
+    'eiro'->'eiro' hit Eiropas*, 'eksports'->'eksp' hit
+    eksperts, 'elektroauto'->'elek' hit elektrība,
+    'premjers'->'prem' hit premija, 'partija'->'part' hit
+    partneris, 'banka'->'bank' hit bankomāts/bankrotē,
+    'grants'->'gran' hit granāta). The curated seeds must
+    reject all of them and still hit real inflections.
+    Round-2 additions cover satver/satvēra, ārlietās,
+    valdzina, premjerlīga, inflamācija, koala, substrāts
+    and ministrants."""
+
+    def setUp(self):
+        self.topics = [
+            NewsTopic.objects.create(
+                slug=t['slug'],
+                name=t['name'],
+                weight=t['weight'],
+                keywords=t['keywords'],
+            )
+            for t in TOPICS
+        ]
+        self.by_slug = {t.slug: t for t in self.topics}
+
+    def _topic(self, title, lead=''):
+        return classify_topic(title, lead, self.topics)
+
+    def test_latvijas_does_not_hit_latvenergo(self):
+        self.assertIsNone(
+            self._topic('Latvijas hokeja izlase zaudē')
+        )
+
+    def test_lidz_preposition_does_not_hit_funding(self):
+        # 'līdzfinansējums'->'līdz' used to match the
+        # preposition kept by drop_stopwords=False; the curated
+        # 'līdzfinansējum*' prefix requires the 'līdzf' lead-in.
+        self.assertIsNone(
+            self._topic(
+                'Dziedātāja izlaiž albumu',
+                'Albums nonāks veikalos līdz rudenim.',
+            )
+        )
+
+    def test_eiropas_does_not_hit_eiro(self):
+        self.assertIsNone(
+            self._topic('Eiropas čempionāts sākas')
+        )
+
+    def test_eksperti_does_not_hit_eksports(self):
+        self.assertIsNone(
+            self._topic('Eksperti brīdina par klimatu')
+        )
+
+    def test_premija_does_not_hit_premjers(self):
+        self.assertIsNone(
+            self._topic('Darbinieki saņem premiju par sniegumu')
+        )
+
+    def test_partneris_does_not_hit_partija(self):
+        self.assertIsNone(
+            self._topic('Uzņēmums atrod jaunu partneri')
+        )
+
+    def test_bankomats_does_not_hit_banka(self):
+        self.assertIsNone(self._topic('Bankomāts nozagts'))
+
+    def test_bankrote_does_not_hit_banka(self):
+        self.assertIsNone(
+            self._topic('Piegādātājs bankrotē pēc zaudējumiem')
+        )
+
+    def test_granata_does_not_hit_grants(self):
+        self.assertIsNone(
+            self._topic('Veca granāta atrasta pļavā')
+        )
+
+    def test_elektriba_alone_does_not_hit_funding(self):
+        # Electricity prices are economics, not
+        # government-funding — 'elektroauto'->'elek' used to
+        # push every electricity article into funding.
+        self.assertEqual(
+            self._topic('Elektrības tarifi pieaugs'),
+            self.by_slug['economics'],
+        )
+
+    def test_saeimas_deputati_hits_politics(self):
+        self.assertEqual(
+            self._topic('Saeimas deputāti balso par likumu'),
+            self.by_slug['politics'],
+        )
+
+    def test_eksporta_hits_economics(self):
+        self.assertEqual(
+            self._topic('Eksporta apjomi sasniedz rekordu'),
+            self.by_slug['economics'],
+        )
+
+    def test_premjeru_hits_politics(self):
+        self.assertEqual(
+            self._topic('Premjeru amatā apstiprina'),
+            self.by_slug['politics'],
+        )
+
+    def test_elektroauto_subsidijas_hits_funding(self):
+        self.assertEqual(
+            self._topic('Elektroauto subsīdijas pagarinātas'),
+            self.by_slug['government-funding'],
+        )
+
+    def test_latvenergo_hits_economics(self):
+        self.assertEqual(
+            self._topic('Latvenergo peļņa pieaug'),
+            self.by_slug['economics'],
+        )
+
+    def test_banku_hits_economics(self):
+        self.assertEqual(
+            self._topic('Banku sektora peļņa'),
+            self.by_slug['economics'],
+        )
+
+    def test_lidzfinansejums_hits_funding(self):
+        self.assertEqual(
+            self._topic('Projekts saņem līdzfinansējumu'),
+            self.by_slug['government-funding'],
+        )
+
+    def test_partijas_hits_politics(self):
+        self.assertEqual(
+            self._topic('Partijas kongress nozīmē vadītāju'),
+            self.by_slug['politics'],
+        )
+
+    # Round-2 residual collisions: stem/prefix conversions
+    # must reject the lookalike tokens below while still
+    # hitting the real inflection families.
+
+    def test_satver_does_not_hit_satversme(self):
+        # 'satver' (police seize) shares the 'satv' stem.
+        self.assertIsNone(
+            self._topic('Policija satver aizdomās turēto zagli')
+        )
+
+    def test_arlietas_does_not_hit_arlietu(self):
+        # 'ārlietās' (outdoors) shares the 'ārli' stem.
+        self.assertIsNone(
+            self._topic('Pasākums notiks ārlietās')
+        )
+
+    def test_valdzina_does_not_hit_valdiba(self):
+        self.assertIsNone(
+            self._topic('Filma valdzina skatītājus')
+        )
+
+    def test_premjerliga_does_not_hit_premjers(self):
+        self.assertIsNone(self._topic('Premjerlīgas spēle'))
+
+    def test_inflamacija_does_not_hit_inflacija(self):
+        self.assertIsNone(self._topic('Pacientam inflamācija'))
+
+    def test_koala_does_not_hit_koalicija(self):
+        self.assertIsNone(self._topic('Koala zooparkā'))
+
+    def test_substrats_does_not_hit_subsidija(self):
+        self.assertIsNone(self._topic('Substrāts augiem'))
+
+    def test_ministrants_does_not_hit_ministrs(self):
+        self.assertIsNone(
+            self._topic('Ministrants dievkalpojumā')
+        )
+
+    def test_satversmes_hits_politics(self):
+        self.assertEqual(
+            self._topic('Satversmes tiesa skata lietu'),
+            self.by_slug['politics'],
+        )
+
+    def test_arlietu_ministra_hits_politics(self):
+        self.assertEqual(
+            self._topic('Ārlietu ministra paziņojums'),
+            self.by_slug['politics'],
+        )
+
+    def test_valdibas_hits_politics(self):
+        self.assertEqual(
+            self._topic('Valdības sēde pieņem lēmumu'),
+            self.by_slug['politics'],
+        )
+
+    def test_premjers_inflections_hit_politics(self):
+        for title in (
+            'Premjerministrs komentē reformu',
+            'Premjers atklāj forumu',
+            'Premjeru amatā apstiprina',
+            'Premjeram jauns uzdevums',
+        ):
+            self.assertEqual(
+                self._topic(title), self.by_slug['politics'],
+            )
+
+    def test_inflacijas_hits_economics(self):
+        self.assertEqual(
+            self._topic('Inflācijas temps pārsniedz prognozes'),
+            self.by_slug['economics'],
+        )
+
+    def test_koalicijas_hits_politics(self):
+        self.assertEqual(
+            self._topic('Koalīcijas partneri vienojas'),
+            self.by_slug['politics'],
+        )
+
+    def test_subsidijas_hits_funding(self):
+        self.assertEqual(
+            self._topic('Subsīdijas laukiem apstiprinātas'),
+            self.by_slug['government-funding'],
+        )
+
+    def test_ministrs_ministru_hit_politics(self):
+        for title in (
+            'Ministrs komentē lēmumu',
+            'Ministru apstiprina amatā',
+        ):
+            self.assertEqual(
+                self._topic(title), self.by_slug['politics'],
+            )
+
+
+class SeedSyncTests(TestCase):
+    def setUp(self):
+        call_command('seed_news_sources', stdout=StringIO())
+
+    def _edit_politics(self):
+        topic = NewsTopic.objects.get(slug='politics')
+        topic.keywords = ['pielāgots']
+        topic.weight = 9.9
+        topic.save()
+        return topic
+
+    def test_seed_preserves_admin_edits(self):
+        topic = self._edit_politics()
+        call_command('seed_news_sources', stdout=StringIO())
+        topic.refresh_from_db()
+        self.assertEqual(topic.keywords, ['pielāgots'])
+        self.assertEqual(topic.weight, 9.9)
+
+    def test_sync_overwrites_keywords_and_weight(self):
+        topic = self._edit_politics()
+        call_command(
+            'seed_news_sources', '--sync', stdout=StringIO(),
+        )
+        topic.refresh_from_db()
+        seed = next(t for t in TOPICS if t['slug'] == 'politics')
+        self.assertEqual(topic.keywords, seed['keywords'])
+        self.assertEqual(topic.weight, seed['weight'])
