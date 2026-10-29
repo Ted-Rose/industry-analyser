@@ -717,12 +717,19 @@ class VacancyScrapper(BaseScraper):
                 for v in (*new_vacancies, *m2m_vacancies, *sighted)
                 if getattr(v, '_pending_employer', None)
             }
+            # m2m_vacancies covers every existing row (sighted and
+            # changed), so new + m2m is the full staged set.
+            profession_links = sum(
+                len(getattr(v, '_pending_professions', ()))
+                for v in (*new_vacancies, *m2m_vacancies)
+            )
             logger.info(
                 f"[dry-run] Would create {len(new_vacancies)} "
                 f"new vacancies and update "
                 f"{len(m2m_vacancies)} existing; "
-                f"{len(employer_ids)} distinct employer(s) observed "
-                f"— no vacancy/file/company writes."
+                f"{len(employer_ids)} distinct employer(s) and "
+                f"{profession_links} profession link(s) staged "
+                f"— no vacancy/file/company/profession writes."
             )
             return
 

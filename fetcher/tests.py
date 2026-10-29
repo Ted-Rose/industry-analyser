@@ -2399,6 +2399,9 @@ class ProfessionClassifierTests(TestCase):
         ('Drošības inspektors', 'other'),
         # sysadmin vs office admin
         ('Sistēmu administrators', 'sysadmin'),
+        # One-word LV compound — the sysadmin bucket must win
+        # before any `sistēm…` engineer/architect rule.
+        ('Sistēmadministrators', 'sysadmin'),
         ('Datorsistēmu administrators', 'sysadmin'),
         ('Datortīklu administrators', 'sysadmin'),
         ('System administrator', 'sysadmin'),
@@ -2410,6 +2413,7 @@ class ProfessionClassifierTests(TestCase):
         # IT architect vs building architect
         ('Risinājumu arhitekts', 'it-architect'),
         ('Sistēmu arhitekts', 'it-architect'),
+        ('Sistēmarhitekts', 'it-architect'),
         ('Tehnoloģiju arhitekts', 'it-architect'),
         ('Solution architect', 'it-architect'),
         ('Data architect', 'it-architect'),
@@ -2531,6 +2535,9 @@ class ProfessionClassifierTests(TestCase):
         ('Web developer', 'software-developer'),
         ('Sistēmu inženieris', 'software-developer'),
         ('Programmatūras inženieris', 'software-developer'),
+        # One-word LV compounds of the same roles.
+        ('Sistēminženieris', 'software-developer'),
+        ('Programmatūrasinženieris', 'software-developer'),
         # generic manager — incl. the non-IT tail
         ('Vadītājs', 'manager'),
         ('Pārdošanas vadītājs', 'manager'),

@@ -103,7 +103,7 @@ PROFESSION_RULES: list[tuple[str, tuple[str, ...]]] = [
         r'enterprise|infrastructure|cloud|it|ict)\s+architect',
         r'\b(?:risinājumu|tehnoloģij\w*|datu|infrastruktūras|'
         r'cloud|it|ikt)\s+arhitekt',
-        r'\w*sistēm\w*\s+arhitekt',
+        r'\w*sistēm\w*\s*arhitekt',
     )),
     ('qa-engineer', (
         r'\bqa\b',
@@ -261,8 +261,8 @@ PROFESSION_RULES: list[tuple[str, tuple[str, ...]]] = [
         r'\bprogrammers?\b',
         r'\bcoders?\b|\bkodētāj',
         r'\bprogrammēšanas\s+inženier',
-        r'\bprogrammatūr\w*\s+inženier',
-        r'\w*sistēm\w*\s+inženier',
+        r'\bprogrammatūr\w*\s*inženier',
+        r'\w*sistēm\w*\s*inženier',
     )),
     # Generic manager bucket — "vadītājs", "head of" etc. catch
     # the non-IT management tail too (a meaningful filter).
