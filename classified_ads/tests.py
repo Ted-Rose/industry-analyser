@@ -1137,7 +1137,7 @@ class HousingAdScraperRunnerTest(TestCase):
 class GcpFallbackCooldownTest(TestCase):
     """Cooldown gates: GCP Cloud Run invocations are a weekly
     fallback — they exit early (no new run row, no scraping) when
-    the job had a SUCCESS run within the last 6 days or a live
+    the job had a SUCCESS run within the last 7 days or a live
     RUNNING one. Local invocations are gated per cycle — a second
     run in today's cycle exits early, the next day's run scrapes.
     ``--fresh``/``--ignore-cooldown`` bypass both gates."""
@@ -1190,7 +1190,7 @@ class GcpFallbackCooldownTest(TestCase):
         self._make_run(
             'classified_ads.apartment_ads',
             ScrapeJobRun.SUCCESS,
-            completed_at=timezone.now() - timedelta(days=7),
+            completed_at=timezone.now() - timedelta(days=8),
         )
         scraper_cls = self._invoke(
             self.APT_MODULE, 'scrape_apartment_ads',
@@ -1230,7 +1230,7 @@ class GcpFallbackCooldownTest(TestCase):
         self._make_run(
             'classified_ads.house_ads',
             ScrapeJobRun.SUCCESS,
-            completed_at=timezone.now() - timedelta(days=7),
+            completed_at=timezone.now() - timedelta(days=8),
         )
         scraper_cls = self._invoke(
             self.HOUSE_MODULE, 'scrape_housing_ads',
@@ -1466,7 +1466,9 @@ class StreetNameNormalizationTest(TestCase):
         self.assertEqual(extract_apartment_no('квартира 602'), '')
         # Room counts must not read as unit numbers.
         self.assertEqual(extract_apartment_no('dz. 3 istabas'), '')
-        self.assertEqual(extract_apartment_no('кв. 3-комнатная'), '')
+        self.assertEqual(
+            extract_apartment_no('кв. 3-комнатная'), ''
+        )
         self.assertEqual(extract_apartment_no('кв. 6 комн.'), '')
         # Floor shorthand after "dz. N" is not a unit number.
         self.assertEqual(extract_apartment_no('dz. 3. stāvā'), '')
@@ -2238,7 +2240,9 @@ class HouseRentMisclassificationTest(TestCase):
     def test_heuristic_price_and_keywords(self):
         self.assertTrue(is_sale_misclassified('', 51.0))
         self.assertTrue(is_sale_misclassified('Pārdod māju', 5.0))
-        self.assertTrue(is_sale_misclassified('Продается дом', 5.0))
+        self.assertTrue(
+            is_sale_misclassified('Продается дом', 5.0)
+        )
         self.assertFalse(is_sale_misclassified('Īre māju', 5.0))
 
     def test_initiate_resource_flags_sale_twin(self):

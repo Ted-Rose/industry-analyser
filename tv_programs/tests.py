@@ -5,11 +5,12 @@ from types import SimpleNamespace
 from unittest import mock, skipIf
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from scrape_jobs.models import ScrapeJobRunItem
+from scrape_jobs.models import ScrapeJobRun, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
 from tv_programs.classification import EXCLUDED_LOCAL_SHOWS, classify
 from tv_programs.dedup import (
@@ -21,13 +22,19 @@ from tv_programs.dedup import (
 )
 from tv_programs.enrichment import OMDbClient, enrich_show
 from tv_programs.models import Channel, Program, Show, ShowPreference
-from tv_programs.scraper import TVProgramScraper
+from tv_programs.scraper import CHANNELS, TVProgramScraper
 
-_FIXTURE = pathlib.Path(__file__).parent / "tests" / "fixtures" / "tet_sample.html"
+_FIXTURE = (
+    pathlib.Path(__file__).parent
+    / "tests" / "fixtures" / "tet_sample.html"
+)
 _HAS_FIXTURE = _FIXTURE.is_file()
 
 
-@skipIf(not _HAS_FIXTURE, "tet sample fixture not present at tv_programs/tests/fixtures/")
+@skipIf(
+    not _HAS_FIXTURE,
+    "tet sample fixture not present at tv_programs/tests/fixtures/",
+)
 class ParserIntegrationTests(TestCase):
     def setUp(self):
         self.data = _FIXTURE.read_bytes()
@@ -1025,3 +1032,88 @@ class ReclassifyCommandDataTests(TestCase):
         p.refresh_from_db()
         self.assertEqual(p.content_type, "not_movie")
         self.assertGreater(p.classification_confidence, 0)
+
+
+class GcpHorizonGateTests(TestCase):
+    """GCP-only coverage gate: a Cloud Run invocation scrapes only
+    when stored coverage no longer reaches tomorrow (+1 day
+    buffer) — a guide stored through tomorrow on every channel
+    makes the GCP run a no-op fallback (no run row, no scraping).
+    The gate never evaluates locally and is bypassed by --force."""
+
+    MODULE = 'tv_programs.management.commands.scrape_tv_programs'
+
+    def _cover(self, start_time, channels=CHANNELS):
+        """One Program row per channel at ``start_time``."""
+        for name in channels:
+            channel, _ = Channel.objects.get_or_create(name=name)
+            Program.objects.create(
+                title_lv='Show',
+                description_lv='',
+                channel=channel,
+                start_time=start_time,
+                duration_minutes=30,
+            )
+
+    def _invoke(self, executed_by, **command_kwargs):
+        """call_command with executed_by patched and the scraper
+        class mocked; returns the scraper class mock."""
+        with mock.patch(
+            f'{self.MODULE}.detect_executed_by',
+            return_value=executed_by,
+        ), mock.patch(f'{self.MODULE}.TVProgramScraper') as cls:
+            call_command('scrape_tv_programs', **command_kwargs)
+        return cls
+
+    def test_gcp_skips_when_all_channels_cover_tomorrow(self):
+        self._cover(timezone.now() + datetime.timedelta(days=2))
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke('gcp_cloud_run')
+        # Early return before ScrapeJobRunner(): no new run row.
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_gcp_scrapes_when_coverage_ends_today(self):
+        self._cover(timezone.now())
+        scraper_cls = self._invoke('gcp_cloud_run')
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_gcp_skips_when_coverage_ends_exactly_tomorrow(self):
+        # Boundary: a latest start_time on tomorrow's date still
+        # counts as covered.
+        tomorrow = timezone.localdate() + datetime.timedelta(days=1)
+        self._cover(timezone.make_aware(
+            datetime.datetime.combine(tomorrow, datetime.time.min)
+        ))
+        runs_before = ScrapeJobRun.objects.count()
+        scraper_cls = self._invoke('gcp_cloud_run')
+        scraper_cls.assert_not_called()
+        self.assertEqual(ScrapeJobRun.objects.count(), runs_before)
+
+    def test_gcp_scrapes_when_one_channel_covers_only_today(self):
+        # Two channels covered through tomorrow+ can't hide the
+        # third ending today — partial coverage still scrapes.
+        names = sorted(CHANNELS)
+        self._cover(
+            timezone.now() + datetime.timedelta(days=2),
+            channels=names[:2],
+        )
+        self._cover(timezone.now(), channels=names[2:])
+        scraper_cls = self._invoke('gcp_cloud_run')
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_gcp_scrapes_without_any_coverage(self):
+        # A channel with zero Program rows counts as uncovered —
+        # an empty channel can never block the fallback.
+        scraper_cls = self._invoke('gcp_cloud_run')
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_local_scrapes_despite_full_coverage(self):
+        self._cover(timezone.now() + datetime.timedelta(days=2))
+        scraper_cls = self._invoke('local')
+        self.assertTrue(scraper_cls.return_value.run.called)
+
+    def test_gcp_force_bypasses_gate(self):
+        self._cover(timezone.now() + datetime.timedelta(days=2))
+        scraper_cls = self._invoke('gcp_cloud_run', force=True)
+        self.assertTrue(scraper_cls.return_value.run.called)

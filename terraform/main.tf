@@ -128,12 +128,14 @@ resource "google_secret_manager_secret_iam_member" "env_file_accessor" {
 
 # Master job: runs `python manage.py run_all_jobs`, which executes the
 # enabled sub-jobs in scrape_jobs/management/commands/run_all_jobs.py
-# sequentially. Timeout covers the worst-case scheduled pass —
-# sync_receipt_emails (1,800s) plus the three 8,000s scrapers can all
-# be due on one day (e.g. an odd Monday that ends a month) = 25,800s,
-# leaving headroom under 36,000s. `manual` entries (scrape_vacancy,
-# link_ads_to_properties) run only alone via `--only`, so they never
-# stack onto a scheduled pass.
+# sequentially. Every scrape entry is `daily` — per-command gates
+# decide whether a pass actually scrapes — so the worst case is a
+# month-end after >13 days of local downtime, when all gates fire at
+# once: sync_receipt_emails (1,800s), the four ~8,000s scrapers
+# (tv-programs, housing-ads, apartment-ads, vacancy) and
+# link_ads_to_properties (3,600s). The ceiling sum (37,400s) tops the
+# 36,000s timeout, but ceilings are abort limits — typical runs
+# finish far under them.
 #
 # The JOBS list in run_all_jobs.py is the single place jobs are now
 # enabled/disabled — the six former per-task Cloud Run jobs

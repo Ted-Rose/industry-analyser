@@ -1,13 +1,33 @@
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Max
 from django.utils import timezone
 import logging
 import traceback
 
-from scrape_jobs.runner import ScrapeJobRunner
-from tv_programs.scraper import TVProgramScraper
+from scrape_jobs.runner import ScrapeJobRunner, detect_executed_by
+from tv_programs.models import Program
+from tv_programs.scraper import CHANNELS, TVProgramScraper
 
 # Use the app name as the logger name to match settings configuration
 logger = logging.getLogger('tv_programs')
+
+
+def _gcp_horizon_skip_reason():
+    """GCP-only gate: scrape only when stored coverage no
+    longer reaches at least tomorrow (+1 day buffer)."""
+    tomorrow = timezone.localdate() + timedelta(days=1)
+    for name in CHANNELS:
+        latest = Program.objects.filter(
+            channel__name=name
+        ).aggregate(m=Max('start_time'))['m']
+        if latest is None or latest.date() < tomorrow:
+            return None
+    return (
+        'every channel has program coverage through '
+        f'{tomorrow} or later; GCP run is a fallback'
+    )
 
 
 class Command(BaseCommand):
@@ -70,6 +90,17 @@ class Command(BaseCommand):
                 "Force mode enabled - will scrape regardless of "
                 "existing data"
             )
+
+        if not (
+            options['force'] or options['fresh']
+            or options['dry_run']
+        ) and detect_executed_by() == 'gcp_cloud_run':
+            reason = _gcp_horizon_skip_reason()
+            if reason:
+                msg = f'tv_programs.guide: skipping — {reason}'
+                logger.info(msg)
+                self.stdout.write(msg)
+                return
 
         runner = ScrapeJobRunner(
             slug='tv_programs.guide',

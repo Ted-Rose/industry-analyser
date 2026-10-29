@@ -168,8 +168,8 @@ class CooldownGateTests(TestCase):
         )
 
     def test_gcp_cooldown_window_is_configurable(self):
-        # Denser schedules pass a smaller days= window — the
-        # classified-ads scrapes run dom:odd and use days=1.
+        # Each caller picks its own days= window — the
+        # classified-ads scrapes pass 7, the vacancy sweep 13.
         self._run(
             'test.job', ScrapeJobRun.SUCCESS,
             completed_at=timezone.now() - timedelta(days=3),

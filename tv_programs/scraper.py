@@ -20,6 +20,12 @@ logger = logging.getLogger("tv_programs")
 
 _UNSET = object()
 
+CHANNELS = {
+    "filmzone_hd": "filmzone_hd",
+    "ltv7_hd": "ltv7_hd",
+    "ltv1_hd": "ltv1_hd",
+}
+
 
 class TVProgramScraper(BaseScraper):
     """
@@ -36,11 +42,7 @@ class TVProgramScraper(BaseScraper):
                  enrich=True):
         self.validate_result = True
         self.enrich_search_results = True
-        self.channels = {
-            "filmzone_hd": "filmzone_hd",
-            "ltv7_hd": "ltv7_hd",
-            "ltv1_hd": "ltv1_hd",
-        }
+        self.channels = dict(CHANNELS)
         self.current_channel = None
         self.current_start_time = None
         self.runner = runner
@@ -124,7 +126,7 @@ class TVProgramScraper(BaseScraper):
 
     def parse_results(self, search_response):
         """
-        Parses the TV program listing page into a list of structured dictionaries.
+        Parses the TV program listing page into structured dicts.
         """
         soup = BeautifulSoup(search_response.data, "html.parser")
         program_soup = soup.find_all("div", class_="show-expander-content")
@@ -134,7 +136,9 @@ class TVProgramScraper(BaseScraper):
         for program_html in program_soup:
             title_lv = None
             try:
-                title_element = program_html.find("h2", class_="tet-font__headline--s")
+                title_element = program_html.find(
+                    "h2", class_="tet-font__headline--s"
+                )
                 if not title_element:
                     continue
                 title_lv = title_element.text.strip()
@@ -160,7 +164,9 @@ class TVProgramScraper(BaseScraper):
                     else ""
                 )
 
-                image_container = program_html.find("div", class_="expander-image")
+                image_container = program_html.find(
+                    "div", class_="expander-image"
+                )
                 image_url = ""
                 if image_container:
                     image_element = image_container.find("img")
@@ -179,7 +185,9 @@ class TVProgramScraper(BaseScraper):
                     expander.get("data-id") if expander else None
                 )
 
-                start_time_obj = datetime.strptime(start_time_str, "%H:%M").time()
+                start_time_obj = datetime.strptime(
+                    start_time_str, "%H:%M"
+                ).time()
                 full_start_time = self.current_start_time.replace(
                     hour=start_time_obj.hour,
                     minute=start_time_obj.minute,
@@ -187,12 +195,20 @@ class TVProgramScraper(BaseScraper):
                     microsecond=0,
                 )
 
-                end_time_obj = datetime.strptime(end_time_str, "%H:%M").time()
-                start_dt = datetime.combine(self.current_start_time.date(), start_time_obj)
-                end_dt = datetime.combine(self.current_start_time.date(), end_time_obj)
+                end_time_obj = datetime.strptime(
+                    end_time_str, "%H:%M"
+                ).time()
+                start_dt = datetime.combine(
+                    self.current_start_time.date(), start_time_obj
+                )
+                end_dt = datetime.combine(
+                    self.current_start_time.date(), end_time_obj
+                )
                 if end_dt < start_dt:
                     end_dt += timedelta(days=1)
-                duration_minutes = int((end_dt - start_dt).total_seconds() / 60)
+                duration_minutes = int(
+                    (end_dt - start_dt).total_seconds() / 60
+                )
 
                 classification = classify(
                     title_lv, description_lv, ch_key, duration_minutes
@@ -214,7 +230,8 @@ class TVProgramScraper(BaseScraper):
             except (IndexError, ValueError) as e:
                 label = title_lv or "?"
                 logger.warning(
-                    f"Skipping program '{label}' due to a data parsing error: {e}"
+                    f"Skipping program '{label}' due to a data "
+                    f"parsing error: {e}"
                 )
                 continue
 

@@ -1,9 +1,21 @@
+import logging
 import traceback
 
 from django.core.management.base import BaseCommand, CommandError
 
 from fetcher.scraper import VacancyScrapper, load_portals_config
-from scrape_jobs.runner import ScrapeJobRunner, iso_week_cycle_key
+from scrape_jobs.runner import (
+    ScrapeJobRunner,
+    cooldown_skip_reason,
+    detect_executed_by,
+    iso_week_cycle_key,
+)
+
+logger = logging.getLogger('fetcher')
+
+# GCP Cloud Run is the ~2-week fallback: sweep a portal only
+# when it had no SUCCESS (local or GCP) in the last 13 days.
+GCP_COOLDOWN_DAYS = 13
 
 
 class Command(BaseCommand):
@@ -35,6 +47,18 @@ class Command(BaseCommand):
             help='Fetch and parse but write nothing (no vacancies, '
                  'files, or run rows)',
         )
+        parser.add_argument(
+            '--ignore-cooldown', action='store_true',
+            dest='ignore_cooldown',
+            help='Run even if a scrape already succeeded in the '
+                 'cooldown window (13 days on GCP, current ISO '
+                 'week locally)',
+        )
+        parser.add_argument(
+            '--no-ocr', action='store_true',
+            help='Skip fetching/AI-transcribing attached files; '
+                 'cached VacancyFile text is still reused.',
+        )
 
     def handle(self, *args, **options):
         portal_id = options['portal_id']
@@ -52,12 +76,32 @@ class Command(BaseCommand):
                     int(pid),
                 ),
             )
+        cycle_key = options['cycle'] or iso_week_cycle_key()
+        # One snapshot per pass — the executor is an environment
+        # fact that cannot change mid-run (same pattern as
+        # run_all_jobs).
+        executed_by = detect_executed_by()
         failed = []
         for pid in portal_ids:
+            slug = f'fetcher.vacancies.{pid}'
+            if not (
+                options['ignore_cooldown']
+                or options['fresh']
+                or options['dry_run']
+            ):
+                reason = cooldown_skip_reason(
+                    slug, executed_by, cycle_key,
+                    days=GCP_COOLDOWN_DAYS,
+                )
+                if reason:
+                    msg = f'{slug}: skipping — {reason}'
+                    logger.info(msg)
+                    self.stdout.write(msg)
+                    continue
             runner = ScrapeJobRunner(
-                slug=f'fetcher.vacancies.{pid}',
+                slug=slug,
                 description=f'Vacancy scrape, portal {pid}',
-                cycle_key=options['cycle'] or iso_week_cycle_key(),
+                cycle_key=cycle_key,
                 fresh=options['fresh'],
                 resume_from=options['resume_from'],
                 dry_run=options['dry_run'],
@@ -68,6 +112,13 @@ class Command(BaseCommand):
                     runner=runner,
                     dry_run=options['dry_run'],
                 )
+                if options['no_ocr']:
+                    # Same switch as refetch_vacancies: cached
+                    # VacancyFile text is still reused (the cache
+                    # lookup in _ocr_vacancy_file precedes this
+                    # early-out), but no file fetch or AI call
+                    # happens.
+                    scraper._ocr_unavailable = True
                 scraper.run()
             except Exception as e:
                 runner.finish('FAILED', traceback.format_exc())
