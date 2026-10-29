@@ -22,7 +22,8 @@ from classified_ads.models import (
 from classified_ads.sale_flags import is_sale_misclassified
 from classified_ads.rent_flags import (
     apartment_rate_period_posthoc, comment_rate_period,
-    detect_rate_period, house_rate_period_posthoc, is_room_share,
+    detect_rate_period, has_short_stay_comment,
+    house_rate_period_posthoc, is_room_share,
 )
 from classified_ads.property_matcher import (
     _ad_apartment_no, extract_apartment_no, match_property,
@@ -5167,7 +5168,9 @@ class FlagShortStayAdsCommandTest(TestCase):
             'flag_short_stay_ads', '--dry-run', stdout=out
         )
         self.assertIn('DRY-RUN', out.getvalue())
-        self.assertIn('rate_period day/week found: 1', out.getvalue())
+        self.assertIn(
+            'rate_period day/week total', out.getvalue()
+        )
         ad = ApartmentForRent.all_objects.get(ad_id='apt_1')
         self.assertEqual(ad.rate_period, '')
 
@@ -5177,3 +5180,227 @@ class FlagShortStayAdsCommandTest(TestCase):
         call_command('flag_short_stay_ads')
         ad = ApartmentForRent.all_objects.get(ad_id='apt_1')
         self.assertEqual(ad.rate_period, 'day')
+
+
+class RentFlagPatternPrecisionTest(TestCase):
+    """Tightened comment patterns — regressions from the first
+    backfill run's false positives ('dien'/'sezon'/'комнат'
+    substrings matching ordinary ad copy)."""
+
+    def test_everyday_dien_words_are_not_short_stay(self):
+        # 'diena'/'dienā'/'dienu' substrings lived inside
+        # everyday words — none of these name a rate period
+        misses = [
+            'ērtības ikdienas dzīvei',
+            'viss ikdienā nepieciešamais',
+            'pusdienas netālu',
+            'mūsdienām atbilstošs',
+            'pieejams brīvdienās',
+            'atvērts darbdienās un sestdienās',
+            'dienas saule dzīvoklī',
+            'mierīgs pilsētas dienas ritms',
+            'diena-nakts žalūzijas',
+            'naktsgaldiņi pie gultas',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertEqual(comment_rate_period(comment), '')
+                self.assertFalse(has_short_stay_comment(comment))
+
+    def test_service_and_season_boilerplate_ignored(self):
+        misses = [
+            'diennakts apsardze un concierge',
+            'diennakts resepsija',
+            'ēkā ir diennakts apsardze, video novērošana',
+            'ekonomisks apkures sezonā',
+            'atkarīgs no apkures sezonas',
+            'sezonālais tirdziņš',
+            'ideāli atpūtai',
+            'ideāla vieta atpūtai pie jūras',
+            'logi vērsti uz dienvidiem',
+            'daudz gaismas pa dienu',
+            'kur pavadīt nedēļas nogales',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertEqual(comment_rate_period(comment), '')
+                self.assertFalse(has_short_stay_comment(comment))
+
+    def test_day_rate_wording_still_detected(self):
+        hits = [
+            'Cena 60€ diennaktī',
+            '30€/nakts, 2 pers. - 40€/nakts',
+            'cena par nakti 60 eur',
+            'īre pa dienām',
+            'izīrēts divistabu dzīvoklis uz dienu',
+            'sākot no 2 diennaktīm',
+            'minimālais īres termiņš – 2 naktis',
+            'uz diennakti cena 25€',
+            'diennakts īrei',
+            '45 eur/dienā līdz 3 personām',
+            'Сдаётся посуточно',
+            '75€ за ночь',
+            '21 ночь - 500€',
+            'per night rate',
+            'cena 40 eur nakšņošanai',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertEqual(
+                    comment_rate_period(comment), 'day'
+                )
+
+    def test_week_rate_wording_detected(self):
+        hits = [
+            'cena par 1 nedēļu - 500 euro',
+            'nedēļa 140 eur, mēnesis 360 eur',
+            'uz vairākām nedēļām vai mēnešiem',
+            '3000 eur/ nedēļā',
+            'Цена за 1 неделю',
+            'per week only',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertEqual(
+                    comment_rate_period(comment), 'week'
+                )
+
+    def test_generic_short_stay_wording(self):
+        hits = [
+            'īstermiņa īre',
+            'Brīvdienu māja pie jūras',
+            'naktsmītnes Rīgas centrā',
+            'minimālā uzturēšanās 3 naktis',
+            'short-term rent available',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                # generic wording carries no pinned period but is
+                # still short-stay evidence
+                self.assertTrue(has_short_stay_comment(comment))
+
+    def test_room_share_context_required(self):
+        hits = [
+            'Izīrē istabu dzīvoklī',
+            'izīrēju 1 istabu, 4 istabu dzīvoklī',
+            'izīrē atsevišķu istabu trīs istabu dzīvoklī',
+            'īrē istabu studentu dzīvoklī',
+            'izīrēšu istabu privātmājā',
+            'istaba tiek izīrēta vienam cilvēkam',
+            'plašas istabas īrei privātā villā',
+            'istabu studentei',
+            'kopmītņu tipa mājā',
+            'Сдаётся комната',
+            'комната сдаётся студентке',
+            'сдаю комнату девушке в 3-комнатной',
+            'Īrē mājas daļu',
+            'īrē dvīņu mājas pusi',
+            'часть дома сдаётся',
+            'private room in shared apartment',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertTrue(is_room_share(comment))
+
+    def test_whole_unit_wording_is_not_room_share(self):
+        misses = [
+            '',
+            'Īrē 3 istabu dzīvokli centrumā',
+            'īrējam 2 istabu dzīvokli, istabas izolētas',
+            'īrei 1 istabas dzīvoklī',
+            '2 istabu studio tipa dzīvoklis',
+            'istabu skaits: 3, stāvs: 2',
+            'vienistabas dzīvoklis ar balkonu',
+            'Сдаётся 2 комнатная квартира',
+            'однокомнатная квартира с мебелью',
+            'двухкомнатная квартира в центре',
+            'logi vērsti uz abām mājas pusēm',
+            'guļamistabas īrei nav',
+            '6 gultas vietas, ideāla vieta atpūtai',
+            '2 спальных места в гостиной',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertFalse(is_room_share(comment))
+
+
+class FlagShortStayAdsMisclassifiedTest(TestCase):
+    """flag_short_stay_ads skips is_sale_misclassified rows —
+    they are sale ads, not rent data, and their sale-scale
+    prices poison the ppsqm detector."""
+
+    def _apt_ad(self, **kw):
+        defaults = dict(
+            ad_id='mis_apt',
+            comment='',
+            link='https://example.com/rent/mis_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=12.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=12.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=1440.0,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _house_ad(self, **kw):
+        defaults = dict(
+            ad_id='mis_house',
+            comment='',
+            link='https://example.com/hrent/mis_house',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def test_misclassified_rows_are_skipped(self):
+        from io import StringIO
+
+        apt = self._apt_ad(
+            is_sale_misclassified=True,
+            comment='Сдаётся посуточно',
+            monthly_price_per_sqm=0.5,
+            monthly_price=750.0,
+        )
+        house = self._house_ad(
+            is_sale_misclassified=True,
+            monthly_price_per_sqm=2500.0,
+        )
+        hidden = self._apt_ad(
+            ad_id='hidden_apt',
+            is_hidden=True,
+            comment='Сдаётся посуточно',
+        )
+        out = StringIO()
+        call_command('flag_short_stay_ads', stdout=out)
+        text = out.getvalue()
+        self.assertIn(
+            'Skipped is_sale_misclassified', text
+        )
+        apt.refresh_from_db()
+        house.refresh_from_db()
+        hidden.refresh_from_db()
+        # misclassified rows untouched — even with short-stay
+        # wording or a sale-scale stored price
+        self.assertEqual(apt.rate_period, '')
+        self.assertFalse(apt.is_room_share)
+        self.assertEqual(house.rate_period, '')
+        # hidden rows are still rent ads — they are flagged
+        self.assertEqual(hidden.rate_period, 'day')
