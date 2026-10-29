@@ -425,7 +425,11 @@ Repo conventions:
   migrations excluded). Verify:
   `awk 'length > 79 {print FILENAME":"NR}' <file>`. Fix
   violations you introduce plus long lines in files you are
-  already modifying.
+  already modifying. **Exemption**: vendored OpenSpec skill
+  files — `.agents/skills/openspec-*/` and their
+  `.devin/skills/openspec-*/` copies — carry upstream-generated
+  >79-char prose; leave them alone (`openspec update` owns
+  them, reformatting breaks refreshes).
 - Match the existing style: compact functions;
   `logging.getLogger('<app_name>')` per app (loggers are
   pre-configured in settings for each app name — use them, not
@@ -524,8 +528,43 @@ Universal rules (apply to every task):
 - `.devin/workflows/create-pr.md` — the `--body-file` PR rule.
 - `.devin/rules/*.md` — always-on project rules (code style,
   migrations, secrets, model conventions, scraper pipeline).
+- `.devin/skills/openspec-*/` — OpenSpec workflow skills
+  (propose, apply, update, sync-specs, archive, explore); see
+  the OpenSpec section below.
 - `.devin/config.local.json` — permission allowlist (user-local,
   untracked).
+
+## OpenSpec
+
+`openspec/` at the repo root is the spec-driven planning layer
+(npm `@fission-ai/openspec`, v1.14.x). `openspec/specs/` holds
+capability specs — **current behavior as source of truth**
+(code wins over docs; verify claims against source):
+`scraper-pipeline`, `ai-jobs`, `spa-api-contract`,
+`data-layer`. `openspec/changes/` + `changes/archive/` hold
+the change lifecycle; `openspec/config.yaml` carries project
+context.
+
+- **Run `openspec` commands only from the repo root** — a
+  fixed convention, not upward root-resolution.
+- The CLI is a global npm install in `/opt/homebrew/bin` —
+  agent shells lack it on PATH, so
+  `export PATH="/opt/homebrew/bin:$PATH"` first.
+- Workflow: `openspec-propose` → implement via
+  `openspec-apply-change` → `openspec-archive-change`. The
+  upstream skills live in `.agents/skills/openspec-*/`
+  (byte-verbatim — `openspec update` owns them); the Devin
+  copies in `.devin/skills/openspec-*/` are the same files with
+  frontmatter stripped to `name`/`description` — **re-copy and
+  re-strip after every `openspec update`**.
+- `tasks.md` items MUST be prefixed `backend:` / `frontend:` /
+  `both:` to name the layer they touch.
+- **`docs/plans/` is frozen for NEW feature plans** — new
+  feature work goes through `openspec changes`. Existing
+  `docs/plans/*` stay as history; investigation/report docs
+  (non-feature) still belong there per rule 10.
+- Vendored-skill files are exempt from the 79-char rule — see
+  Conventions.
 
 ## Known gaps (do NOT "fix" without asking)
 
