@@ -42,12 +42,14 @@ JOBS = [
     ('sync_receipt_emails', 'command', ['--last-day-only'],
      'last_day_of_month'),
     ('scrape_tv_programs', 'command', [], 'dom:odd'),
-    ('scrape_housing_ads', 'command', [], 'weekly:mon'),
-    ('scrape_apartment_ads', 'command', [], 'weekly:mon'),
+    ('scrape_housing_ads', 'command', [], 'dom:odd'),
+    ('scrape_apartment_ads', 'command', [], 'dom:odd'),
     ('scrape_vacancy', 'script',
      ['scripts/materialize_fetcher_config_and_scrape.py'], 'manual'),
+    # Linking runs on the same odd-day pass, right after the
+    # classified-ads scrapes above (scrape_vacancy stays manual).
     ('link_ads_to_properties', 'command', ['--older-than-days', '3'],
-     'manual'),
+     'dom:odd'),
     # ('sync_apartment_regions', 'command', [], 'manual'),
     # ('sync_housing_regions', 'command', [], 'manual'),
 ]
