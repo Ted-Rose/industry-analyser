@@ -414,7 +414,10 @@ class ClassifiedAdsApiTests(TestCase):
     # --- GET /api/classified-ads/regions/stats/ ---
 
     def test_region_stats_is_public(self):
-        self._rent_ad()
+        ad = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=ad, seen_on=date.today()
+        )
         resp = self.client.get(
             f'{self.API}/regions/stats/',
             {'kind': 'apartment', 'deal_type': 'RENT',
@@ -427,6 +430,57 @@ class ClassifiedAdsApiTests(TestCase):
         row = body['results'][0]
         self.assertEqual(row['region']['name'], 'Riga')
         self.assertEqual(row['total_ads'], 1)
+
+    def test_region_stats_active_in_window_semantics(self):
+        """F5: the window selects ads by sightings, not first_seen —
+        an ad first_seen inside the window but sighted only outside
+        it is not counted; an ad first_seen outside but sighted
+        inside is."""
+        today = date.today()
+        # first_seen inside the window, only sighting outside it —
+        # the old first_seen filter counted this, F5 must not.
+        stale = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=stale, seen_on=today - timedelta(days=60)
+        )
+        # first_seen outside the window, sighted inside — counted.
+        still_live = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=still_live, seen_on=today - timedelta(days=10)
+        )
+        # first_seen is auto_now_add — backdate via UPDATE.
+        ApartmentForRent.objects.filter(pk=still_live.pk).update(
+            first_seen=timezone.now() - timedelta(days=90)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/stats/',
+            {'kind': 'apartment', 'deal_type': 'RENT',
+             'regions': [str(self.region.id)],
+             'date_from': (today - timedelta(days=30)).isoformat(),
+             'date_to': today.isoformat()},
+        )
+        row = resp.json()['results'][0]
+        self.assertEqual(row['total_ads'], 1)
+
+    def test_region_stats_excludes_hidden_active_ads(self):
+        """Hidden/misclassified ads stay excluded even when sighted
+        inside the window."""
+        today = date.today()
+        ads = [
+            self._rent_ad(is_hidden=True),
+            self._rent_ad(is_sale_misclassified=True),
+            self._rent_ad(),
+        ]
+        for ad in ads:
+            ApartmentForRentSighting.objects.create(
+                ad=ad, seen_on=today
+            )
+        resp = self.client.get(
+            f'{self.API}/regions/stats/',
+            {'kind': 'apartment', 'deal_type': 'RENT',
+             'regions': [str(self.region.id)]},
+        )
+        self.assertEqual(resp.json()['results'][0]['total_ads'], 1)
 
     def test_region_stats_null_without_selection(self):
         resp = self.client.get(
@@ -441,7 +495,10 @@ class ClassifiedAdsApiTests(TestCase):
         )
 
     def test_region_stats_children(self):
-        self._rent_ad(region=self.child)
+        ad = self._rent_ad(region=self.child)
+        ApartmentForRentSighting.objects.create(
+            ad=ad, seen_on=date.today()
+        )
         resp = self.client.get(
             f'{self.API}/regions/{self.region.id}/children/',
             {'kind': 'apartment', 'deal_type': 'RENT'},
@@ -463,6 +520,9 @@ class ClassifiedAdsApiTests(TestCase):
 
     def test_region_ads_list(self):
         ad = self._rent_ad(region=self.child)
+        ApartmentForRentSighting.objects.create(
+            ad=ad, seen_on=date.today()
+        )
         resp = self.client.get(
             f'{self.API}/regions/{self.region.id}/ads/',
             {'kind': 'apartment', 'deal_type': 'RENT'},
@@ -473,8 +533,37 @@ class ClassifiedAdsApiTests(TestCase):
         self.assertEqual(body['total_count'], 1)
         self.assertEqual(body['ads'][0]['ad_id'], ad.ad_id)
 
+    def test_region_ads_list_active_in_window(self):
+        """F5: the listing keeps ads sighted inside the window even
+        when first_seen is outside, and drops ads sighted only
+        outside it."""
+        today = date.today()
+        stale = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=stale, seen_on=today - timedelta(days=60)
+        )
+        live = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=live, seen_on=today - timedelta(days=5)
+        )
+        ApartmentForRent.objects.filter(pk=live.pk).update(
+            first_seen=timezone.now() - timedelta(days=90)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'RENT',
+             'date_from': (today - timedelta(days=30)).isoformat(),
+             'date_to': today.isoformat()},
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['ads'][0]['ad_id'], live.ad_id)
+
     def test_region_ads_list_blank_deal_type_is_empty(self):
-        self._rent_ad(region=self.region)
+        ad = self._rent_ad(region=self.region)
+        ApartmentForRentSighting.objects.create(
+            ad=ad, seen_on=date.today()
+        )
         resp = self.client.get(
             f'{self.API}/regions/{self.region.id}/ads/',
             {'kind': 'apartment'},

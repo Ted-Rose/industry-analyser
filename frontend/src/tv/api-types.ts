@@ -359,8 +359,9 @@ export interface paths {
         /**
          * Region Ads List
          * @description Ads in a region subtree — mirrors the retired *_region_ads_list
-         *     views: the subtree filter is first_seen inside the window, and a
-         *     missing/blank deal_type yields an empty table.
+         *     views except the window filter, which is F5 active-in-window: the
+         *     ad must have a sighting inside [date_from, date_to]. A
+         *     missing/blank deal_type still yields an empty table.
          */
         get: operations["classified_ads_api_region_ads_list"];
         put?: never;
