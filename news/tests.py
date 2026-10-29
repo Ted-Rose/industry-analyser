@@ -2,13 +2,23 @@
 keyword topic classification, story clustering, digest build."""
 import hashlib
 from datetime import timedelta
+from io import StringIO
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
-from scrape_jobs.models import ScrapeJobItem
-from scrape_jobs.runner import ScrapeJobRunner
+from scrape_jobs.models import (
+    ScrapeJobItem,
+    ScrapeJobRun,
+    ScrapeJobRunItem,
+)
+from scrape_jobs.runner import (
+    ScrapeJobRunner,
+    cycle_scrape_exists,
+)
 
 from .classification import classify_topic
 from .clustering import link_unmatched_articles
@@ -134,6 +144,37 @@ class ParseResultsTests(TestCase):
             self.scraper.parse_results(_response(b'not xml <')), []
         )
 
+    def test_opaque_guid_without_link_is_skipped(self):
+        feed = b"""<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<item><title>Bez saites</title>
+<guid isPermaLink="false">opaque-123</guid></item>
+<item><title>Ar saiti</title><link>https://a.lv/ok</link>
+<guid>g-2</guid></item>
+</channel></rss>"""
+        results = self.scraper.parse_results(_response(feed))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['external_id'], 'g-2')
+
+    def test_dc_date_iso_fallback_and_naive_tz(self):
+        feed = b"""<?xml version="1.0"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel>
+<item><title>ISO</title><link>https://a.lv/iso</link>
+<guid>iso-1</guid>
+<dc:date>2026-10-29T10:00:00+02:00</dc:date></item>
+<item><title>Naive</title><link>https://a.lv/naive</link>
+<guid>iso-2</guid>
+<dc:date>2026-10-29T10:00:00</dc:date></item>
+</channel></rss>"""
+        results = self.scraper.parse_results(_response(feed))
+        self.assertEqual(
+            results[0]['published_at'].isoformat(),
+            '2026-10-29T10:00:00+02:00',
+        )
+        # A naive ISO value is localized, not dropped or warned.
+        self.assertIsNotNone(results[1]['published_at'].tzinfo)
+
 
 class CreateOrUpdateTests(TestCase):
     def setUp(self):
@@ -209,6 +250,62 @@ class SourceFilterTests(TestCase):
         self.assertEqual(list(scraper.get_search_urls()), [])
         self.assertEqual(
             ScrapeJobItem.objects.filter(is_active=True).count(), 2
+        )
+
+
+class ScrapeNewsCommandTests(TestCase):
+    """scrape_news --source: a filtered run finishes PARTIAL,
+    leaves the other feeds' items pending and neither satisfies
+    nor trips the cycle gate."""
+
+    @patch.object(
+        NewsScraper, 'make_request',
+        return_value=_response(FEED_A),
+    )
+    def test_source_run_leaves_other_items_pending(self, _mock):
+        call_command('scrape_news', source='lsm', stdout=StringIO())
+        run = ScrapeJobRun.objects.get()
+        # PARTIAL — a filtered run must not satisfy the cycle's
+        # SUCCESS gate.
+        self.assertEqual(run.status, ScrapeJobRun.PARTIAL)
+        done_keys = set(
+            ScrapeJobRunItem.objects.filter(
+                run=run, status=ScrapeJobRunItem.DONE,
+            ).values_list('item__key', flat=True)
+        )
+        self.assertEqual(done_keys, {'lsm'})
+        self.assertFalse(cycle_scrape_exists('news.feeds'))
+        self.assertTrue(
+            NewsArticle.objects.filter(source__slug='lsm').exists()
+        )
+        # The follow-up full run is not refused — it resumes and
+        # scrapes the remaining feeds.
+        out = StringIO()
+        call_command('scrape_news', stdout=out)
+        self.assertNotIn('skipping', out.getvalue())
+        self.assertTrue(
+            NewsArticle.objects.filter(source__slug='delfi').exists()
+        )
+
+    @patch.object(
+        NewsScraper, 'make_request',
+        return_value=_response(FEED_A),
+    )
+    def test_source_run_after_full_run_not_refused(self, _mock):
+        call_command('scrape_news', stdout=StringIO())
+        self.assertTrue(cycle_scrape_exists('news.feeds'))
+        out = StringIO()
+        call_command('scrape_news', source='lsm', stdout=out)
+        # A targeted re-scrape bypasses the cycle gate and
+        # actually re-fetches the feed even though its item was
+        # already DONE this cycle.
+        self.assertNotIn('skipping', out.getvalue())
+        latest = ScrapeJobRun.objects.latest('id')
+        self.assertTrue(
+            ScrapeJobRunItem.objects.filter(
+                run=latest, item__key='lsm',
+                status=ScrapeJobRunItem.DONE,
+            ).exists()
         )
 
 
@@ -326,6 +423,70 @@ class ClusteringTests(TestCase):
         self.assertIsNone(old.story_id)
         self.assertEqual(stats['new_stories'], 0)
 
+    def test_candidate_member_does_not_inflate_story(self):
+        # Same date-boilerplate setup as the candidate test: a2
+        # links as 'candidate', so the story must keep counting
+        # only the confirmed member (a1).
+        a1 = _article(
+            self.a, 'Valsts budžets 2027. gadam',
+            published=self.now,
+        )
+        _article(
+            self.b, 'Pašvaldību budžets 2027. gadam',
+            published=self.now,
+        )
+        link_unmatched_articles(days=2)
+        a1.refresh_from_db()
+        a1.story.refresh_from_db()
+        self.assertEqual(a1.story.source_count, 1)
+
+    def test_auto_merge_uses_best_qualifying_member_title(self):
+        # The argmax member title scores 0.60 but shares only
+        # one substantive stem (the rest is 'gada'/'gadu' date
+        # boilerplate); a second member title scores 0.50 with
+        # three substantive shared stems — that one clears the
+        # auto-merge bar, so the link is 'auto', not demoted to
+        # 'candidate' by the argmax title alone.
+        story = NewsStory.objects.create(
+            title='Budžetu stāsts',
+            published_date=timezone.localdate(),
+        )
+        c = _source('c')
+        _article(
+            self.a, 'Budžets 2027. gada un 2028. gadu',
+            published=self.now, story=story,
+            story_match_status='auto',
+        )
+        _article(
+            self.b, 'Pašvaldību budžets apstiprināts Saeimā',
+            published=self.now, story=story,
+            story_match_status='manual',
+        )
+        article = _article(
+            c,
+            'Pašvaldību budžets 2027. gada un 2028. gadu '
+            'apstiprināts',
+            published=self.now,
+        )
+        link_unmatched_articles(days=2)
+        article.refresh_from_db()
+        self.assertEqual(article.story_id, story.id)
+        self.assertEqual(article.story_match_status, 'auto')
+
+    def test_stopword_only_title_gets_own_story(self):
+        # The title stems to nothing (all stopwords) so it can
+        # never match — it gets its own story instead of staying
+        # 'unmatched' and being rescanned every run.
+        article = _article(
+            self.a, 'Un ir tas vai bet',
+            published=self.now,
+        )
+        stats = link_unmatched_articles(days=2)
+        article.refresh_from_db()
+        self.assertIsNotNone(article.story_id)
+        self.assertEqual(article.story_match_status, 'auto')
+        self.assertEqual(stats['new_stories'], 1)
+
 
 class DigestTests(TestCase):
     def setUp(self):
@@ -388,3 +549,43 @@ class DigestTests(TestCase):
         self.assertIn('2 outlets', rationale)
         self.assertIn('a', rationale)
         self.assertIn('b', rationale)
+
+    def test_candidate_member_excluded_from_rationale(self):
+        story = self._story('Ziņa viens', 5.0, source=self.a)
+        _article(
+            self.b, 'Ziņa viens (B)', topic=self.topic,
+            story=story, story_match_status='candidate',
+        )
+        result = build_digest(self.today, top_n=5)
+        _, _, rationale = result['items'][0]
+        # The 'candidate' link awaits admin review — it must not
+        # count as coverage.
+        self.assertEqual(rationale, '1 outlets: a')
+
+    def test_all_candidate_story_excluded_from_digest(self):
+        story = NewsStory.objects.create(
+            title='Tikai kandidāti', topic=self.topic,
+            published_date=self.today,
+            importance_score=99.0, source_count=2,
+        )
+        _article(
+            self.a, 'Tikai kandidāti', topic=self.topic,
+            story=story, story_match_status='candidate',
+        )
+        result = build_digest(self.today, top_n=5)
+        self.assertEqual(result['items'], [])
+
+    def test_detail_page_renders_confirmed_members_only(self):
+        story = self._story('Ziņa viens', 5.0, source=self.a)
+        cand = _article(
+            self.b, 'Kandidāts (B)', topic=self.topic,
+            story=story, story_match_status='candidate',
+        )
+        build_digest(self.today, top_n=5)
+        response = self.client.get(
+            f'/news/{self.today.isoformat()}/'
+        )
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Ziņa viens', content)
+        self.assertNotIn(cand.title, content)

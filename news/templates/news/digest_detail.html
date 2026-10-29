@@ -11,7 +11,7 @@
       {% if item.story.topic %}&middot; {{ item.story.topic.name }}{% endif %}
     </p>
     <ul class="articles">
-      {% for article in item.story.articles.all %}
+      {% for article in item.story.confirmed_articles %}
         <li>
           <a href="{{ article.link }}">{{ article.title }}</a>
           <span class="muted">({{ article.source.name }})</span>

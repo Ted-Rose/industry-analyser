@@ -9,33 +9,47 @@ import logging
 
 from django.db import transaction
 
-from .models import NewsDigest, NewsDigestItem, NewsStory
+from .models import (
+    CONFIRMED_MATCH_STATUSES,
+    NewsDigest,
+    NewsDigestItem,
+    NewsStory,
+)
 
 logger = logging.getLogger('news')
 
 
-def _pick_headline(story):
-    """Title of the member article from the highest
-    importance_weight source; ties broken by longest lead.
-    Falls back to the story title when it has no members."""
+def _confirmed_members(story):
+    """Confirmed member articles — 'candidate' links await admin
+    review and must not count as coverage in the digest."""
     # .all() rides the caller's prefetch_related('articles__source').
-    members = list(story.articles.all())
+    return [
+        a for a in story.articles.all()
+        if a.story_match_status in CONFIRMED_MATCH_STATUSES
+    ]
+
+
+def _pick_headline(story):
+    """Title of the confirmed member article from the highest
+    importance_weight source; ties broken by longest lead.
+    Falls back to the story title when it has none."""
+    members = _confirmed_members(story)
     if not members:
-        return story.title, ''
+        return story.title
     best = max(
         members,
         key=lambda a: (a.source.importance_weight, len(a.lead)),
     )
-    return best.title, ''
+    return best.title
 
 
 def _rationale(story):
-    # The outlet count is recomputed from live membership —
-    # story.source_count is only refreshed by clustering's
-    # _refresh_story and goes stale when an admin edits an
-    # article's story/story_match_status.
+    # The outlet count is recomputed from live confirmed
+    # membership — story.source_count is only refreshed by
+    # clustering's _refresh_story and goes stale when an admin
+    # edits an article's story/story_match_status.
     slugs = sorted(
-        {a.source.slug for a in story.articles.all()}
+        {a.source.slug for a in _confirmed_members(story)}
     )
     return f"{len(slugs)} outlets: {', '.join(slugs)}"
 
@@ -52,14 +66,21 @@ def build_digest(date, top_n=5, dry_run=False):
         NewsStory.objects.filter(
             published_date=date,
             topic__is_enabled=True,
+            # At least one confirmed member — an all-'candidate'
+            # story is admin-review material, not published
+            # coverage.
+            articles__story_match_status__in=(
+                CONFIRMED_MATCH_STATUSES
+            ),
         )
+        .distinct()
         .prefetch_related('articles__source')
         .order_by('-importance_score', '-last_seen')[:top_n]
     )
 
     items = []
     for rank, story in enumerate(stories, start=1):
-        headline, _ = _pick_headline(story)
+        headline = _pick_headline(story)
         rationale = _rationale(story)[:300]
         items.append((rank, headline, rationale, story))
 

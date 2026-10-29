@@ -11,6 +11,7 @@ item failed and iteration continues with the next source.
 """
 import hashlib
 import logging
+from datetime import datetime
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
 from xml.etree import ElementTree
@@ -56,12 +57,24 @@ def _strip_html(raw):
 
 
 def _parse_pubdate(raw):
+    """RFC-2822 first (<pubDate>), then ISO-8601 (<dc:date> and
+    friends — parsedate_to_datetime cannot read those). A naive
+    result is localized so it does not warn on save under
+    USE_TZ."""
     if not raw:
         return None
     try:
-        return parsedate_to_datetime(raw)
+        parsed = parsedate_to_datetime(raw)
     except (TypeError, ValueError):
-        return None
+        parsed = None
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(raw)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = timezone.make_aware(parsed)
+    return parsed
 
 
 class NewsScraper(BaseScraper):
@@ -191,19 +204,24 @@ class NewsScraper(BaseScraper):
             # permalink; opaque ids (isPermaLink="false") are not
             # usable hrefs and stay out of the URLField.
             link = guid
+        if not link:
+            # No usable href — a linkless article renders an
+            # empty anchor and is useless for a digest.
+            logger.warning(
+                'Skipping item %r: no usable link',
+                guid or title,
+            )
+            return None
         if guid:
             # Truncated to the field's max_length — two distinct
             # guids sharing a 64-char prefix would collapse into
             # one article (deduped in-session, then
             # ignore_conflicts). Rare; accepted.
             external_id = guid[:64]
-        elif link:
+        else:
             external_id = hashlib.sha256(
                 link.encode()
             ).hexdigest()[:32]
-        else:
-            logger.warning('Skipping item with no guid and no link')
-            return None
 
         description = _strip_html(_child_text(item, 'description'))
         pub_raw = (

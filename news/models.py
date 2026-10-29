@@ -66,6 +66,13 @@ class NewsStory(models.Model):
         return self.title
 
 
+# story_match_status values that count as confirmed story
+# coverage — 'candidate' links await admin review and must not
+# inflate source_count, the digest rationale or the rendered
+# digest page.
+CONFIRMED_MATCH_STATUSES = ('auto', 'manual')
+
+
 class NewsArticle(models.Model):
     """One RSS feed item from one source."""
 

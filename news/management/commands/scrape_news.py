@@ -72,10 +72,16 @@ class Command(BaseCommand):
         # reads them; admin edits are never overwritten.
         ensure_seeded(dry_run=options['dry_run'])
 
+        # --source is a targeted re-scrape: it must not be refused
+        # by the cycle gate (a full run may already have succeeded
+        # this cycle) and it must not satisfy the gate either — its
+        # run is marked PARTIAL below so a later full pass is still
+        # allowed to scrape the remaining sources.
         if not (
             options['ignore_cooldown']
             or options['fresh']
             or options['dry_run']
+            or options['source']
         ):
             reason = cooldown_skip_reason(
                 JOB_SLUG, detect_executed_by(), options['cycle'],
@@ -91,7 +97,11 @@ class Command(BaseCommand):
             slug=JOB_SLUG,
             description='News RSS feed scrape (all enabled sources)',
             cycle_key=options['cycle'],
-            fresh=options['fresh'],
+            # A --source run is a targeted re-scrape: fresh=True
+            # makes the selected feed eligible again even when it
+            # was already DONE this cycle; the other feeds' items
+            # are filtered out downstream and stay pending.
+            fresh=options['fresh'] or bool(options['source']),
             resume_from=options['resume_from'],
             dry_run=options['dry_run'],
         )
@@ -103,6 +113,11 @@ class Command(BaseCommand):
                 source_slug=options['source'],
             )
             scraper.run()
+            if options['source']:
+                # Only a subset of the job's items was processed —
+                # PARTIAL keeps cycle_scrape_exists unsatisfied so
+                # the full pass is not gated off.
+                runner.mark_partial()
             runner.finish()
             end_time = timezone.now()
             duration = (end_time - start_time).total_seconds()

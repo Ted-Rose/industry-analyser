@@ -6,7 +6,12 @@ from django.db.models import Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
 
-from .models import NewsDigest, NewsDigestItem
+from .models import (
+    CONFIRMED_MATCH_STATUSES,
+    NewsArticle,
+    NewsDigest,
+    NewsDigestItem,
+)
 
 
 def digest_list(request):
@@ -31,7 +36,21 @@ def digest_detail(request, date):
     items = (
         digest.items
         .select_related('story__topic')
-        .prefetch_related('story__articles__source')
+        # Only confirmed members render — 'candidate' links
+        # await admin review and are not published coverage.
+        .prefetch_related(Prefetch(
+            'story__articles',
+            queryset=(
+                NewsArticle.objects
+                .filter(
+                    story_match_status__in=(
+                        CONFIRMED_MATCH_STATUSES
+                    )
+                )
+                .select_related('source')
+            ),
+            to_attr='confirmed_articles',
+        ))
         .order_by('rank')
     )
     return render(

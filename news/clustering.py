@@ -27,7 +27,11 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from .models import NewsArticle, NewsStory
+from .models import (
+    CONFIRMED_MATCH_STATUSES,
+    NewsArticle,
+    NewsStory,
+)
 
 logger = logging.getLogger('news')
 
@@ -89,11 +93,17 @@ def _article_date(article):
 
 
 def _best_story(article_tokens, stories):
-    """(story, score, shared_stems) of the best candidate —
-    shared_stems belongs to the single best-scoring member title.
+    """(story, score, shared_stems) of the best member title —
+    shared_stems belongs to that single title.
+
+    Titles rank by (meets the auto-merge bar, score, substantive
+    stem count): a member title that clears the auto bar on its
+    own beats a higher-scoring title whose overlap is date
+    boilerplate — otherwise the argmax title alone would decide
+    auto-vs-candidate for the whole story.
     (None, best_score, frozenset()) when nothing is close."""
     best_story = None
-    best_score = 0.0
+    best_key = (False, 0.0, 0)
     best_shared = frozenset()
     for story in stories:
         titles = [
@@ -102,17 +112,33 @@ def _best_story(article_tokens, stories):
         for title in titles:
             story_tokens = _tokens(title)
             score = _jaccard(article_tokens, story_tokens)
-            if score > best_score:
+            shared = article_tokens & story_tokens
+            substantive = len(shared - _DATE_STEMS)
+            key = (
+                score >= AUTO_THRESHOLD
+                and substantive >= MIN_SHARED_SUBSTANTIVE,
+                score,
+                substantive,
+            )
+            if key > best_key:
                 best_story = story
-                best_score = score
-                best_shared = article_tokens & story_tokens
-    return best_story, best_score, best_shared
+                best_key = key
+                best_shared = shared
+    return best_story, best_key[1], best_shared
 
 
 def _refresh_story(story, dry_run=False):
     """Recompute source_count and importance_score from member
-    articles; save() bumps last_seen via auto_now."""
-    members = list(story.articles.select_related('source'))
+    articles; save() bumps last_seen via auto_now.
+
+    Only confirmed members ('auto'/'manual') count — 'candidate'
+    links await admin review and must not inflate the digest.
+    A story with zero confirmed members degrades to
+    source_count/importance_score 0."""
+    members = [
+        a for a in story.articles.select_related('source')
+        if a.story_match_status in CONFIRMED_MATCH_STATUSES
+    ]
     sources = {a.source_id for a in members}
     story.source_count = len(sources)
     weight = story.topic.weight if story.topic_id else 1.0
@@ -133,7 +159,7 @@ def _refresh_story(story, dry_run=False):
 def link_unmatched_articles(days=2, dry_run=False):
     """Assign recent 'unmatched' articles to NewsStory clusters.
 
-    Returns stats: {'linked', 'new_stories', 'skipped'}.
+    Returns stats: {'linked', 'new_stories'}.
     """
     today = timezone.localdate()
     cutoff = today - timedelta(days=days)
@@ -151,23 +177,29 @@ def link_unmatched_articles(days=2, dry_run=False):
         .order_by('published_at', 'id')
     )
 
-    stats = {'linked': 0, 'new_stories': 0, 'skipped': 0}
+    stats = {'linked': 0, 'new_stories': 0}
     for article in candidates:
         article_tokens = _tokens(article.title)
-        if not article_tokens:
-            stats['skipped'] += 1
-            continue
         day = _article_date(article)
-        stories = (
-            NewsStory.objects.filter(
-                published_date__range=(
-                    day - timedelta(days=1),
-                    day + timedelta(days=1),
+        if not article_tokens:
+            # A title that stems to nothing (stopwords/numbers
+            # only) can never match — fall through to the
+            # new-story branch so it doesn't stay 'unmatched'
+            # and get rescanned every run.
+            story, score, shared = None, 0.0, frozenset()
+        else:
+            stories = (
+                NewsStory.objects.filter(
+                    published_date__range=(
+                        day - timedelta(days=1),
+                        day + timedelta(days=1),
+                    )
                 )
+                .prefetch_related('articles')
             )
-            .prefetch_related('articles')
-        )
-        story, score, shared = _best_story(article_tokens, stories)
+            story, score, shared = _best_story(
+                article_tokens, stories
+            )
         # Stems shared with the best-matching title that are not
         # date boilerplate — auto-merge requires several so a
         # shared year + one generic noun cannot glue distinct
@@ -212,7 +244,7 @@ def link_unmatched_articles(days=2, dry_run=False):
             _refresh_story(story)
 
     logger.info(
-        'Story linking: %d linked, %d new stories, %d skipped',
-        stats['linked'], stats['new_stories'], stats['skipped'],
+        'Story linking: %d linked, %d new stories',
+        stats['linked'], stats['new_stories'],
     )
     return stats

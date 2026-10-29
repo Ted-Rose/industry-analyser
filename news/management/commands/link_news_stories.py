@@ -32,7 +32,6 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"linked={stats['linked']} "
-                f"new_stories={stats['new_stories']} "
-                f"skipped={stats['skipped']}"
+                f"new_stories={stats['new_stories']}"
             )
         )
