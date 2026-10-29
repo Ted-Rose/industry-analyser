@@ -27,6 +27,10 @@ export type PropertyListOut = components['schemas']['PropertyListOut'];
 export type PropertyDetailOut =
   components['schemas']['PropertyDetailOut'];
 export type LinkedAdOut = components['schemas']['LinkedAdOut'];
+export type RentVsBuyRankedOut =
+  components['schemas']['RentVsBuyRankedOut'];
+export type RentVsBuyRankedRowOut =
+  components['schemas']['RentVsBuyRankedRowOut'];
 
 export type Kind = 'apartment' | 'house';
 export type Deal = 'rent' | 'sale';
@@ -245,5 +249,29 @@ export function fetchProperty(
 ): Promise<PropertyDetailOut> {
   return apiGet<PropertyDetailOut>(
     `${API}/properties/${kind}/${pk}/`,
+  );
+}
+
+export interface RentVsBuyRankedParams {
+  days?: string | null;
+  minAds?: string | null;
+  includeResidual?: boolean;
+}
+
+/** GET /api/classified-ads/regions/rent-vs-buy/ranked/ — cells of
+ *  (exact region node x property type) ranked ascending by
+ *  months_to_buyout, the median whole-unit sale price over the
+ *  median monthly rent. */
+export function fetchRentVsBuyRanked(
+  kind: Kind,
+  params: RentVsBuyRankedParams,
+): Promise<RentVsBuyRankedOut> {
+  const qs = new URLSearchParams();
+  qs.set('kind', kind);
+  setNumber(qs, 'days', params.days);
+  setNumber(qs, 'min_ads', params.minAds);
+  if (params.includeResidual) qs.set('include_residual', 'true');
+  return apiGet<RentVsBuyRankedOut>(
+    `${API}/regions/rent-vs-buy/ranked/?${qs}`,
   );
 }
