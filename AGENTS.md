@@ -329,7 +329,9 @@ python manage.py run_all_jobs \
 ```
 
 Command detail: `scrape_vacancies` runs all configured portals
-by default. `scrape_blogs --max-api-requests N` caps paid AI
+by default; `--no-ocr` skips file fetch/AI transcription and
+`--ignore-cooldown` bypasses the per-portal fallback gate.
+`scrape_blogs --max-api-requests N` caps paid AI
 calls. `scrape_tv_programs` also takes `--days-past N`,
 `--days-future N`, `--no-enrich`. `enrich_tv_shows` statuses:
 `pending|not_found|failed`; `--dry-run` available.
@@ -342,7 +344,12 @@ apartment|house`. `link_vacancies_to_companies` takes `--ids` and
 after the Phase-2 consolidation: the `all-jobs-daily` Cloud
 Scheduler fires it at 19:50 UTC and its `JOBS` list runs each
 sub-job whose UTC schedule matches today (the JOBS list is the
-enable/disable point); `--only`/`--force` override the
+enable/disable point). Scrape entries are `daily` — GCP is a
+fallback gated inside each command: 7-day SUCCESS cooldowns for
+the classified-ads scrapes, a 13-day per-portal cooldown for
+vacancies, and a coverage-horizon check for the TV guide (skip
+when every channel's stored coverage reaches tomorrow); local
+runs are unaffected. `--only`/`--force` override the
 schedule, `--dry-run` prints the plan.
 
 ## Configuration
