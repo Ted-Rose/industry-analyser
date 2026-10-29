@@ -1,8 +1,10 @@
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import List
+from zoneinfo import ZoneInfo
 
+from django.db.models import Q
 from django.utils import timezone
 
 from bs4 import BeautifulSoup
@@ -334,8 +336,34 @@ class HousingAdScraper(BaseScraper):
         if existing_sell_ids:
             self._write_sightings(existing_sell_ids, 'SELL')
 
+        # Self-heal: existing rows whose detail-only fields were never
+        # populated (post_date backfill, rooms hardcoded 0 pre-F8)
+        # stay in the queue so enrich_result re-fetches the detail
+        # page and create_or_update_resources fills them in.
+        heal_filter = Q(post_date__isnull=True) | Q(rooms=0)
+        heal_ids = set()
+        if existing_rent_ids:
+            heal_ids |= set(
+                HouseForRent.all_objects.filter(
+                    heal_filter, ad_id__in=existing_rent_ids,
+                ).values_list('ad_id', flat=True)
+            )
+        if existing_sell_ids:
+            heal_ids |= set(
+                HouseForSale.all_objects.filter(
+                    heal_filter, ad_id__in=existing_sell_ids,
+                ).values_list('ad_id', flat=True)
+            )
+
         existing_ids = existing_rent_ids | existing_sell_ids
-        return [r for r in resources if r['ad_id'] not in existing_ids]
+        kept = []
+        for r in resources:
+            if r['ad_id'] not in existing_ids:
+                kept.append(r)
+            elif r['ad_id'] in heal_ids:
+                r['_heal'] = True
+                kept.append(r)
+        return kept
 
     def _refresh_sale_flags(self, rent_ad_ids, sale_twin_ids):
         """Flag existing rent rows newly detected as for-sale.
@@ -376,15 +404,61 @@ class HousingAdScraper(BaseScraper):
     def enrich_result(self, partial_result):
         detail_response = self.make_request(partial_result['link'])
         if detail_response is None:
+            # A re-sighted row kept only to heal NULL fields must not
+            # overwrite stored values with empty parse defaults —
+            # drop it; its sighting was already recorded upstream.
+            if partial_result.get('_heal'):
+                return None
             return partial_result
 
-        soup = BeautifulSoup(detail_response.data, 'html.parser')
+        detail = self._parse_detail_page(detail_response)
+        return {**partial_result, **detail}
 
-        post_date = None
-        seller_phone = ''
-        seller_contact_id = ''
+    def _parse_detail_for_refetch(self, response):
+        """
+        Parse detail page for refetch operation.
+        Returns only the fields that can be updated from the detail page.
+        """
+        detail = self._parse_detail_page(response)
 
-        # Extract post date from msg_footer
+        phone = detail.pop('seller_phone', '')
+        contact_id = detail.pop('seller_contact_id', '')
+
+        if phone or contact_id:
+            seller, _ = Seller.objects.get_or_create(
+                phone=phone, contact_id=contact_id
+            )
+            detail['seller'] = seller
+        else:
+            detail['seller'] = None
+
+        return detail
+
+    def _parse_detail_page(self, response) -> dict:
+        result = {
+            'post_date': None,
+            'seller_phone': '',
+            'seller_contact_id': '',
+        }
+        if response is None:
+            return result
+        # lxml recovers from the unclosed <td>/<tr> tags on this page's
+        # attribute table far more reliably than html.parser (same
+        # reason as the apartment scraper's detail parser).
+        soup = BeautifulSoup(response.data, 'lxml')
+
+        msg_div = soup.find('div', id='msg_div_msg')
+        if msg_div:
+            for tag in msg_div.find_all(['table', 'div']):
+                tag.decompose()
+            comment = msg_div.get_text(separator='\n', strip=True)
+            if comment:
+                result['comment'] = comment
+
+        # Extract post date from msg_footer. ss.com timestamps are
+        # Latvia-local; note that post_date is the last-RENEWAL date
+        # (renewals bump it) — days-on-market must use sightings/
+        # first_seen instead.
         # Support both English "Date:" and Latvian "Datums:"
         date_labels = ('Date:', 'Datums:')
         for td in soup.find_all('td', 'msg_footer'):
@@ -401,10 +475,12 @@ class HousingAdScraper(BaseScraper):
                 # Extract the date part after the label
                 raw = text.split(date_label_found, 1)[1].strip()
                 try:
-                    naive = timezone.datetime.strptime(
+                    naive = datetime.strptime(
                         raw, '%d.%m.%Y %H:%M'
                     )
-                    post_date = timezone.make_aware(naive)
+                    result['post_date'] = timezone.make_aware(
+                        naive, ZoneInfo('Europe/Riga')
+                    )
                 except (ValueError, TypeError):
                     pass
                 break
@@ -414,7 +490,7 @@ class HousingAdScraper(BaseScraper):
             'span', id=re.compile(r'^phone_td_')
         )
         if prefix_span:
-            seller_phone = prefix_span.get_text(strip=True)
+            result['seller_phone'] = prefix_span.get_text(strip=True)
 
         # Extract contact ID from mail link
         mail_link = soup.find(
@@ -422,15 +498,72 @@ class HousingAdScraper(BaseScraper):
         )
         if mail_link:
             href = mail_link.get('href', '')
-            seller_contact_id = (
+            result['seller_contact_id'] = (
                 href.split('/')[-1].replace('.html', '')
             )
 
-        partial_result['post_date'] = post_date
-        partial_result['seller_phone'] = seller_phone
-        partial_result['seller_contact_id'] = seller_contact_id
+        # ss.com serves this page in whatever language the request's
+        # locale path uses (e.g. /lv/ -> "Iela:" instead of "Street:").
+        street_raw = self._ads_opt_value(soup, ('Street:', 'Iela:'))
+        if street_raw:
+            result['street_name'], result['street_no'] = (
+                self._split_street(street_raw)
+            )
 
-        return partial_result
+        rooms_raw = self._ads_opt_value(soup, ('Rooms:', 'Istabas:'))
+        if rooms_raw:
+            try:
+                result['rooms'] = int(float(rooms_raw))
+            except (ValueError, TypeError):
+                pass
+
+        floors_raw = self._ads_opt_value(
+            soup, ('Amount of floors:', 'Stāvu skaits:')
+        )
+        if floors_raw:
+            try:
+                result['floors'] = int(float(floors_raw))
+            except (ValueError, TypeError):
+                pass
+
+        land_raw = self._ads_opt_value(
+            soup, ('Land area:', 'Zemes platība:')
+        )
+        if land_raw:
+            land_area = _parse_land_area(land_raw)
+            if land_area is not None:
+                result['land_area_sqm'] = land_area
+
+        house_type = self._ads_opt_value(
+            soup, ('House type:', 'Mājas tips:')
+        )
+        if house_type:
+            result['house_type'] = house_type
+
+        return result
+
+    def _ads_opt_value(self, soup, labels):
+        """Read one row of the detail page's ads_opt attribute table.
+
+        `labels` is a tuple of accepted label spellings (the page's
+        EN/LV variants); returns '' when the row is absent.
+        """
+        for label_td in soup.find_all('td', class_='ads_opt_name'):
+            if label_td.get_text(strip=True) not in labels:
+                continue
+            value_td = label_td.find_next_sibling(
+                'td', class_='ads_opt'
+            )
+            if not value_td:
+                return ''
+            bold = value_td.find('b')
+            target = bold if bold else value_td
+            # Only the tag's own text, not text pulled in from
+            # nested/mis-nested tags (e.g. the "[Map]" link).
+            return ''.join(
+                target.find_all(string=True, recursive=False)
+            ).strip()
+        return ''
 
     def initiate_resource(self, result):
         seller = None
@@ -468,6 +601,21 @@ class HousingAdScraper(BaseScraper):
                 total_price_120m / size_val if size_val > 0 else 0.0
             )
 
+            sale_flag = (
+                result.get('sale_listed', False)
+                or is_sale_misclassified(
+                    result['comment'], monthly_price_per_sqm
+                )
+            )
+            if result.get('_heal') and not sale_flag:
+                # A re-enriched existing row must keep a flag set
+                # manually or by an earlier scrape — flagging is
+                # additive, never undone by re-enrichment.
+                sale_flag = HouseForRent.all_objects.filter(
+                    ad_id=result['ad_id'],
+                    is_sale_misclassified=True,
+                ).exists()
+
             return HouseForRent(
                 ad_id=result['ad_id'],
                 comment=result['comment'],
@@ -489,13 +637,9 @@ class HousingAdScraper(BaseScraper):
                 monthly_price_per_sqm=monthly_price_per_sqm,
                 total_price_120m=total_price_120m,
                 price_per_sqm_120m=price_per_sqm_120m,
+                house_type=result.get('house_type', ''),
                 is_hidden=is_junk,
-                is_sale_misclassified=(
-                    result.get('sale_listed', False)
-                    or is_sale_misclassified(
-                        result['comment'], monthly_price_per_sqm
-                    )
-                ),
+                is_sale_misclassified=sale_flag,
             )
         elif deal_type == 'SELL':
             return HouseForSale(
@@ -515,6 +659,7 @@ class HousingAdScraper(BaseScraper):
                 seller=seller,
                 price_per_sqm=price_per_sqm,
                 total_price=result['total_price'],
+                house_type=result.get('house_type', ''),
                 is_hidden=is_junk,
             )
 
@@ -545,6 +690,8 @@ class HousingAdScraper(BaseScraper):
                     'total_price_120m', 'price_per_sqm_120m',
                     'total_price', 'post_date', 'last_seen',
                     'seller', 'is_sale_misclassified',
+                    'rooms', 'house_type', 'floors',
+                    'land_area_sqm', 'street_name', 'street_no',
                 ],
             )
             logger.info(f"Saved {len(rent_ads)} rent ads.")
@@ -560,6 +707,8 @@ class HousingAdScraper(BaseScraper):
                     'comment', 'link', 'price_per_sqm',
                     'total_price', 'post_date', 'last_seen',
                     'seller',
+                    'rooms', 'house_type', 'floors',
+                    'land_area_sqm', 'street_name', 'street_no',
                 ],
             )
             logger.info(f"Saved {len(sell_ads)} sale ads.")

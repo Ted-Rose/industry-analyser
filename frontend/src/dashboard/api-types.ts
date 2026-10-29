@@ -944,6 +944,8 @@ export interface components {
             floors: number | null;
             /** Land Area Sqm */
             land_area_sqm: number | null;
+            /** House Type */
+            house_type: string | null;
             /** Price Per Sqm */
             price_per_sqm: number;
             /** Total Price */
@@ -1302,6 +1304,8 @@ export interface components {
             last_seen: string;
             /** Days Active */
             days_active: number;
+            /** House Type */
+            house_type: string | null;
         };
         /** PropertyDetailOut */
         PropertyDetailOut: {
