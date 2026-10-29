@@ -2956,3 +2956,316 @@ class AuditPropertyLinksCommandTest(TestCase):
         text = out.getvalue()
         self.assertIn('TWIN_DIVERGED: 3', text)
         self.assertIn('... 1 more', text)
+
+
+class RelinkPropertyAdsTwinFixTest(TestCase):
+    """relink_property_ads --twin-fix (F4, conflation plan §3c/d).
+
+    Fixtures build the audit's TWIN_DIVERGED queue: a cross-deal
+    twin pair split across two properties, plus conflict and
+    conflation-suspect variants that must land on the review
+    list instead of moving.
+    """
+
+    def setUp(self):
+        self.seller = Seller.objects.create(phone='111')
+        self._counter = 0
+
+    def _rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'rent_{self._counter}',
+            link=f'https://example.com/rent/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=6.0,
+            total_price=300.0,
+            monthly_price=300.0,
+            monthly_price_per_sqm=6.0,
+            total_price_120m=360.0,
+            price_per_sqm_120m=7.2,
+            seller=self.seller,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _sale_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'sale_{self._counter}',
+            link=f'https://example.com/sale/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=2000.0,
+            total_price=100000.0,
+            seller=self.seller,
+        )
+        defaults.update(kw)
+        return ApartmentForSale.all_objects.create(**defaults)
+
+    def _house_rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'hrent_{self._counter}',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'hsale_{self._counter}',
+            link=f'https://example.com/hsale/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def _prop(self, ad, prop_model=ApartmentProperty):
+        """Create a property seeded from ad and link ad to it."""
+        prop = prop_model.from_ad(ad)
+        prop.save()
+        ad.property = prop
+        ad.property_match_status = 'auto'
+        ad.save()
+        return prop
+
+    def _link(self, prop, ad):
+        ad.property = prop
+        ad.property_match_status = 'auto'
+        ad.save()
+        return prop
+
+    def _run(self, *args):
+        from io import StringIO
+
+        out = StringIO()
+        call_command('relink_property_ads', *args, stdout=out)
+        return out.getvalue()
+
+    def _split_apartment_pair(self, ad_id='tw1', **rent_kw):
+        rent = self._rent_ad(ad_id=ad_id, **rent_kw)
+        prop_r = self._prop(rent)
+        prop_s = self._prop(self._sale_ad(ad_id=ad_id))
+        return rent, prop_r, prop_s
+
+    def test_twin_pair_relinked_and_source_prop_deleted(self):
+        rent, prop_r, prop_s = self._split_apartment_pair()
+
+        out = self._run('--twin-fix')
+
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_s.pk)
+        self.assertEqual(rent.property_match_status, 'manual')
+        self.assertEqual(rent.property_match_score, 1.0)
+        self.assertIsNone(rent.candidate_property_id)
+        # Emptied source property is deleted — derived data.
+        self.assertFalse(
+            ApartmentProperty.objects.filter(pk=prop_r.pk).exists()
+        )
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+        self.assertIn('MOVED', out)
+        self.assertIn('Source props deleted:   1', out)
+
+    def test_source_prop_kept_when_other_ads_remain(self):
+        rent, prop_r, prop_s = self._split_apartment_pair()
+        other = self._rent_ad(ad_id='other')
+        self._link(prop_r, other)
+
+        out = self._run('--twin-fix')
+
+        rent.refresh_from_db()
+        other.refresh_from_db()
+        prop_r.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_s.pk)
+        self.assertEqual(other.property_id, prop_r.pk)
+        self.assertIn('Source props refreshed: 1', out)
+        self.assertIn('Source props deleted:   0', out)
+
+    def test_attribute_conflict_pair_goes_to_review(self):
+        rent, prop_r, prop_s = self._split_apartment_pair(
+            rooms=3,
+        )
+        # Sale ad keeps rooms=2 — the repurposed-listing shape.
+        out = self._run('--twin-fix')
+
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_r.pk)
+        self.assertEqual(rent.property_match_status, 'auto')
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_s.pk).exists()
+        )
+        self.assertIn('Review list (not moved):', out)
+        self.assertIn('rooms conflict', out)
+
+    def test_size_conflict_pair_goes_to_review(self):
+        rent, prop_r, _ = self._split_apartment_pair(size=80.0)
+        out = self._run('--twin-fix')
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_r.pk)
+        self.assertIn('size conflict', out)
+
+    def test_dry_run_writes_nothing(self):
+        rent, prop_r, prop_s = self._split_apartment_pair()
+
+        out = self._run('--twin-fix', '--dry-run')
+
+        self.assertIn('DRY-RUN', out)
+        self.assertIn('MOVE', out)
+        self.assertIn('Would move', out)
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_r.pk)
+        self.assertEqual(rent.property_match_status, 'auto')
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_r.pk).exists()
+        )
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_s.pk).exists()
+        )
+
+    def test_rerun_is_idempotent(self):
+        rent, _, prop_s = self._split_apartment_pair()
+        self._run('--twin-fix')
+
+        out = self._run('--twin-fix')
+
+        self.assertIn('Twin pairs found:       0', out)
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_s.pk)
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_house_twin_pair(self):
+        rent = self._house_rent_ad(ad_id='htw')
+        prop_r = self._prop(rent, HouseProperty)
+        prop_s = self._prop(
+            self._house_sale_ad(ad_id='htw'), HouseProperty
+        )
+
+        self._run('--twin-fix', '--kind', 'house')
+
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_s.pk)
+        self.assertEqual(rent.property_match_status, 'manual')
+        self.assertFalse(
+            HouseProperty.objects.filter(pk=prop_r.pk).exists()
+        )
+        self.assertEqual(HouseProperty.objects.count(), 1)
+
+    def test_target_property_refreshed_from_ads(self):
+        """refresh_from_ads recomputes canonical fields + seen
+        window on the target once the rent ad joins it."""
+        sale = self._sale_ad(ad_id='tw1')
+        prop_s = self._prop(sale)
+        rent = self._rent_ad(ad_id='tw1', apartment_no='7')
+        ApartmentForRentSighting.objects.create(
+            ad=rent, seen_on=date.today()
+        )
+        prop_r = self._prop(rent)
+        # Backdate after _prop: its full-field ad.save() would
+        # restore the in-memory first_seen.
+        old = timezone.now() - timedelta(days=30)
+        ApartmentForRent.all_objects.filter(pk=rent.pk).update(
+            first_seen=old
+        )
+
+        self._run('--twin-fix')
+
+        prop_s.refresh_from_db()
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_s.pk)
+        # The rent ad has a sighting (days_active=1 > sale's 0), so
+        # it is the "best" ad: its apt_no + earlier first_seen win.
+        self.assertEqual(prop_s.apartment_no, '7')
+        self.assertEqual(prop_s.first_seen, rent.first_seen)
+        self.assertFalse(
+            ApartmentProperty.objects.filter(pk=prop_r.pk).exists()
+        )
+
+    def test_misclassified_rent_row_still_moves(self):
+        """is_sale_misclassified is orthogonal to linkage — the
+        flagged duplicate still relinks, logged + counted."""
+        rent, prop_r, prop_s = self._split_apartment_pair(
+            is_sale_misclassified=True,
+        )
+
+        out = self._run('--twin-fix')
+
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_s.pk)
+        self.assertIn('of which misclassified: 1', out)
+
+    def test_fanout_conflation_target_goes_to_review(self):
+        """A target prop whose twins fan out to >=2 distinct
+        sources is the mega-property signature (§3c) — skip."""
+        prop_r1 = self._prop(self._rent_ad(ad_id='t1'))
+        prop_r2 = self._prop(self._rent_ad(ad_id='t2'))
+        prop_s = self._prop(self._sale_ad(ad_id='t1'))
+        self._link(prop_s, self._sale_ad(ad_id='t2'))
+
+        out = self._run('--twin-fix')
+
+        for prop_r in (prop_r1, prop_r2):
+            rent = ApartmentForRent.all_objects.get(
+                property=prop_r
+            )
+            self.assertEqual(rent.property_id, prop_r.pk)
+        self.assertIn('fans out', out)
+        self.assertIn('Review list (not moved):', out)
+        self.assertIn('Skipped (review):       2', out)
+
+    def test_aptno_conflict_endpoint_goes_to_review(self):
+        """A source/target prop already holding >=2 distinct
+        apt_nos is conflation-suspect — review, not merge."""
+        rent, prop_r, _ = self._split_apartment_pair(
+            apartment_no='3',
+        )
+        # Give the rent twin's own property a second, conflicting
+        # apartment number via another linked ad's comment.
+        other = self._rent_ad(
+            ad_id='other',
+            comment='Pārdod. Dzīvoklis Nr. 9',
+        )
+        self._link(prop_r, other)
+
+        out = self._run('--twin-fix')
+
+        rent.refresh_from_db()
+        self.assertEqual(rent.property_id, prop_r.pk)
+        self.assertIn('apt_nos', out)
+
+    def test_already_same_property_is_not_a_pair(self):
+        prop = self._prop(self._rent_ad(ad_id='same'))
+        self._link(prop, self._sale_ad(ad_id='same'))
+        out = self._run('--twin-fix')
+        self.assertIn('Twin pairs found:       0', out)
+        self.assertEqual(ApartmentProperty.objects.count(), 1)

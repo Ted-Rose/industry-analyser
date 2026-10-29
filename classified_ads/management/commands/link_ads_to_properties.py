@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
+from classified_ads import property_links as plinks
 from classified_ads import property_matcher as pm
 from classified_ads.models import (
     ApartmentForRent,
@@ -360,13 +361,10 @@ class Command(BaseCommand):
             ).first()
             if old_prop is None:
                 return
-        old_prop.discard_linked_ad(ad)
-        if old_prop.linked_ads():
-            old_prop.refresh_from_ads(save=not self.dry_run)
-            return
-        if not self.dry_run:
-            old_prop.delete()
-        if old_prop in block:
+        outcome = plinks.refresh_or_delete_vacated(
+            old_prop, ad, self.dry_run
+        )
+        if outcome == 'deleted' and old_prop in block:
             block.remove(old_prop)
 
     def _save_ad(self, ad):
