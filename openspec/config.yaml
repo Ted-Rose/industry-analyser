@@ -1,0 +1,70 @@
+schema: spec-driven
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+context: |
+  Single repo, two layers: a Django 5.2 / Python 3.12 monolith
+  (apps: fetcher, classified_ads, blogs, tv_programs, news,
+  receipts, core_scraper, scrape_jobs, ai_providers,
+  industry_analyser) plus a React 19 + TS + Vite SPA under
+  frontend/ (one entry per app: vacancies, tv, classified_ads,
+  dashboard, receipts). The SPA talks to a single django-ninja
+  API mounted at /api/; specs under openspec/specs/ describe
+  CURRENT behavior — the code wins over docs (AGENTS.md lists
+  known-stale docs; verify every claim against source).
+  Constraints that apply to every change:
+    - Max line length is 79 chars in every file type
+      (flake8-enforced; migrations excluded; vendored
+      .agents/skills/ + .devin/skills/openspec-*/ files exempt).
+    - Commit messages use "Type: Capitalized message"
+      (Feat:/Fix:/Docs:/Refactor:/Test:/Chore:); commit on
+      feature branches only, never master; stage only files you
+      changed this session, by path.
+    - Agents generate migration FILES freely (makemigrations
+      touches no DB) but NEVER run migrate/sqlmigrate — the
+      default .env DATABASE_URL points at production Postgres;
+      tests/scratch only via DATABASE_URL=sqlite:///db.sqlite3.
+      Never run bare `manage.py test` either (creates a DB on
+      whatever DATABASE_URL targets).
+    - Scraper commands hit live third-party sites and AI calls
+      cost real money — never run scrapes or ai_smoke_test to
+      verify code; prefer --dry-run/--limit and unit tests.
+    - Secrets live in gitignored .env / private_settings.json /
+      ca.pem / fetcher/config_v2.json / blogs/config.yaml —
+      never commit or print them.
+
+# Per-artifact rules (optional)
+rules:
+  tasks:
+    - Prefix every task item with its target layer — "backend:"
+      for the Django apps, "frontend:" for frontend/, or "both:"
+      when the task touches both layers.
+  proposal:
+    - State which layer(s) the change impacts (backend,
+      frontend, or both) in the Impact section.
+  specs:
+    - Write spec claims only after verifying them against the
+      code; docs and plans describe intent, not shipped state.
+
+# Per-operation guidance (optional)
+operations:
+  apply:
+    guidance:
+      - Run `python manage.py check` after backend edits; use
+        the main checkout's venv (../industry-analyser/venv) —
+        worktrees have no venv.
+      - Scope tests to the app(s) changed:
+        DATABASE_URL=sqlite:///db.sqlite3 python manage.py test
+        <app>.
+      - After API-surface changes regenerate the schema and
+        client types: python manage.py export_openapi_schema
+        --output frontend/openapi.json, then (cd frontend &&
+        npm run gen:types) — CI fails on drift.
+      - After frontend source changes rebuild + recommit the
+        tracked frontend_dist/ output.
+  archive:
+    guidance:
+      - Summarize which specs gained or changed requirements
+        before finishing.
