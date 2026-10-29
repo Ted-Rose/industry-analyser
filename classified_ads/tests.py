@@ -2130,3 +2130,333 @@ class SwapFrozenAdIdsScriptTest(TestCase):
         canonical.refresh_from_db()
         self.assertFalse(malformed.is_hidden)
         self.assertTrue(canonical.is_hidden)
+
+
+class AuditPropertyLinksCommandTest(TestCase):
+    """audit_property_links (F10) — read-only anomaly flags.
+
+    Fixtures cover each flag: a cross-deal twin linked to two
+    different properties (TWIN_DIVERGED), a property whose ads
+    disagree on apartment_no (APTNO_CONFLICT) or floor/size
+    (FLOOR_CONFLICT), a same-block duplicate property pair and a
+    same-seller overlapping repost pair (COEXISTING subtypes), and
+    a batch-absorbed property (BULK_ABSORB).
+    """
+
+    def setUp(self):
+        self.seller = Seller.objects.create(
+            phone='111', contact_id='c1'
+        )
+        self.other_seller = Seller.objects.create(phone='222')
+        self._counter = 0
+
+    def _rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'rent_{self._counter}',
+            link=f'https://example.com/rent/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=6.0,
+            total_price=300.0,
+            monthly_price=300.0,
+            monthly_price_per_sqm=6.0,
+            total_price_120m=360.0,
+            price_per_sqm_120m=7.2,
+            seller=self.seller,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _sale_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'sale_{self._counter}',
+            link=f'https://example.com/sale/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=2000.0,
+            total_price=100000.0,
+            seller=self.seller,
+        )
+        defaults.update(kw)
+        return ApartmentForSale.all_objects.create(**defaults)
+
+    def _house_rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'hrent_{self._counter}',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'hsale_{self._counter}',
+            link=f'https://example.com/hsale/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def _prop(self, ad, prop_model=ApartmentProperty):
+        """Create a property seeded from ad and link ad to it."""
+        prop = prop_model.from_ad(ad)
+        prop.save()
+        ad.property = prop
+        ad.property_match_status = 'auto'
+        ad.save()
+        return prop
+
+    def _link(self, prop, ad):
+        ad.property = prop
+        ad.property_match_status = 'auto'
+        ad.save()
+        return prop
+
+    def _run_json(self, *args):
+        from io import StringIO
+
+        out = StringIO()
+        call_command(
+            'audit_property_links', '--json', *args, stdout=out
+        )
+        return json.loads(out.getvalue())
+
+    def test_clean_link_reports_no_flags(self):
+        prop = self._prop(self._rent_ad())
+        self._link(prop, self._sale_ad())
+        report = self._run_json()
+        for kind in ('apartment', 'house'):
+            for flag, items in report[kind]['flags'].items():
+                self.assertEqual(items, [], (kind, flag))
+        self.assertEqual(
+            report['apartment']['properties_scanned'], 1
+        )
+        self.assertEqual(report['apartment']['linked_ads'], 2)
+
+    def test_twin_diverged_pair(self):
+        prop_r = self._prop(self._rent_ad(ad_id='tr_twin'))
+        prop_s = self._prop(self._sale_ad(ad_id='tr_twin'))
+        report = self._run_json()
+        items = report['apartment']['flags']['TWIN_DIVERGED']
+        self.assertEqual(len(items), 1)
+        item = items[0]
+        self.assertEqual(item['ad_id'], 'tr_twin')
+        self.assertEqual(item['rent_property'], prop_r.pk)
+        self.assertEqual(item['sale_property'], prop_s.pk)
+        self.assertFalse(item['conflation'])
+
+    def test_twin_divergent_prop_is_marked(self):
+        """A prop whose twins fan out to >=2 targets is the
+        decisive conflation signature (conflation plan §3c)."""
+        prop_r = self._prop(self._rent_ad(ad_id='t1'))
+        self._prop(self._sale_ad(ad_id='t1'))
+        self._link(prop_r, self._rent_ad(ad_id='t2'))
+        self._prop(self._sale_ad(ad_id='t2'))
+        report = self._run_json()
+        self.assertIn(
+            prop_r.pk,
+            report['apartment']['twin_divergent_props'],
+        )
+        items = report['apartment']['flags']['TWIN_DIVERGED']
+        self.assertEqual(len(items), 2)
+        self.assertTrue(all(i['conflation'] for i in items))
+
+    def test_twin_on_same_property_is_clean(self):
+        prop = self._prop(self._rent_ad(ad_id='tr_same'))
+        self._link(prop, self._sale_ad(ad_id='tr_same'))
+        report = self._run_json()
+        self.assertEqual(
+            report['apartment']['flags']['TWIN_DIVERGED'], []
+        )
+
+    def test_aptno_conflict(self):
+        prop = self._prop(self._rent_ad(apartment_no='3'))
+        self._link(
+            prop,
+            self._sale_ad(comment='Pārdod. Dzīvoklis Nr. 7'),
+        )
+        report = self._run_json()
+        items = report['apartment']['flags']['APTNO_CONFLICT']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['property'], prop.pk)
+        self.assertIn('3', items[0]['detail'])
+        self.assertIn('7', items[0]['detail'])
+
+    def test_floor_conflict(self):
+        prop = self._prop(self._rent_ad(floor=1))
+        self._link(prop, self._sale_ad(floor=3))
+        report = self._run_json()
+        items = report['apartment']['flags']['FLOOR_CONFLICT']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['property'], prop.pk)
+        self.assertIn('floor=[1, 3]', items[0]['detail'])
+
+    def test_size_conflict_over_15_percent(self):
+        prop = self._prop(self._rent_ad(size=50.0, street_no='9'))
+        self._link(prop, self._sale_ad(size=60.0, street_no='9'))
+        report = self._run_json()
+        items = report['apartment']['flags']['FLOOR_CONFLICT']
+        self.assertEqual(len(items), 1)
+        self.assertIn('size>15%', items[0]['detail'])
+
+    def test_coexisting_same_block_dup(self):
+        prop_a = self._prop(self._rent_ad())
+        prop_b = self._prop(
+            self._rent_ad(street_name='A. Čaka iela', size=51.0)
+        )
+        # Third prop in the block with different rooms must not
+        # join the duplicate pair.
+        self._prop(self._rent_ad(rooms=3))
+        report = self._run_json()
+        items = [
+            i
+            for i in report['apartment']['flags']['COEXISTING']
+            if i['subtype'] == 'same_block'
+        ]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(
+            items[0]['properties'], [prop_a.pk, prop_b.pk]
+        )
+        self.assertEqual(items[0]['block'], 'centrs | 133')
+
+    def test_coexisting_overlap_same_deal_ads(self):
+        prop = self._prop(self._rent_ad())
+        self._link(prop, self._rent_ad())
+        # first_seen/last_seen are auto fields — backdate so both
+        # ads' seen windows overlap by ~5 days.
+        back = timezone.now() - timedelta(days=5)
+        ApartmentForRent.all_objects.filter(
+            property=prop
+        ).update(first_seen=back)
+        report = self._run_json()
+        items = [
+            i
+            for i in report['apartment']['flags']['COEXISTING']
+            if i['subtype'] == 'overlap'
+        ]
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['property'], prop.pk)
+        self.assertIn('overlap 5d', items[0]['detail'])
+
+    def test_overlap_requires_same_seller(self):
+        prop = self._prop(self._rent_ad())
+        self._link(prop, self._rent_ad(seller=self.other_seller))
+        back = timezone.now() - timedelta(days=5)
+        ApartmentForRent.all_objects.filter(
+            property=prop
+        ).update(first_seen=back)
+        report = self._run_json()
+        items = [
+            i
+            for i in report['apartment']['flags']['COEXISTING']
+            if i['subtype'] == 'overlap'
+        ]
+        self.assertEqual(items, [])
+
+    def test_bulk_absorb_same_day(self):
+        prop = self._prop(self._sale_ad())
+        self._link(prop, self._sale_ad())
+        self._link(prop, self._sale_ad())
+        report = self._run_json()
+        items = report['apartment']['flags']['BULK_ABSORB']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['property'], prop.pk)
+        self.assertIn('first_seen', items[0]['detail'])
+
+    def test_bulk_absorb_street_diversity(self):
+        prop = self._prop(self._rent_ad())
+        self._link(prop, self._rent_ad(street_name='Miera iela'))
+        report = self._run_json()
+        items = report['apartment']['flags']['BULK_ABSORB']
+        self.assertEqual(len(items), 1)
+        self.assertIn('street_names', items[0]['detail'])
+
+    def test_house_kind_and_filter(self):
+        prop_r = self._prop(
+            self._house_rent_ad(ad_id='h_twin'), HouseProperty
+        )
+        prop_s = self._prop(
+            self._house_sale_ad(ad_id='h_twin'), HouseProperty
+        )
+        report = self._run_json('--kind', 'house')
+        self.assertNotIn('apartment', report)
+        items = report['house']['flags']['TWIN_DIVERGED']
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['rent_property'], prop_r.pk)
+        self.assertEqual(items[0]['sale_property'], prop_s.pk)
+        # --kind apartment sees nothing.
+        report = self._run_json('--kind', 'apartment')
+        self.assertNotIn('house', report)
+        self.assertEqual(
+            report['apartment']['flags']['TWIN_DIVERGED'], []
+        )
+
+    def test_text_output_and_no_writes(self):
+        prop = self._prop(self._rent_ad(apartment_no='3'))
+        self._link(prop, self._sale_ad(apartment_no='7'))
+        n_props = ApartmentProperty.objects.count()
+        n_ads = ApartmentForRent.all_objects.count()
+        from io import StringIO
+
+        out = StringIO()
+        call_command('audit_property_links', stdout=out)
+        text = out.getvalue()
+        self.assertIn('READ-ONLY', text)
+        self.assertIn('APTNO_CONFLICT: 1', text)
+        self.assertIn('TWIN_DIVERGED: 0', text)
+        self.assertIn(f'prop={prop.pk}', text)
+        # Read-only: nothing changed.
+        self.assertEqual(
+            ApartmentProperty.objects.count(), n_props
+        )
+        self.assertEqual(
+            ApartmentForRent.all_objects.count(), n_ads
+        )
+
+    def test_limit_truncates_listing(self):
+        for i in range(3):
+            self._prop(self._rent_ad(ad_id=f'tw{i}'))
+            self._prop(self._sale_ad(ad_id=f'tw{i}'))
+        from io import StringIO
+
+        out = StringIO()
+        call_command(
+            'audit_property_links', '--kind', 'apartment',
+            '--limit', '2', stdout=out,
+        )
+        text = out.getvalue()
+        self.assertIn('TWIN_DIVERGED: 3', text)
+        self.assertIn('... 1 more', text)
