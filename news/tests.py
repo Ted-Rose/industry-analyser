@@ -84,8 +84,10 @@ FEED_B = b"""<?xml version="1.0" encoding="UTF-8"?>
 </rss>"""
 
 
-def _response(data):
-    return SimpleNamespace(data=data)
+def _response(data, status=200, headers=None):
+    return SimpleNamespace(
+        data=data, status=status, headers=headers or {}
+    )
 
 
 def _source(slug='a', strategy='tag', **kw):
@@ -209,6 +211,123 @@ class CreateOrUpdateTests(TestCase):
         results = self.scraper.parse_results(_response(dup))
         deduped = self.scraper.remove_redundant_results(results)
         self.assertEqual(len(deduped), 1)
+
+
+class StatefulScrapeTests(TestCase):
+    """Conditional GET per feed plus the known-item skip: a
+    304 touches nothing, a 200 stores fresh validators on the
+    source, and a repeat pass only bumps last_seen."""
+
+    def setUp(self):
+        self.source = _source('a', 'tag')
+        self.scraper = NewsScraper()
+        self.scraper._active_source = self.source
+
+    def test_304_touches_nothing(self):
+        self.source.etag = '"v1"'
+        self.source.last_modified = 'Wed, 29 Oct 2026 10:00:00 GMT'
+        self.source.save()
+        response = _response(b'', status=304)
+        with patch.object(
+            NewsScraper, 'make_request', return_value=response
+        ):
+            result = self.scraper.scrape_portal(
+                self.source.feed_url
+            )
+        self.assertIsNone(result)
+        self.assertEqual(NewsArticle.objects.count(), 0)
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.etag, '"v1"')
+        self.assertEqual(
+            self.source.last_modified,
+            'Wed, 29 Oct 2026 10:00:00 GMT',
+        )
+
+    def test_200_stores_feed_validators(self):
+        response = _response(
+            FEED_A,
+            headers={
+                'ETag': '"v2"',
+                'Last-Modified': 'Thu, 30 Oct 2026 08:00:00 GMT',
+            },
+        )
+        with patch.object(
+            NewsScraper, 'make_request', return_value=response
+        ):
+            articles = self.scraper.scrape_portal(
+                self.source.feed_url
+            )
+        self.scraper.create_or_update_resources(articles)
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.etag, '"v2"')
+        self.assertEqual(
+            self.source.last_modified,
+            'Thu, 30 Oct 2026 08:00:00 GMT',
+        )
+        self.assertEqual(NewsArticle.objects.count(), 3)
+
+    def test_conditional_headers_sent_when_validators_exist(self):
+        self.source.etag = '"v1"'
+        self.source.last_modified = 'Wed, 29 Oct 2026 10:00:00 GMT'
+        self.source.save()
+        with patch.object(
+            NewsScraper,
+            'make_request',
+            return_value=_response(FEED_A),
+        ) as mock_request:
+            self.scraper.scrape_portal(self.source.feed_url)
+        headers = mock_request.call_args.kwargs['headers']
+        self.assertEqual(headers['If-None-Match'], '"v1"')
+        self.assertEqual(
+            headers['If-Modified-Since'],
+            'Wed, 29 Oct 2026 10:00:00 GMT',
+        )
+        # The browser defaults ride along — make_request would
+        # otherwise drop the User-Agent.
+        self.assertIn('User-Agent', headers)
+
+    def test_no_conditional_headers_without_validators(self):
+        with patch.object(
+            NewsScraper,
+            'make_request',
+            return_value=_response(FEED_A),
+        ) as mock_request:
+            self.scraper.scrape_portal(self.source.feed_url)
+        headers = mock_request.call_args.kwargs['headers']
+        self.assertNotIn('If-None-Match', headers)
+        self.assertNotIn('If-Modified-Since', headers)
+
+    def test_second_pass_inserts_nothing_only_bumps_last_seen(self):
+        with patch.object(
+            NewsScraper,
+            'make_request',
+            return_value=_response(FEED_A),
+        ):
+            articles = self.scraper.scrape_portal(
+                self.source.feed_url
+            )
+        self.scraper.create_or_update_resources(articles)
+        self.assertEqual(NewsArticle.objects.count(), 3)
+        old_seen = timezone.now() - timedelta(days=1)
+        NewsArticle.objects.update(last_seen=old_seen)
+        with (
+            patch.object(
+                NewsScraper,
+                'make_request',
+                return_value=_response(FEED_A),
+            ),
+            patch.object(
+                NewsArticle.objects, 'bulk_create'
+            ) as mock_create,
+        ):
+            articles = self.scraper.scrape_portal(
+                self.source.feed_url
+            )
+        self.assertFalse(articles)
+        mock_create.assert_not_called()
+        self.assertEqual(NewsArticle.objects.count(), 3)
+        for article in NewsArticle.objects.all():
+            self.assertGreater(article.last_seen, old_seen)
 
 
 class DryRunTests(TestCase):

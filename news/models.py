@@ -15,6 +15,13 @@ class NewsSource(models.Model):
     # 'none' = the feed carries no usable category signal.
     category_strategy = models.CharField(max_length=8, default='none')
     importance_weight = models.FloatField(default=1.0)
+    # HTTP validators from the last 200 response — sent back as
+    # If-None-Match / If-Modified-Since so an unchanged feed
+    # answers 304 and skips parsing entirely.
+    etag = models.CharField(max_length=200, null=True, blank=True)
+    last_modified = models.CharField(
+        max_length=200, null=True, blank=True
+    )
 
     class Meta:
         db_table = 'news_source'
