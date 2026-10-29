@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
@@ -3564,6 +3565,365 @@ class RelinkPropertyAdsTwinFixTest(TestCase):
         self.assertEqual(other.property_id, prop_r.pk)
         self.assertEqual(other.property_match_status, 'auto')
         self.assertIn('Source props refreshed: 1', out)
+
+
+class RelinkPropertyAdsMergeSameBlockTest(TestCase):
+    """relink_property_ads --merge-same-block (F14).
+
+    Fixtures build the audit's COEXISTING/same_block queue: two
+    property rows in one block describing the same physical unit
+    (same normalized street_name, equal rooms, size within 15%,
+    compatible apt_no). Safe clusters merge onto the survivor —
+    most linked ads, tie-break lowest pk; gated clusters land on
+    the review list.
+    """
+
+    def setUp(self):
+        self.seller = Seller.objects.create(phone='111')
+        self.other_seller = Seller.objects.create(phone='222')
+        self._counter = 0
+
+    def _rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'rent_{self._counter}',
+            link=f'https://example.com/rent/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=6.0,
+            total_price=300.0,
+            monthly_price=300.0,
+            monthly_price_per_sqm=6.0,
+            total_price_120m=360.0,
+            price_per_sqm_120m=7.2,
+            seller=self.seller,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _sale_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'sale_{self._counter}',
+            link=f'https://example.com/sale/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            street_no='133',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=2000.0,
+            total_price=100000.0,
+            seller=self.seller,
+        )
+        defaults.update(kw)
+        return ApartmentForSale.all_objects.create(**defaults)
+
+    def _house_rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'hrent_{self._counter}',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            street_no='7',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _prop(self, ad, prop_model=ApartmentProperty):
+        """Create a property seeded from ad and link ad to it."""
+        prop = prop_model.from_ad(ad)
+        prop.save()
+        ad.property = prop
+        ad.property_match_status = 'auto'
+        ad.save()
+        return prop
+
+    def _link(self, prop, ad):
+        ad.property = prop
+        ad.property_match_status = 'auto'
+        ad.save()
+        return prop
+
+    def _run(self, *args):
+        from io import StringIO
+
+        out = StringIO()
+        call_command('relink_property_ads', *args, stdout=out)
+        return out.getvalue()
+
+    def _dup_pair(self, **b_kw):
+        """Two same-unit props in one block, one rent ad each."""
+        prop_a = self._prop(self._rent_ad())
+        prop_b = self._prop(
+            self._rent_ad(street_name='A. Čaka iela', **b_kw)
+        )
+        return prop_a, prop_b
+
+    def test_safe_cluster_merges_onto_most_linked_survivor(self):
+        prop_a, prop_b = self._dup_pair(size=51.0)
+        # prop_b holds the most linked ads -> survivor even though
+        # prop_a has the lower pk.
+        extra = self._rent_ad(ad_id='extra')
+        self._link(prop_b, extra)
+        victim_ad = ApartmentForRent.all_objects.get(
+            property=prop_a
+        )
+        # A pending candidate pointer must be cleared by the merge.
+        victim_ad.candidate_property = prop_b
+        victim_ad.property_match_status = 'candidate'
+        victim_ad.save()
+
+        out = self._run(
+            '--merge-same-block', '--auto', '--kind', 'apartment'
+        )
+
+        victim_ad.refresh_from_db()
+        extra.refresh_from_db()
+        prop_b.refresh_from_db()
+        self.assertEqual(victim_ad.property_id, prop_b.pk)
+        self.assertEqual(victim_ad.property_match_status, 'manual')
+        self.assertEqual(victim_ad.property_match_score, 1.0)
+        self.assertIsNone(victim_ad.candidate_property_id)
+        self.assertEqual(extra.property_id, prop_b.pk)
+        # Emptied victim property is deleted — derived data.
+        self.assertFalse(
+            ApartmentProperty.objects.filter(pk=prop_a.pk).exists()
+        )
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+        self.assertIn(f'MERGED cluster [{prop_a.pk}, {prop_b.pk}]',
+                      out)
+        self.assertIn(f'survivor={prop_b.pk}', out)
+        self.assertIn('Merged:            1', out)
+        self.assertIn('Victim props deleted: 1', out)
+
+    def test_survivor_tiebreak_is_lowest_pk(self):
+        prop_a, prop_b = self._dup_pair(size=51.0)
+        self._run('--merge-same-block', '--auto')
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_a.pk).exists()
+        )
+        self.assertFalse(
+            ApartmentProperty.objects.filter(pk=prop_b.pk).exists()
+        )
+
+    def test_survivor_refreshed_from_merged_ads(self):
+        prop_a, prop_b = self._dup_pair(size=51.0)
+        # Backdate the victim ad — the survivor's first_seen must
+        # widen to cover it after refresh_from_ads.
+        old = timezone.now() - timedelta(days=30)
+        ad = ApartmentForRent.all_objects.get(property=prop_b)
+        ApartmentForRent.all_objects.filter(pk=ad.pk).update(
+            first_seen=old
+        )
+        self._run('--merge-same-block', '--auto')
+        prop_a.refresh_from_db()
+        self.assertEqual(prop_a.first_seen, old)
+
+    def test_floor_dissent_cluster_goes_to_review(self):
+        prop_a, prop_b = self._dup_pair(size=51.0, floor=1)
+        # same_unit does not compare floors — the post-merge
+        # FLOOR_CONFLICT alarm gates the merge.
+        out = self._run('--merge-same-block', '--auto')
+        for pk in (prop_a.pk, prop_b.pk):
+            self.assertTrue(
+                ApartmentProperty.objects.filter(pk=pk).exists()
+            )
+        self.assertIn('FLOOR_CONFLICT', out)
+        self.assertIn('Review list (not merged):', out)
+        self.assertIn('Skipped (review):     1', out)
+
+    def test_different_sellers_cluster_goes_to_review(self):
+        prop_a, prop_b = self._dup_pair(
+            size=51.0, seller=self.other_seller,
+        )
+        out = self._run('--merge-same-block', '--auto')
+        for pk in (prop_a.pk, prop_b.pk):
+            self.assertTrue(
+                ApartmentProperty.objects.filter(pk=pk).exists()
+            )
+        self.assertIn('different sellers', out)
+
+    def test_aptno_union_conflict_goes_to_review(self):
+        prop_a = self._prop(self._rent_ad(apartment_no='3'))
+        prop_b = self._prop(
+            self._rent_ad(
+                street_name='A. Čaka iela',
+                size=51.0,
+                comment='Pārdod. Dzīvoklis Nr. 5',
+            )
+        )
+        out = self._run('--merge-same-block', '--auto')
+        for pk in (prop_a.pk, prop_b.pk):
+            self.assertTrue(
+                ApartmentProperty.objects.filter(pk=pk).exists()
+            )
+        self.assertIn('apt_nos', out)
+
+    def test_twin_fanout_member_goes_to_review(self):
+        # A cluster member whose cross-deal twins fan out to >=2
+        # targets is the mega-property signature — never merge.
+        prop_r1 = self._prop(self._rent_ad(ad_id='t1'))
+        prop_r2 = self._prop(self._rent_ad(ad_id='t2'))
+        prop_s = self._prop(self._sale_ad(ad_id='t1'))
+        self._link(prop_s, self._sale_ad(ad_id='t2'))
+        out = self._run('--merge-same-block', '--auto')
+        self.assertIn('fan-out', out)
+        self.assertIn('Review list (not merged):', out)
+        for pk in (prop_r1.pk, prop_r2.pk, prop_s.pk):
+            self.assertTrue(
+                ApartmentProperty.objects.filter(pk=pk).exists()
+            )
+
+    def test_pks_selects_only_approved_clusters(self):
+        prop_a, prop_b = self._dup_pair(size=51.0)
+        other_a = self._prop(self._rent_ad(street_no='55'))
+        other_b = self._prop(self._rent_ad(street_no='55'))
+
+        # Partial approval (one member missing) merges nothing.
+        out = self._run(
+            '--merge-same-block', '--pks', str(prop_a.pk),
+        )
+        self.assertIn('Merged:            0', out)
+        self.assertIn('Not in --pks:         2', out)
+        self.assertEqual(ApartmentProperty.objects.count(), 4)
+
+        out = self._run(
+            '--merge-same-block',
+            '--pks', f'{prop_a.pk},{prop_b.pk}',
+        )
+        self.assertIn('Merged:            1', out)
+        self.assertIn('Not in --pks:         1', out)
+        # Equal ad counts — the lower pk survives.
+        self.assertFalse(
+            ApartmentProperty.objects.filter(pk=prop_b.pk).exists()
+        )
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_a.pk).exists()
+        )
+        # The unapproved cluster is untouched.
+        for pk in (other_a.pk, other_b.pk):
+            self.assertTrue(
+                ApartmentProperty.objects.filter(pk=pk).exists()
+            )
+
+    def test_pks_from_file(self):
+        prop_a, prop_b = self._dup_pair(size=51.0)
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.txt', delete=False,
+        ) as handle:
+            handle.write('# approved merge cluster\n')
+            handle.write(f'{prop_a.pk}\n{prop_b.pk}\n')
+            path = handle.name
+        self.addCleanup(os.unlink, path)
+
+        self._run('--merge-same-block', '--pks', path)
+        self.assertFalse(
+            ApartmentProperty.objects.filter(pk=prop_b.pk).exists()
+        )
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_a.pk).exists()
+        )
+
+    def test_dry_run_writes_nothing(self):
+        prop_a, prop_b = self._dup_pair(size=51.0)
+        ad = ApartmentForRent.all_objects.get(property=prop_a)
+
+        out = self._run(
+            '--merge-same-block', '--auto', '--dry-run',
+        )
+
+        self.assertIn('DRY-RUN', out)
+        self.assertIn('MERGE cluster', out)
+        self.assertIn('Would merge', out)
+        ad.refresh_from_db()
+        self.assertEqual(ad.property_id, prop_a.pk)
+        self.assertEqual(ad.property_match_status, 'auto')
+        for pk in (prop_a.pk, prop_b.pk):
+            self.assertTrue(
+                ApartmentProperty.objects.filter(pk=pk).exists()
+            )
+
+    def test_rerun_is_idempotent(self):
+        self._dup_pair(size=51.0)
+        self._run('--merge-same-block', '--auto')
+
+        out = self._run('--merge-same-block', '--auto')
+
+        self.assertIn('Clusters found:       0', out)
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_house_cluster_merges(self):
+        prop_a = self._prop(
+            self._house_rent_ad(), HouseProperty,
+        )
+        prop_b = self._prop(
+            self._house_rent_ad(
+                street_name='Ezera iela', size=121.0,
+            ),
+            HouseProperty,
+        )
+        out = self._run(
+            '--merge-same-block', '--auto', '--kind', 'house',
+        )
+        self.assertIn('Merged:            1', out)
+        self.assertFalse(
+            HouseProperty.objects.filter(pk=prop_b.pk).exists()
+        )
+        self.assertTrue(
+            HouseProperty.objects.filter(pk=prop_a.pk).exists()
+        )
+        self.assertIn('house —', out)
+
+    def test_non_duplicate_prop_untouched(self):
+        self._dup_pair(size=51.0)
+        # Different rooms -> not same-unit -> not in the queue.
+        prop_c = self._prop(self._rent_ad(rooms=3))
+        ad_c = ApartmentForRent.all_objects.get(property=prop_c)
+        self._run('--merge-same-block', '--auto')
+        ad_c.refresh_from_db()
+        self.assertEqual(ad_c.property_id, prop_c.pk)
+        self.assertTrue(
+            ApartmentProperty.objects.filter(pk=prop_c.pk).exists()
+        )
+
+    def test_mode_selection_errors(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            self._run()  # no mode flag
+        with self.assertRaises(CommandError):
+            self._run('--twin-fix', '--merge-same-block')
+        with self.assertRaises(CommandError):
+            self._run('--merge-same-block')  # no --pks/--auto
+        with self.assertRaises(CommandError):
+            self._run(
+                '--merge-same-block', '--auto', '--pks', '1,2',
+            )
+        with self.assertRaises(CommandError):
+            self._run('--twin-fix', '--pks', '1,2')
+        with self.assertRaises(CommandError):
+            self._run(
+                '--merge-same-block', '--pks', 'abc',
+            )
 
 
 class HouseDetailPageParsingTest(TestCase):

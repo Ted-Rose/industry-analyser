@@ -3,11 +3,14 @@
 Factored out of ``link_ads_to_properties``, ``admin.py`` and
 ``audit_property_links`` so the read-only audit and the write-side
 ``relink_property_ads`` command share one definition of the
-TWIN_DIVERGED queue and one emptied-property cleanup path
-(conflation plan §3c/§3d).
+TWIN_DIVERGED queue, the COEXISTING/same_block merge queue and one
+emptied-property cleanup path (conflation plan §3c/§3d, plan F14).
 """
 import logging
 from collections import defaultdict
+from itertools import combinations
+
+from classified_ads import property_matcher as pm
 
 logger = logging.getLogger('classified_ads')
 
@@ -102,3 +105,66 @@ def refresh_or_delete_vacated(prop, ad, dry_run=False):
     if not dry_run:
         prop.delete()
     return 'deleted'
+
+
+def block_key(prop):
+    """The ``(district, normalized street_no)`` block identity.
+
+    Same bucket key ``link_ads_to_properties._block_key`` uses for
+    ads — properties sharing it sit in the same building/block.
+    """
+    return (
+        (prop.district or '').strip().lower(),
+        pm.normalize_street_no(prop.street_no),
+    )
+
+
+def same_unit(p1, p2):
+    """Do two same-block properties describe one physical unit?
+
+    The audit's COEXISTING/same_block test: normalized street_name
+    must match, rooms must be equal, sizes must be within 15% and
+    stored apartment numbers must not conflict (empty is compatible
+    with anything).
+    """
+    if pm.normalize_street_name(p1.street_name) != (
+        pm.normalize_street_name(p2.street_name)
+    ):
+        return False
+    if p1.rooms != p2.rooms:
+        return False
+    if pm._size_too_different(p1.size, p2.size):
+        return False
+    n1 = pm.normalize_apartment_no(
+        getattr(p1, 'apartment_no', '')
+    )
+    n2 = pm.normalize_apartment_no(
+        getattr(p2, 'apartment_no', '')
+    )
+    if n1 and n2 and n1 != n2:
+        return False
+    return True
+
+
+def same_block_dup_pairs(props):
+    """Same-unit property pairs sharing a block key.
+
+    The COEXISTING/same_block queue ``audit_property_links`` reports
+    and ``relink_property_ads --merge-same-block`` drains — one
+    definition shared by both commands (conflation plan §3c, plan
+    F14). ``props`` should carry ``_linked_ads_cache`` when the
+    caller prefetched linked ads. Returns ``[(p1, p2), ...]`` with
+    ``p1.pk < p2.pk``.
+    """
+    blocks = defaultdict(list)
+    for prop in props:
+        blocks[block_key(prop)].append(prop)
+    pairs = []
+    for plist in blocks.values():
+        if len(plist) < 2:
+            continue
+        ordered = sorted(plist, key=lambda p: p.pk)
+        for p1, p2 in combinations(ordered, 2):
+            if same_unit(p1, p2):
+                pairs.append((p1, p2))
+    return pairs

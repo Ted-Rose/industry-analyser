@@ -371,68 +371,36 @@ class Command(BaseCommand):
     def _audit_block_dups(self, props, flags):
         """Different properties in one block that look identical.
 
-        Block key mirrors link_ads_to_properties._block_key:
-        (district.lower(), normalized street_no).
+        The pair queue comes from
+        ``property_links.same_block_dup_pairs`` so this report and
+        ``relink_property_ads --merge-same-block`` share one queue
+        definition (plan F14).
         """
-        blocks = defaultdict(list)
-        for prop in props:
-            key = (
-                prop.district.strip().lower(),
-                pm.normalize_street_no(prop.street_no),
-            )
-            blocks[key].append(prop)
-        for (district, street_no), plist in blocks.items():
-            if len(plist) < 2:
-                continue
-            for p1, p2 in combinations(sorted(plist,
-                                              key=lambda p: p.pk),
-                                       2):
-                if not self._same_unit(p1, p2):
-                    continue
-                flags['COEXISTING'].append({
-                    'flag': 'COEXISTING',
-                    'subtype': 'same_block',
-                    'properties': [p1.pk, p2.pk],
-                    'block': f'{district} | {street_no}',
-                    'location': self._loc(p1),
-                    'ad_ids': [
-                        a.ad_id
-                        for p in (p1, p2)
-                        for a in p._linked_ads_cache
-                    ],
-                    'detail': (
-                        f'props {p1.pk}+{p2.pk}: street '
-                        f'{pm.normalize_street_name(p1.street_name)!r}'
-                        f', {p1.rooms}rm, sizes {p1.size}/{p2.size}, '
-                        f'floors '
-                        f'{getattr(p1, "floor", getattr(p1, "floors", None))}'
-                        f'/'
-                        f'{getattr(p2, "floor", getattr(p2, "floors", None))}'
-                    ),
-                })
+        for p1, p2 in plinks.same_block_dup_pairs(props):
+            district, street_no = plinks.block_key(p1)
+            flags['COEXISTING'].append({
+                'flag': 'COEXISTING',
+                'subtype': 'same_block',
+                'properties': [p1.pk, p2.pk],
+                'block': f'{district} | {street_no}',
+                'location': self._loc(p1),
+                'ad_ids': [
+                    a.ad_id
+                    for p in (p1, p2)
+                    for a in p._linked_ads_cache
+                ],
+                'detail': (
+                    f'props {p1.pk}+{p2.pk}: street '
+                    f'{pm.normalize_street_name(p1.street_name)!r}'
+                    f', {p1.rooms}rm, sizes {p1.size}/{p2.size}, '
+                    f'floors '
+                    f'{getattr(p1, "floor", getattr(p1, "floors", None))}'
+                    f'/'
+                    f'{getattr(p2, "floor", getattr(p2, "floors", None))}'
+                ),
+            })
 
     # --- helpers --------------------------------------------------
-
-    @staticmethod
-    def _same_unit(p1, p2):
-        """Do two same-block properties describe one unit?"""
-        if pm.normalize_street_name(p1.street_name) != (
-            pm.normalize_street_name(p2.street_name)
-        ):
-            return False
-        if p1.rooms != p2.rooms:
-            return False
-        if pm._size_too_different(p1.size, p2.size):
-            return False
-        n1 = pm.normalize_apartment_no(
-            getattr(p1, 'apartment_no', '')
-        )
-        n2 = pm.normalize_apartment_no(
-            getattr(p2, 'apartment_no', '')
-        )
-        if n1 and n2 and n1 != n2:
-            return False
-        return True
 
     @staticmethod
     def _same_seller(a, b):
