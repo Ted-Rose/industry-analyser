@@ -20,6 +20,10 @@ from classified_ads.models import (
     HouseProperty, Region, Seller,
 )
 from classified_ads.sale_flags import is_sale_misclassified
+from classified_ads.rent_flags import (
+    apartment_rate_period_posthoc, comment_rate_period,
+    detect_rate_period, house_rate_period_posthoc, is_room_share,
+)
 from classified_ads.property_matcher import (
     _ad_apartment_no, extract_apartment_no, match_property,
     normalize_street_name, normalize_street_no,
@@ -4468,3 +4472,429 @@ class HouseTypeApiTest(TestCase):
         row = resp.json()['ad_rows'][0]
         self.assertEqual(row['ad_id'], ad.ad_id)
         self.assertEqual(row['house_type'], 'Brick house')
+
+
+class RentFlagDetectionTest(TestCase):
+    """rent_flags helpers — price-cell period markers, room-share
+    keywords and the post-hoc backfill detectors."""
+
+    def test_price_cell_markers(self):
+        cases = [
+            ('35 €/day', 'day'),
+            ('25 €/dienā', 'day'),
+            ('€40/day', 'day'),
+            ('100 €/week', 'week'),
+            ('300 €/nedēļā', 'week'),
+            ('500', 'month'),
+            ('450/mon.', 'month'),
+            ('500 €/mēn.', 'month'),
+            ('-', 'month'),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(detect_rate_period(text), expected)
+
+    def test_either_price_cell_may_carry_marker(self):
+        self.assertEqual(detect_rate_period('10', '750/day'), 'day')
+        self.assertEqual(detect_rate_period('30/dienā', '900'), 'day')
+        self.assertEqual(detect_rate_period('10', '500'), 'month')
+
+    def test_room_share_keywords(self):
+        hits = [
+            'Izīrē istabu dzīvoklī',
+            'Īrē istabu 3 istabu dzīvoklī',
+            'Сдаётся комната',
+            'room for rent in shared flat',
+            'Īrē mājas daļu',
+            'часть дома сдаётся',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertTrue(is_room_share(comment))
+        misses = [
+            '',
+            'Pārdod 2 istabu dzīvokli',
+            'Īrē 3 istabu dzīvokli centrumā',
+            'Māja daļēji renovēta',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertFalse(is_room_share(comment))
+
+    def test_comment_rate_period(self):
+        self.assertEqual(comment_rate_period('40 dienā'), 'day')
+        self.assertEqual(
+            comment_rate_period('Сдаётся посуточно'), 'day'
+        )
+        self.assertEqual(
+            comment_rate_period('cena nedēļā 200'), 'week'
+        )
+        self.assertEqual(
+            comment_rate_period('īstermiņa īre'), ''
+        )
+        self.assertEqual(comment_rate_period('parasta īre'), '')
+
+    def test_apartment_posthoc_ratio(self):
+        # monthly=750, ppsqm=0.5, size=50 → ratio 30 → one cell
+        # was a converted daily rate.
+        self.assertEqual(
+            apartment_rate_period_posthoc(750, 0.5, 50, ''), 'day'
+        )
+        # inverse direction
+        self.assertEqual(
+            apartment_rate_period_posthoc(
+                25, 15.0, 50, ''
+            ),
+            'day',
+        )
+        # weekly conversion band (~4)
+        self.assertEqual(
+            apartment_rate_period_posthoc(
+                800, 4.0, 50, ''
+            ),
+            'week',
+        )
+        # consistent monthly ad → no evidence
+        self.assertEqual(
+            apartment_rate_period_posthoc(600, 12.0, 50, ''), ''
+        )
+
+    def test_house_posthoc(self):
+        self.assertEqual(
+            house_rate_period_posthoc(18.0, ''), 'day'
+        )
+        self.assertEqual(
+            house_rate_period_posthoc(5.0, 'īstermiņa īre'), 'day'
+        )
+        self.assertEqual(
+            house_rate_period_posthoc(5.0, 'parasta māja'), ''
+        )
+
+
+class RentFlagIngestTest(TestCase):
+    """rate_period / is_room_share set at ingest by both scrapers
+    and kept additive on re-enrichment (_heal)."""
+
+    APT_ROW = (
+        '<tr id="{ad_id}"><td></td>'
+        '<td><a href="/msg/en/{ad_id}.html">x</a></td><td>note</td>'
+        '<td>Street 1</td><td>2</td><td>50</td><td>3/5</td>'
+        '<td>New</td><td>{sqm_price}</td><td>{price}</td></tr>'
+    )
+    HOUSE_ROW = (
+        '<tr id="{ad_id}"><td></td>'
+        '<td><a href="/msg/en/{ad_id}.html">x</a></td>'
+        '<td>note</td><td>Street 1</td><td>{size}</td>'
+        '<td>2</td><td>type</td><td>500</td>'
+        '<td>{price}</td></tr>'
+    )
+
+    def setUp(self):
+        self.region = Region.objects.create(
+            name='Riga',
+            url='https://www.ss.com/en/real-estate/flats/riga/',
+            category='APARTMENT',
+        )
+
+    def _apt_scraper(self, deal='RENT'):
+        scraper = ApartmentAdScraper()
+        scraper._current_region = self.region
+        scraper._current_deal_type = deal
+        return scraper
+
+    def _apt_parse(self, sqm_price, price, ad_id='tr_ss'):
+        html = (
+            '<table>' + self.APT_ROW.format(
+                ad_id=ad_id, sqm_price=sqm_price, price=price
+            ) + '</table>'
+        ).encode()
+        return self._apt_scraper().parse_results(
+            SimpleNamespace(data=html)
+        )
+
+    def _apt_result(self, **kw):
+        result = dict(
+            ad_id='tr_apt',
+            deal_type='RENT',
+            district='Centrs',
+            region_name='Riga',
+            link='https://example.com/rent/tr_apt',
+            comment='',
+            street_name='Čaka iela',
+            street_no='1',
+            apartment_no='',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            project_raw='New',
+            project=None,
+            price_per_sqm=15.0,
+            alt_price_per_sqm=180.0,
+            total_price=750.0,
+            alt_price=90000.0,
+            rate_period='day',
+        )
+        result.update(kw)
+        return result
+
+    def _house_result(self, **kw):
+        result = dict(
+            ad_id='tr_house',
+            deal_type='RENT',
+            district='Mežaparks',
+            region_name='Riga houses',
+            link='https://example.com/hrent/tr_house',
+            comment='',
+            street_name='Ezera iela',
+            street_no='1',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            land_area_sqm=800.0,
+            total_price=1500.0,
+            alt_price=180000.0,
+            rate_period='day',
+        )
+        result.update(kw)
+        return result
+
+    def test_parse_results_marks_day_rate(self):
+        (result,) = self._apt_parse('15', '750/day')
+        self.assertEqual(result['rate_period'], 'day')
+
+    def test_parse_results_marks_lv_day_rate(self):
+        (result,) = self._apt_parse('15', '750/dienā')
+        self.assertEqual(result['rate_period'], 'day')
+
+    def test_parse_results_monthly_default(self):
+        (result,) = self._apt_parse('12', '600')
+        self.assertEqual(result['rate_period'], 'month')
+
+    def test_initiate_resource_sets_apartment_flags(self):
+        scraper = self._apt_scraper()
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                comment='Izīrē istabu dzīvoklī',
+                rate_period='week',
+            )
+        )
+        self.assertEqual(ad.rate_period, 'week')
+        self.assertTrue(ad.is_room_share)
+
+    def test_initiate_resource_sets_house_flags(self):
+        html = (
+            '<table>' + self.HOUSE_ROW.format(
+                ad_id='tr_house', size='120', price='50/day'
+            ) + '</table>'
+        ).encode()
+        scraper = HousingAdScraper()
+        scraper._current_region = self.region
+        scraper._current_deal_type = 'RENT'
+        (result,) = scraper.parse_results(SimpleNamespace(data=html))
+        self.assertEqual(result['rate_period'], 'day')
+        result['comment'] = 'Īrē mājas daļu'
+        ad = scraper.initiate_resource(result)
+        self.assertEqual(ad.rate_period, 'day')
+        self.assertTrue(ad.is_room_share)
+
+    def test_sale_row_flags_untouched(self):
+        scraper = self._apt_scraper(deal='SELL')
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                deal_type='SELL',
+                comment='Izīrē istabu dzīvoklī',
+                rate_period='day',
+            )
+        )
+        self.assertIsInstance(ad, ApartmentForSale)
+        self.assertEqual(ad.rate_period, '')
+        self.assertFalse(ad.is_room_share)
+
+    def test_heal_keeps_stored_flags(self):
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_apt',
+            link='https://example.com/rent/tr_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=15.0,
+            total_price=750.0,
+            monthly_price=750.0,
+            monthly_price_per_sqm=15.0,
+            total_price_120m=90000.0,
+            price_per_sqm_120m=180.0,
+            rate_period='day',
+            is_room_share=True,
+        )
+        scraper = self._apt_scraper()
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                _heal=True, rate_period='month', comment='plain'
+            )
+        )
+        self.assertEqual(ad.rate_period, 'day')
+        self.assertTrue(ad.is_room_share)
+
+    def test_bulk_update_writes_flags(self):
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_apt',
+            link='https://example.com/rent/tr_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=15.0,
+            total_price=750.0,
+            monthly_price=750.0,
+            monthly_price_per_sqm=15.0,
+            total_price_120m=90000.0,
+            price_per_sqm_120m=180.0,
+        )
+        scraper = self._apt_scraper()
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                rate_period='day',
+                comment='Сдаётся комната',
+            )
+        )
+        scraper.create_or_update_resources([ad])
+        stored = ApartmentForRent.all_objects.get(ad_id='tr_apt')
+        self.assertEqual(stored.rate_period, 'day')
+        self.assertTrue(stored.is_room_share)
+
+    def test_flags_do_not_hide_rows(self):
+        # Flagged rows stay visible in the default manager — the
+        # flags inform analysis/UI filtering, they don't shrink
+        # the visible rent inventory.
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_apt',
+            link='https://example.com/rent/tr_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=15.0,
+            total_price=750.0,
+            monthly_price=750.0,
+            monthly_price_per_sqm=15.0,
+            total_price_120m=90000.0,
+            price_per_sqm_120m=180.0,
+            rate_period='day',
+            is_room_share=True,
+        )
+        self.assertEqual(ApartmentForRent.objects.count(), 1)
+
+
+class FlagShortStayAdsCommandTest(TestCase):
+    """flag_short_stay_ads — post-hoc backfill of rate_period and
+    is_room_share on existing rent rows."""
+
+    def setUp(self):
+        self._counter = 0
+
+    def _apt_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'apt_{self._counter}',
+            comment='',
+            link=f'https://example.com/rent/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=12.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=12.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=1440.0,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _house_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hrent_{self._counter}',
+            comment='',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def test_flags_posthoc_evidence(self):
+        ratio = self._apt_ad(
+            monthly_price=750.0,
+            monthly_price_per_sqm=0.5,
+        )
+        keyword = self._apt_ad(comment='Сдаётся посуточно')
+        weekly = self._apt_ad(
+            comment='cena nedēļā 200',
+        )
+        room = self._apt_ad(comment='Izīrē istabu dzīvoklī')
+        house_ppsqm = self._house_ad(monthly_price_per_sqm=18.0)
+        house_kw = self._house_ad(comment='īstermiņa īre')
+        clean_apt = self._apt_ad(comment='Parasta īre')
+        clean_house = self._house_ad(comment='Liela māja')
+        monthly = self._apt_ad(
+            comment='посуточно', rate_period='month'
+        )
+
+        call_command('flag_short_stay_ads')
+
+        expectations = [
+            (ratio, 'day', False),
+            (keyword, 'day', False),
+            (weekly, 'week', False),
+            (room, '', True),
+            (house_ppsqm, 'day', False),
+            (house_kw, 'day', False),
+            (clean_apt, '', False),
+            (clean_house, '', False),
+            (monthly, 'month', False),
+        ]
+        for ad, period, room_flag in expectations:
+            ad.refresh_from_db()
+            self.assertEqual(ad.rate_period, period, ad.ad_id)
+            self.assertEqual(ad.is_room_share, room_flag, ad.ad_id)
+
+    def test_dry_run_writes_nothing(self):
+        from io import StringIO
+
+        self._apt_ad(monthly_price=750.0, monthly_price_per_sqm=0.5)
+        out = StringIO()
+        call_command(
+            'flag_short_stay_ads', '--dry-run', stdout=out
+        )
+        self.assertIn('DRY-RUN', out.getvalue())
+        self.assertIn('rate_period day/week found: 1', out.getvalue())
+        ad = ApartmentForRent.all_objects.get(ad_id='apt_1')
+        self.assertEqual(ad.rate_period, '')
+
+    def test_idempotent(self):
+        self._apt_ad(comment='Сдаётся посуточно')
+        call_command('flag_short_stay_ads')
+        call_command('flag_short_stay_ads')
+        ad = ApartmentForRent.all_objects.get(ad_id='apt_1')
+        self.assertEqual(ad.rate_period, 'day')

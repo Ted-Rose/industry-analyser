@@ -56,6 +56,13 @@ PROPERTY_MATCH_STATUS_CHOICES = [
     ('manual', 'Manually linked'),
 ]
 
+RATE_PERIOD_CHOICES = [
+    ('', 'Unknown'),
+    ('day', 'day'),
+    ('week', 'week'),
+    ('month', 'month'),
+]
+
 # Fields copied onto a property from its "best" linked ad by
 # BaseProperty.refresh_from_ads(). Concrete subclasses extend this.
 BASE_PROPERTY_CANONICAL_FIELDS = (
@@ -326,6 +333,27 @@ class BaseApartmentAd(models.Model):
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
     is_hidden = models.BooleanField(default=False)
+    # '' = unknown (predates flagging); 'day'/'week' mean the
+    # listing price cell carried a short-stay marker and the
+    # stored prices were monthlyized (x30 / x4). Rent rows only.
+    rate_period = models.CharField(
+        max_length=10,
+        choices=RATE_PERIOD_CHOICES,
+        blank=True,
+        default='',
+        help_text=(
+            'Billing period seen in the listing price cell at '
+            'ingest; stored prices are monthlyized (day x30, '
+            'week x4). Blank = unknown.'
+        ),
+    )
+    is_room_share = models.BooleanField(
+        default=False,
+        help_text=(
+            'True if this rent ad offers only a room / part of '
+            'the property, not the whole unit'
+        ),
+    )
     property_match_status = models.CharField(
         max_length=20,
         choices=PROPERTY_MATCH_STATUS_CHOICES,
@@ -521,6 +549,27 @@ class BaseHouseAd(models.Model):
     first_seen = models.DateTimeField(auto_now_add=True)
     last_seen = models.DateTimeField(auto_now=True)
     is_hidden = models.BooleanField(default=False)
+    # '' = unknown (predates flagging); 'day'/'week' mean the
+    # listing price cell carried a short-stay marker and the
+    # stored prices were monthlyized (x30 / x4). Rent rows only.
+    rate_period = models.CharField(
+        max_length=10,
+        choices=RATE_PERIOD_CHOICES,
+        blank=True,
+        default='',
+        help_text=(
+            'Billing period seen in the listing price cell at '
+            'ingest; stored prices are monthlyized (day x30, '
+            'week x4). Blank = unknown.'
+        ),
+    )
+    is_room_share = models.BooleanField(
+        default=False,
+        help_text=(
+            'True if this rent ad offers only a room / part of '
+            'the property, not the whole unit'
+        ),
+    )
     property_match_status = models.CharField(
         max_length=20,
         choices=PROPERTY_MATCH_STATUS_CHOICES,

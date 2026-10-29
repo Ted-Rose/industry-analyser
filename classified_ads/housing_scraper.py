@@ -15,6 +15,9 @@ from .models import (
     HouseForSale, HouseForSaleSighting,
     Region, Seller,
 )
+from .rent_flags import (
+    SHORT_STAY_PERIODS, detect_rate_period, is_room_share,
+)
 from .sale_flags import is_sale_misclassified
 
 logger = logging.getLogger('classified_ads')
@@ -224,6 +227,10 @@ class HousingAdScraper(BaseScraper):
                 'land_area_sqm': land_area_sqm,
                 'total_price': total_price,
                 'alt_price': alt_price,
+                # Raw cell keeps the billing-period marker that
+                # _clean_price monthlyizes and drops — record it
+                # here, the last point it is observable.
+                'rate_period': detect_rate_period(cells[8]),
             })
 
         # ss.com redirects out-of-range pages back to the first
@@ -607,14 +614,26 @@ class HousingAdScraper(BaseScraper):
                     result['comment'], monthly_price_per_sqm
                 )
             )
-            if result.get('_heal') and not sale_flag:
-                # A re-enriched existing row must keep a flag set
+            rate_period = result.get('rate_period', '')
+            room_share = is_room_share(result['comment'])
+            if result.get('_heal'):
+                # A re-enriched existing row must keep flags set
                 # manually or by an earlier scrape — flagging is
                 # additive, never undone by re-enrichment.
-                sale_flag = HouseForRent.all_objects.filter(
+                stored = HouseForRent.all_objects.filter(
                     ad_id=result['ad_id'],
-                    is_sale_misclassified=True,
-                ).exists()
+                ).values_list(
+                    'is_sale_misclassified', 'rate_period',
+                    'is_room_share',
+                ).first()
+                if stored:
+                    sale_flag = sale_flag or stored[0]
+                    if (
+                        stored[1] in SHORT_STAY_PERIODS
+                        and rate_period not in SHORT_STAY_PERIODS
+                    ):
+                        rate_period = stored[1]
+                    room_share = room_share or stored[2]
 
             return HouseForRent(
                 ad_id=result['ad_id'],
@@ -640,6 +659,8 @@ class HousingAdScraper(BaseScraper):
                 house_type=result.get('house_type', ''),
                 is_hidden=is_junk,
                 is_sale_misclassified=sale_flag,
+                rate_period=rate_period,
+                is_room_share=room_share,
             )
         elif deal_type == 'SELL':
             return HouseForSale(
@@ -692,6 +713,7 @@ class HousingAdScraper(BaseScraper):
                     'seller', 'is_sale_misclassified',
                     'rooms', 'house_type', 'floors',
                     'land_area_sqm', 'street_name', 'street_no',
+                    'rate_period', 'is_room_share',
                 ],
             )
             logger.info(f"Saved {len(rent_ads)} rent ads.")
