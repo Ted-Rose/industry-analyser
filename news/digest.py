@@ -1,0 +1,87 @@
+"""Daily digest builder — rank the day's unique stories by
+multi-outlet coverage x topic weight.
+
+Hook point for a later PR: an LLM summarizer/cluster-refiner
+(JobClient, ai_providers) can post-process the ranked items
+here — the MVP deliberately ships zero paid AI calls.
+"""
+import logging
+
+from .models import NewsDigest, NewsDigestItem, NewsStory
+
+logger = logging.getLogger('news')
+
+
+def _pick_headline(story):
+    """Title of the member article from the highest
+    importance_weight source; ties broken by longest lead.
+    Falls back to the story title when it has no members."""
+    # .all() rides the caller's prefetch_related('articles__source').
+    members = list(story.articles.all())
+    if not members:
+        return story.title, ''
+    best = max(
+        members,
+        key=lambda a: (a.source.importance_weight, len(a.lead)),
+    )
+    return best.title, ''
+
+
+def _rationale(story):
+    slugs = sorted(
+        a.source.slug for a in story.articles.all()
+    )
+    return f"{story.source_count} outlets: {', '.join(slugs)}"
+
+
+def build_digest(date, top_n=5, dry_run=False):
+    """Build/rebuild the digest for ``date`` (datetime.date).
+
+    Stories: published_date == date with an enabled topic, ranked
+    by importance_score then recency, top_n taken. Rebuild is
+    idempotent — old items are replaced wholesale.
+    Returns {'date': date, 'items': [(rank, headline, rationale)]}.
+    """
+    stories = (
+        NewsStory.objects.filter(
+            published_date=date,
+            topic__is_enabled=True,
+        )
+        .prefetch_related('articles__source')
+        .order_by('-importance_score', '-last_seen')[:top_n]
+    )
+
+    items = []
+    for rank, story in enumerate(stories, start=1):
+        headline, _ = _pick_headline(story)
+        rationale = _rationale(story)[:300]
+        items.append((rank, headline, rationale, story))
+
+    if not dry_run:
+        digest, _ = NewsDigest.objects.update_or_create(date=date)
+        digest.items.all().delete()
+        NewsDigestItem.objects.bulk_create([
+            NewsDigestItem(
+                digest=digest,
+                story=story,
+                rank=rank,
+                headline=headline[:500],
+                rationale=rationale,
+            )
+            for rank, headline, rationale, story in items
+        ])
+        logger.info(
+            'Digest %s: %d item(s) written', date, len(items)
+        )
+    else:
+        logger.info(
+            '[dry-run] digest %s: %d item(s)', date, len(items)
+        )
+
+    return {
+        'date': date,
+        'items': [
+            (rank, headline, rationale)
+            for rank, headline, rationale, _ in items
+        ],
+    }
