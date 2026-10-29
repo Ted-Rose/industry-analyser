@@ -14,8 +14,10 @@ from classified_ads.housing_scraper import HousingAdScraper
 from classified_ads.models import (
     ApartmentForRent, ApartmentForRentSighting, ApartmentForSale,
     ApartmentForSaleSighting, ApartmentProperty, HouseForRent,
-    HouseForRentSighting, HouseProperty, Region, Seller,
+    HouseForRentSighting, HouseForSale, HouseProperty, Region,
+    Seller,
 )
+from classified_ads.sale_flags import is_sale_misclassified
 from classified_ads.property_matcher import (
     extract_apartment_no, match_property, normalize_street_name,
 )
@@ -1307,3 +1309,225 @@ class LinkAdsToPropertiesCommandTest(TestCase):
         self.assertIsNotNone(old_ad.property_id)
         self.assertEqual(new_ad.property_match_status, 'unmatched')
         self.assertIsNone(new_ad.property_id)
+
+
+class HouseRentMisclassificationTest(TestCase):
+    """HouseForRent.is_sale_misclassified — manager filtering plus
+    the ingest-time flagging in HousingAdScraper (cross-deal twin +
+    price/keyword heuristic)."""
+
+    def setUp(self):
+        self._counter = 0
+
+    def _house_rent_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hrent_{self._counter}',
+            comment='',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hsale_{self._counter}',
+            comment='',
+            link=f'https://example.com/hsale/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def _rent_result(self, **kw):
+        result = dict(
+            ad_id='tr_new',
+            deal_type='RENT',
+            district='Mežaparks',
+            region_name='Riga houses',
+            link='https://example.com/hrent/tr_new',
+            comment='',
+            street_name='Ezera iela',
+            street_no='1',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            total_price=600.0,
+            alt_price=72000.0,
+        )
+        result.update(kw)
+        return result
+
+    def test_objects_excludes_flagged_and_hidden(self):
+        self._house_rent_ad()
+        self._house_rent_ad(is_sale_misclassified=True)
+        self._house_rent_ad(is_hidden=True)
+        self.assertEqual(HouseForRent.objects.count(), 1)
+        self.assertEqual(HouseForRent.all_objects.count(), 3)
+
+    def test_heuristic_price_and_keywords(self):
+        self.assertTrue(is_sale_misclassified('', 51.0))
+        self.assertTrue(is_sale_misclassified('Pārdod māju', 5.0))
+        self.assertTrue(is_sale_misclassified('Продается дом', 5.0))
+        self.assertFalse(is_sale_misclassified('Īre māju', 5.0))
+
+    def test_initiate_resource_flags_sale_twin(self):
+        scraper = HousingAdScraper()
+        ad = scraper.initiate_resource(
+            self._rent_result(sale_listed=True)
+        )
+        self.assertTrue(ad.is_sale_misclassified)
+
+    def test_initiate_resource_flags_sale_price(self):
+        scraper = HousingAdScraper()
+        # 100000 / 120 m² = 833 €/m² "rent" — a sale price.
+        ad = scraper.initiate_resource(
+            self._rent_result(total_price=100000.0)
+        )
+        self.assertTrue(ad.is_sale_misclassified)
+
+    def test_initiate_resource_clean_rental(self):
+        scraper = HousingAdScraper()
+        ad = scraper.initiate_resource(
+            self._rent_result(comment='Īre māju pie ezera')
+        )
+        self.assertFalse(ad.is_sale_misclassified)
+
+    def test_resighting_marks_sale_listed_on_new_results(self):
+        scraper = HousingAdScraper()
+        self._house_sale_ad(ad_id='tr_twin')
+        results = scraper.remove_redundant_results(
+            [self._rent_result(ad_id='tr_twin')]
+        )
+        self.assertEqual(results[0]['sale_listed'], True)
+
+    def test_resighting_flags_existing_row(self):
+        """A rent row created before its sale twin existed gets the
+        flag refreshed when it's re-sighted."""
+        rent = self._house_rent_ad(ad_id='tr_late')
+        self._house_sale_ad(ad_id='tr_late')
+        scraper = HousingAdScraper()
+        remaining = scraper.remove_redundant_results(
+            [self._rent_result(ad_id='tr_late')]
+        )
+        self.assertEqual(remaining, [])
+        rent.refresh_from_db()
+        self.assertTrue(rent.is_sale_misclassified)
+
+    def test_resighting_never_unflags(self):
+        rent = self._house_rent_ad(
+            ad_id='tr_manual', is_sale_misclassified=True
+        )
+        scraper = HousingAdScraper()
+        scraper.remove_redundant_results(
+            [self._rent_result(ad_id='tr_manual')]
+        )
+        rent.refresh_from_db()
+        self.assertTrue(rent.is_sale_misclassified)
+
+
+class FlagHouseCrosslistingsCommandTest(TestCase):
+    """flag_house_crosslistings — backfill command for
+    HouseForRent.is_sale_misclassified."""
+
+    def setUp(self):
+        self._counter = 0
+
+    def _house_rent_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hrent_{self._counter}',
+            comment='',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, ad_id):
+        return HouseForSale.all_objects.create(
+            ad_id=ad_id,
+            link=f'https://example.com/hsale/{ad_id}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+        )
+
+    def test_flags_twins_and_heuristic_rows(self):
+        twin = self._house_rent_ad(ad_id='tr_twin')
+        self._house_sale_ad('tr_twin')
+        keyword = self._house_rent_ad(comment='Pārdod māju')
+        pricey = self._house_rent_ad(monthly_price_per_sqm=99.0)
+        clean = self._house_rent_ad()
+        hidden_twin = self._house_rent_ad(
+            ad_id='tr_hidden', is_hidden=True
+        )
+        self._house_sale_ad('tr_hidden')
+        already = self._house_rent_ad(is_sale_misclassified=True)
+
+        call_command('flag_house_crosslistings')
+
+        for ad, expected in (
+            (twin, True),
+            (keyword, True),
+            (pricey, True),
+            (clean, False),
+            (hidden_twin, True),
+            (already, True),
+        ):
+            ad.refresh_from_db()
+            self.assertEqual(
+                ad.is_sale_misclassified, expected, ad.ad_id
+            )
+
+        # Flagged rows disappear from the default manager.
+        self.assertEqual(HouseForRent.objects.count(), 1)
+
+    def test_dry_run_writes_nothing(self):
+        from io import StringIO
+
+        self._house_rent_ad(ad_id='tr_twin')
+        self._house_sale_ad('tr_twin')
+        out = StringIO()
+        call_command(
+            'flag_house_crosslistings', '--dry-run', stdout=out
+        )
+        self.assertIn('DRY-RUN', out.getvalue())
+        self.assertIn('Newly flagged (union): 1', out.getvalue())
+        self.assertFalse(
+            HouseForRent.all_objects.get(
+                ad_id='tr_twin'
+            ).is_sale_misclassified
+        )

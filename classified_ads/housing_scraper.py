@@ -13,6 +13,7 @@ from .models import (
     HouseForSale, HouseForSaleSighting,
     Region, Seller,
 )
+from .sale_flags import is_sale_misclassified
 
 logger = logging.getLogger('classified_ads')
 
@@ -292,13 +293,62 @@ class HousingAdScraper(BaseScraper):
             ).values_list('ad_id', flat=True)
         ) if sell_incoming else set()
 
+        # Rent ads whose ad_id also lives in the sale table are
+        # ss.com "sell or rent" dual listings (one tr_ id, one
+        # price) — flag them as is_sale_misclassified at ingest.
+        sale_twin_ids = set(
+            HouseForSale.all_objects.filter(
+                ad_id__in=rent_incoming
+            ).values_list('ad_id', flat=True)
+        ) if rent_incoming else set()
+        for r in resources:
+            if r['deal_type'] == 'RENT':
+                r['sale_listed'] = r['ad_id'] in sale_twin_ids
+
         if existing_rent_ids:
+            self._refresh_sale_flags(existing_rent_ids, sale_twin_ids)
             self._write_sightings(existing_rent_ids, 'RENT')
         if existing_sell_ids:
             self._write_sightings(existing_sell_ids, 'SELL')
 
         existing_ids = existing_rent_ids | existing_sell_ids
         return [r for r in resources if r['ad_id'] not in existing_ids]
+
+    def _refresh_sale_flags(self, rent_ad_ids, sale_twin_ids):
+        """Flag existing rent rows newly detected as for-sale.
+
+        Re-sighted rows bypass create_or_update_resources, so a rent
+        ad whose sale twin (or sale-scale price) only appeared after
+        the row was created gets its flag updated here. Flagging is
+        additive — a row already flagged (e.g. manually in admin) is
+        never un-flagged.
+        """
+        stale = [
+            ad for ad in HouseForRent.all_objects.filter(
+                ad_id__in=rent_ad_ids,
+                is_sale_misclassified=False,
+            ).only('ad_id', 'comment', 'monthly_price_per_sqm')
+            if ad.ad_id in sale_twin_ids or is_sale_misclassified(
+                ad.comment, ad.monthly_price_per_sqm
+            )
+        ]
+        if not stale:
+            return
+        if self.dry_run:
+            logger.info(
+                '[dry-run] Would flag %d house rent ad(s) as '
+                'is_sale_misclassified.', len(stale),
+            )
+            return
+        for ad in stale:
+            ad.is_sale_misclassified = True
+        HouseForRent.all_objects.bulk_update(
+            stale, ['is_sale_misclassified']
+        )
+        logger.info(
+            'Flagged %d re-sighted house rent ad(s) as '
+            'is_sale_misclassified.', len(stale),
+        )
 
     def enrich_result(self, partial_result):
         detail_response = self.make_request(partial_result['link'])
@@ -406,6 +456,12 @@ class HousingAdScraper(BaseScraper):
                 monthly_price_per_sqm=monthly_price_per_sqm,
                 total_price_120m=total_price_120m,
                 price_per_sqm_120m=price_per_sqm_120m,
+                is_sale_misclassified=(
+                    result.get('sale_listed', False)
+                    or is_sale_misclassified(
+                        result['comment'], monthly_price_per_sqm
+                    )
+                ),
             )
         elif deal_type == 'SELL':
             return HouseForSale(
@@ -453,7 +509,7 @@ class HousingAdScraper(BaseScraper):
                     'monthly_price', 'monthly_price_per_sqm',
                     'total_price_120m', 'price_per_sqm_120m',
                     'total_price', 'post_date', 'last_seen',
-                    'seller',
+                    'seller', 'is_sale_misclassified',
                 ],
             )
             logger.info(f"Saved {len(rent_ads)} rent ads.")

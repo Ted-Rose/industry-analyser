@@ -454,6 +454,15 @@ class VisibleHouseManager(models.Manager):
         return super().get_queryset().filter(is_hidden=False)
 
 
+class CleanHouseRentalManager(models.Manager):
+    """Manager that excludes misclassified for-sale ads and hidden ads."""
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            is_sale_misclassified=False,
+            is_hidden=False
+        )
+
+
 class BaseHouseAd(models.Model):
     ad_id = models.CharField(max_length=255, unique=True)
     comment = models.TextField(blank=True)
@@ -511,6 +520,13 @@ class HouseForRent(BaseHouseAd):
     monthly_price_per_sqm = models.FloatField()
     total_price_120m = models.FloatField()
     price_per_sqm_120m = models.FloatField()
+    is_sale_misclassified = models.BooleanField(
+        default=False,
+        help_text=(
+            'True if this rental ad is actually a for-sale listing '
+            'posted in the wrong category'
+        )
+    )
     property = models.ForeignKey(
         HouseProperty,
         null=True,
@@ -528,7 +544,7 @@ class HouseForRent(BaseHouseAd):
         help_text='Proposed property link awaiting review',
     )
 
-    objects = VisibleHouseManager()
+    objects = CleanHouseRentalManager()
     all_objects = models.Manager()
 
     class Meta:
