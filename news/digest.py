@@ -51,7 +51,8 @@ def _rationale(story):
     slugs = sorted(
         {a.source.slug for a in _confirmed_members(story)}
     )
-    return f"{len(slugs)} outlets: {', '.join(slugs)}"
+    plural = 's' if len(slugs) != 1 else ''
+    return f"{len(slugs)} outlet{plural}: {', '.join(slugs)}"
 
 
 def build_digest(date, top_n=5, dry_run=False):

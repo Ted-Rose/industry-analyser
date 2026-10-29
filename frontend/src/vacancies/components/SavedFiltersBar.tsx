@@ -19,6 +19,8 @@ interface AppliedFilters {
   includeKeywords: string[];
   excludeKeywords: string[];
   includeIndustries: string[];
+  includeProfessions: string[];
+  excludeProfessions: string[];
   showActiveOnly: boolean;
   companyFilter: CompanyFilter;
 }
@@ -37,6 +39,8 @@ function toSearchParams(filter: {
   include_keywords: string[];
   exclude_keywords: string[];
   include_industries: string[];
+  include_professions: string[];
+  exclude_professions: string[];
   show_active_only: boolean;
   company_filter: CompanyFilter;
 }): URLSearchParams {
@@ -49,6 +53,12 @@ function toSearchParams(filter: {
   );
   filter.include_industries.forEach((i) =>
     next.append('include_industries', i),
+  );
+  filter.include_professions.forEach((p) =>
+    next.append('include_professions', p),
+  );
+  filter.exclude_professions.forEach((p) =>
+    next.append('exclude_professions', p),
   );
   if (filter.show_active_only) next.set('show_active_only', '1');
   if (filter.company_filter !== 'all') {
@@ -120,6 +130,14 @@ export default function SavedFiltersBar({
       sameNames(f.include_keywords, applied.includeKeywords) &&
       sameNames(f.exclude_keywords, applied.excludeKeywords) &&
       sameNames(f.include_industries, applied.includeIndustries) &&
+      sameNames(
+        f.include_professions,
+        applied.includeProfessions,
+      ) &&
+      sameNames(
+        f.exclude_professions,
+        applied.excludeProfessions,
+      ) &&
       f.show_active_only === applied.showActiveOnly &&
       f.company_filter === applied.companyFilter,
   );
@@ -129,6 +147,8 @@ export default function SavedFiltersBar({
     include_keywords: f.includeKeywords,
     exclude_keywords: f.excludeKeywords,
     include_industries: f.includeIndustries,
+    include_professions: f.includeProfessions,
+    exclude_professions: f.excludeProfessions,
     show_active_only: f.showActiveOnly,
     company_filter: f.companyFilter,
   });
@@ -202,6 +222,8 @@ export default function SavedFiltersBar({
           include_keywords: selected.include_keywords,
           exclude_keywords: selected.exclude_keywords,
           include_industries: selected.include_industries,
+          include_professions: selected.include_professions,
+          exclude_professions: selected.exclude_professions,
           show_active_only: selected.show_active_only,
           company_filter: selected.company_filter,
         },

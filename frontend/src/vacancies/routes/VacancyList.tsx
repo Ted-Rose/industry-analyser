@@ -16,6 +16,8 @@ interface Draft {
   includeKeywords: string[];
   excludeKeywords: string[];
   includeIndustries: string[];
+  includeProfessions: string[];
+  excludeProfessions: string[];
   showActiveOnly: boolean;
   companyFilter: CompanyFilter;
 }
@@ -60,6 +62,12 @@ export default function VacancyList() {
     includeKeywords: searchParams.getAll('include_keywords'),
     excludeKeywords: searchParams.getAll('exclude_keywords'),
     includeIndustries: searchParams.getAll('include_industries'),
+    includeProfessions: searchParams.getAll(
+      'include_professions',
+    ),
+    excludeProfessions: searchParams.getAll(
+      'exclude_professions',
+    ),
     showActiveOnly: searchParams.get('show_active_only') === '1',
     companyFilter: toCompanyFilter(
       searchParams.get('company_filter'),
@@ -80,6 +88,8 @@ export default function VacancyList() {
     includeKeywords: params.includeKeywords,
     excludeKeywords: params.excludeKeywords,
     includeIndustries: params.includeIndustries,
+    includeProfessions: params.includeProfessions,
+    excludeProfessions: params.excludeProfessions,
     showActiveOnly: params.showActiveOnly,
     companyFilter: params.companyFilter,
   });
@@ -89,6 +99,8 @@ export default function VacancyList() {
       includeKeywords: p.getAll('include_keywords'),
       excludeKeywords: p.getAll('exclude_keywords'),
       includeIndustries: p.getAll('include_industries'),
+      includeProfessions: p.getAll('include_professions'),
+      excludeProfessions: p.getAll('exclude_professions'),
       showActiveOnly: p.get('show_active_only') === '1',
       companyFilter: toCompanyFilter(p.get('company_filter')),
     });
@@ -105,6 +117,12 @@ export default function VacancyList() {
     );
     draft.includeIndustries.forEach((i) =>
       next.append('include_industries', i),
+    );
+    draft.includeProfessions.forEach((p) =>
+      next.append('include_professions', p),
+    );
+    draft.excludeProfessions.forEach((p) =>
+      next.append('exclude_professions', p),
     );
     if (draft.showActiveOnly) next.set('show_active_only', '1');
     if (draft.companyFilter !== 'all') {
@@ -169,6 +187,8 @@ export default function VacancyList() {
                 includeKeywords: params.includeKeywords,
                 excludeKeywords: params.excludeKeywords,
                 includeIndustries: params.includeIndustries,
+                includeProfessions: params.includeProfessions,
+                excludeProfessions: params.excludeProfessions,
                 showActiveOnly: params.showActiveOnly,
                 companyFilter: params.companyFilter,
               }}
@@ -210,6 +230,67 @@ export default function VacancyList() {
                       </label>
                     </div>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {data && data.professions.length > 0 && (
+              <div className="mb-3 row">
+                <div className="col-md-6 mb-2">
+                  <label className="filter-label d-block mb-1">
+                    Professions
+                  </label>
+                  <div className="checkbox-scroll-list">
+                    {data.professions.map((profession) => (
+                      <label key={profession}>
+                        <input
+                          type="checkbox"
+                          checked={draft.includeProfessions.includes(
+                            profession,
+                          )}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              includeProfessions: toggleValue(
+                                d.includeProfessions,
+                                profession,
+                                e.target.checked,
+                              ),
+                            }))
+                          }
+                        />{' '}
+                        {profession}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="col-md-6 mb-2">
+                  <label className="filter-label d-block mb-1">
+                    Exclude professions
+                  </label>
+                  <div className="checkbox-scroll-list">
+                    {data.professions.map((profession) => (
+                      <label key={profession}>
+                        <input
+                          type="checkbox"
+                          checked={draft.excludeProfessions.includes(
+                            profession,
+                          )}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              excludeProfessions: toggleValue(
+                                d.excludeProfessions,
+                                profession,
+                                e.target.checked,
+                              ),
+                            }))
+                          }
+                        />{' '}
+                        {profession}
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -363,6 +444,7 @@ export default function VacancyList() {
                   <th>Salary</th>
                   <th>Keywords</th>
                   <th>Industries</th>
+                  <th>Professions</th>
                   <th>Deadline</th>
                   <th>Last seen</th>
                 </tr>
@@ -371,7 +453,7 @@ export default function VacancyList() {
                 {vacancies.length === 0 && !isPending ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="text-center text-muted py-5"
                     >
                       No vacancies found. Try adjusting your filters.
@@ -428,6 +510,16 @@ export default function VacancyList() {
                         {vacancy.industries.map((industry) => (
                           <span key={industry} className="industry-tag">
                             {industry}
+                          </span>
+                        ))}
+                      </td>
+                      <td>
+                        {vacancy.professions.map((profession) => (
+                          <span
+                            key={profession}
+                            className="profession-tag"
+                          >
+                            {profession}
                           </span>
                         ))}
                       </td>
