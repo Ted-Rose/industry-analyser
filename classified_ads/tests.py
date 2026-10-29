@@ -23,6 +23,7 @@ from classified_ads.property_matcher import (
 )
 from scrape_jobs.models import ScrapeJob, ScrapeJobRun, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
+from scripts import hide_duplicate_link_ads as hide_dup_script
 
 
 class ClassifiedAdsApiTests(TestCase):
@@ -1839,3 +1840,204 @@ class ReconcileHiddenAdsCommandTest(TestCase):
 
         ad.refresh_from_db()
         self.assertTrue(ad.is_hidden)
+
+
+class SwapFrozenAdIdsScriptTest(TestCase):
+    """scripts/hide_duplicate_link_ads.py --swap-canonical (F6).
+
+    Frozen same-link groups swap the visible malformed-id row for
+    its hidden bare-tr_ sibling; leftover malformed visible ids are
+    hidden only when the real ad provably exists elsewhere, else
+    they land in the review bucket and stay visible.
+    """
+
+    def setUp(self):
+        self._counter = 0
+        self.today = timezone.localdate()
+
+    def _ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'tr_{6000000 + self._counter}',
+            link=f'https://example.com/hsale/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+            is_hidden=False,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def _apply(self, ad_model=HouseForSale):
+        """Mirror swap_table() minus the stdout report."""
+        plans = hide_dup_script.collect_frozen_groups(ad_model)
+        swapped = {r.pk for p in plans for r in p['visible']}
+        residue = hide_dup_script.collect_malformed_residue(
+            ad_model, swapped
+        )
+        applied = hide_dup_script.apply_swaps(
+            ad_model, plans, residue, batch_size=500
+        )
+        return plans, residue, applied
+
+    def test_swap_unhides_bare_prefix_sibling(self):
+        link = 'https://example.com/dup/frozen'
+        malformed = self._ad(
+            ad_id='tr_54290794Skolas 23606/6', link=link
+        )
+        canonical = self._ad(
+            ad_id='tr_54290794', link=link, is_hidden=True
+        )
+        HouseForSaleSighting.objects.create(
+            ad=malformed, seen_on=self.today
+        )
+        back = timezone.now() - timedelta(days=5)
+        HouseForSale.all_objects.filter(
+            pk__in=[malformed.pk, canonical.pk]
+        ).update(last_seen=back)
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(plans[0]['canonical'].pk, canonical.pk)
+        self.assertTrue(plans[0]['prefix_match'])
+        self.assertEqual((hid, unhid), (1, 1))
+        malformed.refresh_from_db()
+        canonical.refresh_from_db()
+        self.assertTrue(malformed.is_hidden)
+        self.assertFalse(canonical.is_hidden)
+        # auto_now must not bump last_seen on either row
+        self.assertEqual(malformed.last_seen, back)
+        self.assertEqual(canonical.last_seen, back)
+        # sightings stay on the row they were recorded against
+        self.assertEqual(
+            malformed.sightings.get().seen_on, self.today
+        )
+        self.assertEqual(canonical.sightings.count(), 0)
+
+    def test_prefix_mismatch_swaps_but_flags_review(self):
+        link = 'https://example.com/dup/mismatch'
+        malformed = self._ad(ad_id='tr_1111111junk', link=link)
+        canonical = self._ad(
+            ad_id='tr_2222222', link=link, is_hidden=True
+        )
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        self.assertEqual(len(plans), 1)
+        self.assertFalse(plans[0]['prefix_match'])
+        malformed.refresh_from_db()
+        canonical.refresh_from_db()
+        self.assertTrue(malformed.is_hidden)
+        self.assertFalse(canonical.is_hidden)
+
+    def test_two_visible_malformed_rows_swap_together(self):
+        link = 'https://example.com/dup/two-malformed'
+        first = self._ad(ad_id='tr_7000001a', link=link)
+        second = self._ad(ad_id='tr_7000002b', link=link)
+        canonical = self._ad(
+            ad_id='tr_7000001', link=link, is_hidden=True
+        )
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        self.assertEqual(len(plans), 1)
+        self.assertEqual(
+            {r.pk for r in plans[0]['visible']},
+            {first.pk, second.pk},
+        )
+        for ad in (first, second, canonical):
+            ad.refresh_from_db()
+        self.assertTrue(first.is_hidden)
+        self.assertTrue(second.is_hidden)
+        self.assertFalse(canonical.is_hidden)
+
+    def test_visible_bare_sibling_hides_malformed_only(self):
+        link = 'https://example.com/dup/visible'
+        malformed = self._ad(ad_id='tr_3333333junk', link=link)
+        keep = self._ad(ad_id='tr_4444444', link=link)
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        # not a frozen group — canonical is already visible — so
+        # nothing is un-hidden and the malformed row is a residue
+        # hide via the visible same-link sibling rule.
+        self.assertEqual(plans, [])
+        self.assertEqual(unhid, 0)
+        self.assertEqual(
+            [a.pk for a, _ in residue['hide']], [malformed.pk]
+        )
+        malformed.refresh_from_db()
+        keep.refresh_from_db()
+        self.assertTrue(malformed.is_hidden)
+        self.assertFalse(keep.is_hidden)
+
+    def test_prefix_row_on_other_link_hides_malformed(self):
+        malformed = self._ad(ad_id='tr_5555555tail')
+        self._ad(ad_id='tr_5555555')  # different link, dup listing
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        self.assertEqual(plans, [])
+        self.assertEqual(
+            [a.pk for a, _ in residue['hide']], [malformed.pk]
+        )
+        malformed.refresh_from_db()
+        self.assertTrue(malformed.is_hidden)
+
+    def test_standalone_malformed_goes_to_review(self):
+        malformed = self._ad(ad_id='tr_6666666abc')
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        self.assertEqual(plans, [])
+        self.assertEqual(residue['hide'], [])
+        self.assertEqual(
+            [r.pk for r in residue['review']], [malformed.pk]
+        )
+        self.assertEqual((hid, unhid), (0, 0))
+        malformed.refresh_from_db()
+        self.assertFalse(malformed.is_hidden)
+
+    def test_all_hidden_group_untouched(self):
+        link = 'https://example.com/dup/all-hidden'
+        self._ad(ad_id='tr_8000001', link=link, is_hidden=True)
+        self._ad(ad_id='tr_8000001junk', link=link, is_hidden=True)
+
+        plans, residue, (hid, unhid) = self._apply()
+
+        self.assertEqual(plans, [])
+        self.assertEqual(residue['hide'], [])
+        self.assertEqual(residue['review'], [])
+        self.assertEqual((hid, unhid), (0, 0))
+
+    def test_dry_run_writes_nothing(self):
+        import contextlib
+        import io
+
+        link = 'https://example.com/dup/dry-run'
+        malformed = self._ad(
+            ad_id='tr_54290794Skolas 23606/6', link=link
+        )
+        canonical = self._ad(
+            ad_id='tr_54290794', link=link, is_hidden=True
+        )
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            hid, unhid = hide_dup_script.swap_table(
+                HouseForSale, dry_run=True, batch_size=500
+            )
+
+        self.assertEqual((hid, unhid), (0, 0))
+        output = out.getvalue()
+        self.assertIn('SWAP', output)
+        self.assertIn(f'pk={canonical.pk}', output)
+        malformed.refresh_from_db()
+        canonical.refresh_from_db()
+        self.assertFalse(malformed.is_hidden)
+        self.assertTrue(canonical.is_hidden)
