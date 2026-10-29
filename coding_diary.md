@@ -1,7 +1,8 @@
 8. Analyse blogs for specific theme:
   - `python manage.py scrape_blogs --theme violence`
 7. Database backup:
-  - `./db_backups/local_db_backup.sh`
+  - `PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH" ./db_backups/local_db_backup.sh`
+  - pg_dump/psql are keg-only Homebrew installs, not on PATH; match the server major (currently PG 16)
 6. Startup command
   - On Windows terminal
     - `.\projects\industry-analyser\venv\Scripts\activate && python projects\industry-analyser\manage.py runserver`

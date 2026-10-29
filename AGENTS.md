@@ -372,6 +372,19 @@ schedule, `--dry-run` prints the plan.
   fields (`sslmode=verify-full`, `sslrootcert=ca.pem`) for raw
   SQL. Same extraction pattern as
   `db_backups/local_db_backup.sh`.
+- Prod backup: `db_backups/local_db_backup.sh` dumps the
+  `.env` `DATABASE_URL` database (prod admin user) to a
+  gitignored `db_backups/<db>_<timestamp>.dump` (custom format,
+  restore with `pg_restore`). Needs `jq`, `pg_dump` and `psql`;
+  on macOS the Postgres client tools are keg-only Homebrew
+  installs and NOT on `PATH`, so run it as
+
+      PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH" \
+          ./db_backups/local_db_backup.sh
+
+  matching the `@N` major to the server (Aiven prod is
+  currently PG 16 — the script prints the server version and
+  asks before continuing on a major mismatch).
 - Tests/scratch DB: for `test`, `migrate`, and any scratch/seed
   writes, override to SQLite:
   `DATABASE_URL=sqlite:///db.sqlite3 python manage.py …`
