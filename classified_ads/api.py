@@ -95,6 +95,10 @@ class AdOut(Schema):
     # Houses only.
     floors: Optional[int]
     land_area_sqm: Optional[float]
+    # Detail-page "House type:" — houses gained the column in the F8
+    # migration; apartments already had it. '' when the ad's detail
+    # page lacks the row (common for house ads).
+    house_type: Optional[str]
     # Sale models (and the region-ads table, which showed the
     # sale-equivalent columns for every deal type).
     price_per_sqm: float
@@ -141,6 +145,10 @@ class AdOut(Schema):
     @staticmethod
     def resolve_land_area_sqm(obj):
         return getattr(obj, 'land_area_sqm', None)
+
+    @staticmethod
+    def resolve_house_type(obj):
+        return getattr(obj, 'house_type', None)
 
     @staticmethod
     def resolve_monthly_price(obj):
@@ -363,6 +371,9 @@ class LinkedAdOut(Schema):
     first_seen: date
     last_seen: date
     days_active: int
+    # No resolve_house_type here: this schema is built with explicit
+    # kwargs (not from_orm), and a resolver would shadow the value.
+    house_type: Optional[str]
 
 
 class PropertyDetailOut(Schema):
@@ -1111,6 +1122,7 @@ def property_detail(request, kind: str, pk: int):
             first_seen=ad.first_seen.date(),
             last_seen=ad.last_seen.date(),
             days_active=ad.days_active,
+            house_type=getattr(ad, 'house_type', None),
         ))
 
     return PropertyDetailOut(

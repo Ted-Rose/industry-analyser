@@ -1,7 +1,8 @@
 import json
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -2008,7 +2009,11 @@ class HouseRentMisclassificationTest(TestCase):
     def test_resighting_flags_existing_row(self):
         """A rent row created before its sale twin existed gets the
         flag refreshed when it's re-sighted."""
-        rent = self._house_rent_ad(ad_id='tr_late')
+        # post_date set + rooms>0 keeps the row out of the self-heal
+        # re-enrichment queue so it drops here as before.
+        rent = self._house_rent_ad(
+            ad_id='tr_late', post_date=timezone.now(),
+        )
         self._house_sale_ad(ad_id='tr_late')
         scraper = HousingAdScraper()
         remaining = scraper.remove_redundant_results(
@@ -3295,3 +3300,547 @@ class RelinkPropertyAdsTwinFixTest(TestCase):
         self.assertEqual(other.property_id, prop_r.pk)
         self.assertEqual(other.property_match_status, 'auto')
         self.assertIn('Source props refreshed: 1', out)
+
+
+class HouseDetailPageParsingTest(TestCase):
+    """HousingAdScraper._parse_detail_page — ads_opt attribute table
+    (Rooms/House type/floors/land/street, EN + LV labels), msg_footer
+    post_date in Europe/Riga, and the enrich merge."""
+
+    DETAIL_EN = """
+    <html><body>
+    <div id="msg_div_msg">Pārdod māju. <table><tr><td>x</td></tr></table>
+        Selling a house.</div>
+    <table><tr>
+      <td class="ads_opt_name">District:</td>
+      <td class="ads_opt"><b>Zolitude</b></td></tr>
+      <tr><td class="ads_opt_name">Street:</td>
+      <td class="ads_opt"><b>Liedes 19</b>
+        <span class="td15">[<a>Map</a>]</span></td></tr>
+      <tr><td class="ads_opt_name">Area:</td>
+      <td class="ads_opt">283 m²</td></tr>
+      <tr><td class="ads_opt_name">Amount of floors:</td>
+      <td class="ads_opt">3</td></tr>
+      <tr><td class="ads_opt_name">Rooms:</td>
+      <td class="ads_opt">5</td></tr>
+      <tr><td class="ads_opt_name">Land area:</td>
+      <td class="ads_opt">1419 m²</td></tr>
+      <tr><td class="ads_opt_name">House type:</td>
+      <td class="ads_opt">Wooden house</td></tr></table>
+    <td class="msg_footer" align="right">Date: 29.10.2026 13:01</td>
+    <span id="phone_td_1">+371 20000000</span>
+    <a href="/mail/abc123.html">Write</a>
+    </body></html>
+    """
+
+    DETAIL_LV = """
+    <html><body>
+    <table><tr><td class="ads_opt_name">Iela:</td>
+      <td class="ads_opt"><b>Šampētera 94a</b></td></tr>
+      <tr><td class="ads_opt_name">Stāvu skaits:</td>
+      <td class="ads_opt">2</td></tr>
+      <tr><td class="ads_opt_name">Istabas:</td>
+      <td class="ads_opt">4</td></tr>
+      <tr><td class="ads_opt_name">Zemes platība:</td>
+      <td class="ads_opt">0.11 ha.</td></tr>
+      <tr><td class="ads_opt_name">Mājas tips:</td>
+      <td class="ads_opt">Koka māja</td></tr></table>
+    <td class="msg_footer" align="right">Datums: 15.06.2026 09:30</td>
+    </body></html>
+    """
+
+    @staticmethod
+    def _response(html):
+        return SimpleNamespace(data=html.encode('utf-8'))
+
+    def test_ads_opt_en_labels(self):
+        scraper = HousingAdScraper()
+        detail = scraper._parse_detail_page(
+            self._response(self.DETAIL_EN)
+        )
+        self.assertEqual(detail['rooms'], 5)
+        self.assertEqual(detail['house_type'], 'Wooden house')
+        self.assertEqual(detail['floors'], 3)
+        self.assertEqual(detail['land_area_sqm'], 1419.0)
+        self.assertEqual(detail['street_name'], 'Liedes')
+        self.assertEqual(detail['street_no'], '19')
+        self.assertEqual(detail['seller_phone'], '+371 20000000')
+        self.assertEqual(detail['seller_contact_id'], 'abc123')
+        self.assertIn('Pārdod māju.', detail['comment'])
+
+    def test_ads_opt_lv_labels(self):
+        scraper = HousingAdScraper()
+        detail = scraper._parse_detail_page(
+            self._response(self.DETAIL_LV)
+        )
+        self.assertEqual(detail['rooms'], 4)
+        self.assertEqual(detail['house_type'], 'Koka māja')
+        self.assertEqual(detail['floors'], 2)
+        # 0.11 ha -> 1100 m²
+        self.assertEqual(detail['land_area_sqm'], 1100.0)
+        self.assertEqual(detail['street_name'], 'Šampētera')
+        self.assertEqual(detail['street_no'], '94a')
+
+    def test_post_date_europe_riga_offset(self):
+        scraper = HousingAdScraper()
+        detail = scraper._parse_detail_page(
+            self._response(self.DETAIL_EN)
+        )
+        expected = datetime(
+            2026, 10, 29, 13, 1,
+            tzinfo=ZoneInfo('Europe/Riga'),
+        )
+        self.assertEqual(detail['post_date'], expected)
+        # 29.10 falls after the last October Sunday: EET = UTC+2,
+        # not the old make_aware() UTC assumption.
+        self.assertEqual(
+            detail['post_date'].utcoffset(), timedelta(hours=2)
+        )
+
+    def test_missing_rows_leave_keys_unset(self):
+        html = '<html><body><td class="msg_footer">x</td>' \
+            '</body></html>'
+        scraper = HousingAdScraper()
+        detail = scraper._parse_detail_page(self._response(html))
+        self.assertNotIn('rooms', detail)
+        self.assertNotIn('house_type', detail)
+        self.assertNotIn('floors', detail)
+        self.assertNotIn('land_area_sqm', detail)
+        self.assertIsNone(detail['post_date'])
+
+    def test_enrich_result_populates_new_fields(self):
+        scraper = HousingAdScraper()
+        scraper.make_request = (
+            lambda url, **kw: self._response(self.DETAIL_EN)
+        )
+        partial = {
+            'ad_id': 'tr_new',
+            'deal_type': 'SELL',
+            'link': 'https://example.com/x',
+            'comment': 'listing snippet',
+            'rooms': 0,
+            'floors': 1,
+            'street_name': 'Shampeteris-PleskodaleShampetera',
+            'street_no': '94a',
+        }
+        enriched = scraper.enrich_result(partial)
+        self.assertEqual(enriched['rooms'], 5)
+        self.assertEqual(enriched['house_type'], 'Wooden house')
+        self.assertEqual(enriched['floors'], 3)
+        # Detail-page street heals the listing cell's fused value.
+        self.assertEqual(enriched['street_name'], 'Liedes')
+        self.assertIsNotNone(enriched['post_date'])
+
+    def test_parse_detail_for_refetch_resolves_seller(self):
+        scraper = HousingAdScraper()
+        detail = scraper._parse_detail_for_refetch(
+            self._response(self.DETAIL_EN)
+        )
+        seller = Seller.objects.get(phone='+371 20000000')
+        self.assertEqual(detail['seller'], seller)
+        self.assertNotIn('seller_phone', detail)
+        self.assertEqual(detail['house_type'], 'Wooden house')
+
+    def test_apartment_post_date_europe_riga_offset(self):
+        html = (
+            '<html><body><td class="msg_footer">'
+            'Date: 15.01.2026 10:00</td></body></html>'
+        )
+        scraper = ApartmentAdScraper()
+        detail = scraper._parse_detail_page(self._response(html))
+        # 15.01 is EET = UTC+2 (the old code stamped it as UTC).
+        self.assertEqual(
+            detail['post_date'].utcoffset(), timedelta(hours=2)
+        )
+
+
+class ReEnrichSelfHealTest(TestCase):
+    """remove_redundant_results keeps re-sighted rows with NULL
+    detail-only fields in the enrichment queue so they self-heal."""
+
+    def setUp(self):
+        self._counter = 0
+
+    def _house_rent_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hrent_{self._counter}',
+            comment='',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _apt_sale_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'asale_{self._counter}',
+            comment='',
+            link=f'https://example.com/asale/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=2000.0,
+            total_price=100000.0,
+        )
+        defaults.update(kw)
+        return ApartmentForSale.all_objects.create(**defaults)
+
+    def _house_result(self, ad_id, deal_type='SELL', **kw):
+        result = dict(
+            ad_id=ad_id,
+            deal_type=deal_type,
+            district='Mežaparks',
+            region_name='Riga houses',
+            link=f'https://example.com/{ad_id}',
+            comment='',
+            street_name='Ezera iela',
+            street_no='1',
+            rooms=0,
+            size=120.0,
+            floors=2,
+            total_price=240000.0,
+            alt_price=240000.0,
+        )
+        result.update(kw)
+        return result
+
+    def _apt_result(self, ad_id, deal_type='SELL', **kw):
+        result = dict(
+            ad_id=ad_id,
+            deal_type=deal_type,
+            district='Centrs',
+            region_name='Riga',
+            link=f'https://example.com/{ad_id}',
+            comment='',
+            street_name='Čaka iela',
+            street_no='1',
+            apartment_no='',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            project_raw='New',
+            project=None,
+            price_per_sqm=2000.0,
+            alt_price_per_sqm=2000.0,
+            total_price=100000.0,
+            alt_price=100000.0,
+        )
+        result.update(kw)
+        return result
+
+    def test_house_null_post_date_row_is_kept(self):
+        self._house_rent_ad(ad_id='tr_heal', post_date=None)
+        scraper = HousingAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._house_result('tr_heal', deal_type='RENT',
+                                alt_price=72000.0)]
+        )
+        self.assertEqual(len(kept), 1)
+        self.assertTrue(kept[0]['_heal'])
+
+    def test_house_zero_rooms_row_is_kept(self):
+        self._house_rent_ad(
+            ad_id='tr_norooms',
+            post_date=timezone.now(),
+            rooms=0,
+        )
+        scraper = HousingAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._house_result('tr_norooms', deal_type='RENT',
+                                alt_price=72000.0)]
+        )
+        self.assertEqual(len(kept), 1)
+        self.assertTrue(kept[0]['_heal'])
+
+    def test_house_healthy_row_is_dropped(self):
+        self._house_rent_ad(
+            ad_id='tr_fine', post_date=timezone.now(),
+        )
+        scraper = HousingAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._house_result('tr_fine', deal_type='RENT',
+                                alt_price=72000.0)]
+        )
+        self.assertEqual(kept, [])
+
+    def test_apartment_null_post_date_row_is_kept(self):
+        self._apt_sale_ad(ad_id='tr_heal', post_date=None)
+        scraper = ApartmentAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._apt_result('tr_heal')]
+        )
+        self.assertEqual(len(kept), 1)
+        self.assertTrue(kept[0]['_heal'])
+
+    def test_apartment_healthy_row_is_dropped(self):
+        self._apt_sale_ad(ad_id='tr_fine', post_date=timezone.now())
+        scraper = ApartmentAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._apt_result('tr_fine')]
+        )
+        self.assertEqual(kept, [])
+
+    def test_heal_row_dropped_when_detail_fetch_fails(self):
+        """A failed re-fetch must not overwrite stored fields with
+        empty parse defaults."""
+        scraper = HousingAdScraper()
+        scraper.make_request = lambda url, **kw: None
+        result = scraper.enrich_result(
+            self._house_result('tr_heal', _heal=True)
+        )
+        self.assertIsNone(result)
+
+        scraper = ApartmentAdScraper()
+        scraper.make_request = lambda url, **kw: None
+        result = scraper.enrich_result(
+            self._apt_result('tr_heal', _heal=True)
+        )
+        self.assertIsNone(result)
+
+    def test_new_row_survives_failed_detail_fetch(self):
+        scraper = HousingAdScraper()
+        scraper.make_request = lambda url, **kw: None
+        result = scraper.enrich_result(self._house_result('tr_new'))
+        self.assertIsNotNone(result)
+
+    def test_heal_preserves_manual_sale_flag(self):
+        self._house_rent_ad(
+            ad_id='tr_flagged',
+            post_date=None,
+            is_sale_misclassified=True,
+        )
+        scraper = HousingAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._house_result('tr_flagged', deal_type='RENT',
+                                alt_price=72000.0)]
+        )
+        ad = scraper.initiate_resource(kept[0])
+        self.assertTrue(ad.is_sale_misclassified)
+
+    def test_apartment_heal_preserves_manual_sale_flag(self):
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_flagged',
+            comment='',
+            link='https://example.com/tr_flagged',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=6.0,
+            total_price=300.0,
+            monthly_price=300.0,
+            monthly_price_per_sqm=6.0,
+            total_price_120m=36000.0,
+            price_per_sqm_120m=720.0,
+            is_sale_misclassified=True,
+        )
+        scraper = ApartmentAdScraper()
+        kept = scraper.remove_redundant_results(
+            [self._apt_result(
+                'tr_flagged', deal_type='RENT',
+                price_per_sqm=6.0, total_price=300.0,
+                alt_price=36000.0, alt_price_per_sqm=720.0,
+            )]
+        )
+        ad = scraper.initiate_resource(kept[0])
+        self.assertTrue(ad.is_sale_misclassified)
+
+
+class RefetchHouseAdsCommandTest(TestCase):
+
+    def setUp(self):
+        self._counter = 0
+
+    def _house_rent_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hrent_{self._counter}',
+            comment='',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=0,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hsale_{self._counter}',
+            comment='',
+            link=f'https://example.com/hsale/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=0,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def test_dry_run_lists_matching_ads(self):
+        from io import StringIO
+
+        ad = self._house_rent_ad(post_date=None)
+        self._house_rent_ad(post_date=timezone.now())
+        out = StringIO()
+        call_command(
+            'refetch_house_ads',
+            '--filter', 'post_date__isnull=True',
+            '--deal-type', 'rent',
+            '--dry-run',
+            stdout=out,
+        )
+        text = out.getvalue()
+        self.assertIn('Found 1 record(s)', text)
+        self.assertIn(ad.ad_id, text)
+
+    def test_refetch_updates_parsed_fields(self):
+        from io import StringIO
+
+        ad = self._house_rent_ad(post_date=None)
+        new_date = timezone.now()
+        update = {
+            'post_date': new_date,
+            'rooms': 5,
+            'house_type': 'Wooden house',
+            'floors': 3,
+            'land_area_sqm': 1419.0,
+            'street_name': 'Liedes',
+            'street_no': '19',
+            'comment': 'Refetched text',
+            'seller': None,
+        }
+        with mock.patch.object(
+            HousingAdScraper, 'refetch_single', return_value=update
+        ):
+            call_command(
+                'refetch_house_ads',
+                '--filter', 'post_date__isnull=True',
+                '--deal-type', 'rent',
+                stdout=StringIO(),
+            )
+        ad.refresh_from_db()
+        self.assertEqual(ad.post_date, new_date)
+        self.assertEqual(ad.rooms, 5)
+        self.assertEqual(ad.house_type, 'Wooden house')
+        self.assertEqual(ad.floors, 3)
+        self.assertEqual(ad.land_area_sqm, 1419.0)
+        self.assertEqual(ad.street_name, 'Liedes')
+        self.assertEqual(ad.comment, 'Refetched text')
+
+    def test_deal_type_limits_model(self):
+        from io import StringIO
+
+        sale_ad = self._house_sale_ad(post_date=None)
+        update = {'post_date': timezone.now()}
+        with mock.patch.object(
+            HousingAdScraper, 'refetch_single', return_value=update
+        ):
+            call_command(
+                'refetch_house_ads',
+                '--filter', 'post_date__isnull=True',
+                '--deal-type', 'rent',
+                stdout=StringIO(),
+            )
+        sale_ad.refresh_from_db()
+        # rent-only run must not touch the sale table
+        self.assertIsNone(sale_ad.post_date)
+
+
+class HouseTypeApiTest(TestCase):
+    """AdOut/LinkedAdOut expose house_type."""
+
+    API = '/api/classified-ads'
+
+    def setUp(self):
+        self.house_region = Region.objects.create(
+            name='Riga houses',
+            url='https://www.ss.com/en/real-estate/'
+                'homes-summer-residences/riga/',
+            category='HOUSE',
+        )
+
+    def test_ads_table_returns_house_type(self):
+        HouseForRent.all_objects.create(
+            ad_id='hrent_1',
+            link='https://example.com/hrent/1',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            house_type='Wooden house',
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        resp = self.client.get(
+            f'{self.API}/ads/', {'kind': 'house', 'deal': 'rent'}
+        )
+        body = resp.json()
+        self.assertEqual(body['ads'][0]['house_type'], 'Wooden house')
+
+    def test_property_detail_ad_row_has_house_type(self):
+        prop = HouseProperty.objects.create(
+            district='Mežaparks',
+            street_name='Ezera iela',
+            street_no='1',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            first_seen=timezone.now(),
+            last_seen=timezone.now(),
+        )
+        ad = HouseForSale.all_objects.create(
+            ad_id='hsale_1',
+            link='https://example.com/hsale/1',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            house_type='Brick house',
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+            property=prop,
+            property_match_status='auto',
+        )
+        resp = self.client.get(
+            f'{self.API}/properties/house/{prop.pk}/'
+        )
+        row = resp.json()['ad_rows'][0]
+        self.assertEqual(row['ad_id'], ad.ad_id)
+        self.assertEqual(row['house_type'], 'Brick house')

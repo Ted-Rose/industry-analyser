@@ -504,6 +504,10 @@ class BaseHouseAd(models.Model):
         blank=True,
         help_text='Plot area in m²',
     )
+    # "House type:" from the detail page ads_opt table ('' when the
+    # ad has no such row). Parsed at enrich time; historical rows
+    # are backfilled by `refetch_house_ads`.
+    house_type = models.CharField(max_length=255, blank=True)
     post_date = models.DateTimeField(null=True)
     seller = models.ForeignKey(
         'Seller',

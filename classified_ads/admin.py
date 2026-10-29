@@ -258,6 +258,7 @@ class HouseForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'size',
         'floors',
         'land_area_sqm',
+        'house_type',
         'monthly_price',
         'monthly_price_per_sqm',
         'is_sale_misclassified',
@@ -271,6 +272,7 @@ class HouseForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'property_match_status',
         'region',
         'district',
+        'house_type',
     ]
     list_editable = ['is_sale_misclassified']
     search_fields = [
@@ -301,6 +303,7 @@ class HouseForSaleAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'size',
         'floors',
         'land_area_sqm',
+        'house_type',
         'total_price',
         'price_per_sqm',
         'post_date',
@@ -308,7 +311,12 @@ class HouseForSaleAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'days_active',
         'property_match_status',
     ]
-    list_filter = ['property_match_status', 'region', 'district']
+    list_filter = [
+        'property_match_status',
+        'region',
+        'district',
+        'house_type',
+    ]
     search_fields = [
         'district',
         'street_name',

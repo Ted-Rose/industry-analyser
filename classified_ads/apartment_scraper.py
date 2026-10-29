@@ -2,6 +2,7 @@ import logging
 import re
 from datetime import date, datetime
 from typing import List
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
@@ -386,11 +387,42 @@ class ApartmentAdScraper(BaseScraper):
         if existing_sell_ids:
             self._write_sightings(existing_sell_ids, 'SELL')
 
+        # Self-heal: existing rows whose detail-only fields were never
+        # populated stay in the queue so enrich_result re-fetches the
+        # detail page and create_or_update_resources fills them in.
+        heal_ids = set()
+        if existing_rent_ids:
+            heal_ids |= set(
+                ApartmentForRent.all_objects.filter(
+                    ad_id__in=existing_rent_ids,
+                    post_date__isnull=True,
+                ).values_list('ad_id', flat=True)
+            )
+        if existing_sell_ids:
+            heal_ids |= set(
+                ApartmentForSale.all_objects.filter(
+                    ad_id__in=existing_sell_ids,
+                    post_date__isnull=True,
+                ).values_list('ad_id', flat=True)
+            )
+
         existing_ids = existing_rent_ids | existing_sell_ids
-        return [r for r in resources if r['ad_id'] not in existing_ids]
+        kept = []
+        for r in resources:
+            if r['ad_id'] not in existing_ids:
+                kept.append(r)
+            elif r['ad_id'] in heal_ids:
+                r['_heal'] = True
+                kept.append(r)
+        return kept
 
     def enrich_result(self, partial_result):
         detail_response = self.make_request(partial_result['link'])
+        if detail_response is None and partial_result.get('_heal'):
+            # A re-sighted row kept only to heal NULL fields must not
+            # overwrite stored values with empty parse defaults —
+            # drop it; its sighting was already recorded upstream.
+            return None
         detail = self._parse_detail_page(detail_response)
         return {**partial_result, **detail}
 
@@ -434,15 +466,25 @@ class ApartmentAdScraper(BaseScraper):
             monthly_price_per_sqm = enriched_result['price_per_sqm']
             comment = enriched_result.get('comment', '')
 
+            sale_flag = is_sale_misclassified(
+                comment, monthly_price_per_sqm
+            )
+            if enriched_result.get('_heal') and not sale_flag:
+                # A re-enriched existing row must keep a flag set
+                # manually or by an earlier scrape — flagging is
+                # additive, never undone by re-enrichment.
+                sale_flag = ApartmentForRent.all_objects.filter(
+                    ad_id=enriched_result['ad_id'],
+                    is_sale_misclassified=True,
+                ).exists()
+
             return ApartmentForRent(
                 **common_kwargs,
                 monthly_price=enriched_result['total_price'],
                 monthly_price_per_sqm=monthly_price_per_sqm,
                 total_price_120m=enriched_result['alt_price'],
                 price_per_sqm_120m=enriched_result['alt_price_per_sqm'],
-                is_sale_misclassified=is_sale_misclassified(
-                    comment, monthly_price_per_sqm
-                ),
+                is_sale_misclassified=sale_flag,
             )
         return ApartmentForSale(**common_kwargs)
 
@@ -592,8 +634,12 @@ class ApartmentAdScraper(BaseScraper):
                     naive = datetime.strptime(
                         raw, '%d.%m.%Y %H:%M'
                     )
-                    result['post_date'] = (
-                        timezone.make_aware(naive)
+                    # ss.com timestamps are Latvia-local; note that
+                    # post_date is the last-RENEWAL date (renewals bump
+                    # it) — days-on-market must use sightings/
+                    # first_seen instead.
+                    result['post_date'] = timezone.make_aware(
+                        naive, ZoneInfo('Europe/Riga')
                     )
                 except ValueError:
                     pass
