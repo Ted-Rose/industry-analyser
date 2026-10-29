@@ -2,16 +2,20 @@
 and ninja API are out of scope for this feature)."""
 from datetime import datetime
 
+from django.db.models import Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
 
-from .models import NewsDigest
+from .models import NewsDigest, NewsDigestItem
 
 
 def digest_list(request):
     digests = (
         NewsDigest.objects.order_by('-date')
-        .prefetch_related('items')
+        .prefetch_related(Prefetch(
+            'items',
+            queryset=NewsDigestItem.objects.order_by('rank'),
+        ))
     )
     return render(
         request, 'news/digest_list.html', {'digests': digests}

@@ -86,27 +86,45 @@ class NewsScraper(BaseScraper):
         self.excluded_resources = []
 
     def _enabled_sources(self):
+        """All enabled NewsSource rows — never narrowed by
+        ``source_slug``: sync_items() must see the full set or it
+        would deactivate every other feed's ScrapeJobItem."""
         sources = list(NewsSource.objects.filter(is_enabled=True))
         if not sources and self.dry_run:
+            # Unseeded DB under --dry-run: unsaved fallback rows.
+            # create_or_update_resources guards the related-object
+            # filter against their pk being None.
             sources = [
                 NewsSource(**feed)
                 for feed in NEWS_FEEDS
                 if feed.get('is_enabled', True)
             ]
-        if self.source_slug:
-            sources = [s for s in sources if s.slug == self.source_slug]
         return sources
 
     def get_search_urls(self):
         sources = self._enabled_sources()
+        if self.source_slug and not any(
+            s.slug == self.source_slug for s in sources
+        ):
+            logger.warning(
+                '--source %r matches no enabled source',
+                self.source_slug,
+            )
         runner = getattr(self, 'runner', None)
         if runner is None:
             for source in sources:
+                if (
+                    self.source_slug
+                    and source.slug != self.source_slug
+                ):
+                    continue
                 self._active_source = source
                 yield source.feed_url
             return
 
         # Runner path: each source feed is one checkpointed item.
+        # sync_items always sees ALL enabled sources — a --source
+        # run must not mark the other feeds' items inactive.
         entries = [
             (source.slug, f'{source.name} RSS feed', 0, source)
             for source in sources
@@ -114,6 +132,11 @@ class NewsScraper(BaseScraper):
         items = runner.sync_items(entries)
         for item in runner.pending_items(items):
             source = item.obj
+            if self.source_slug and source.slug != self.source_slug:
+                # Filtered out by --source: neither done nor
+                # failed — the item stays pending for the next
+                # full pass.
+                continue
             try:
                 self._active_source = source
                 yield source.feed_url
@@ -163,10 +186,16 @@ class NewsScraper(BaseScraper):
         title = _child_text(item, 'title')
         link = _child_text(item, 'link')
         guid = _child_text(item, 'guid')
-        if not link and guid:
-            # guid is commonly the article permalink.
+        if not link and guid.startswith('http'):
+            # A URL-looking guid is commonly the article
+            # permalink; opaque ids (isPermaLink="false") are not
+            # usable hrefs and stay out of the URLField.
             link = guid
         if guid:
+            # Truncated to the field's max_length — two distinct
+            # guids sharing a 64-char prefix would collapse into
+            # one article (deduped in-session, then
+            # ignore_conflicts). Rare; accepted.
             external_id = guid[:64]
         elif link:
             external_id = hashlib.sha256(
@@ -243,7 +272,7 @@ class NewsScraper(BaseScraper):
         return NewsArticle(
             source=self._active_source,
             external_id=result['external_id'][:64],
-            link=result.get('link') or '',
+            link=(result.get('link') or '')[:600],
             title=(result.get('title') or '')[:500],
             lead=result.get('lead') or '',
             image_url=(result.get('image_url') or '')[:600],
@@ -257,6 +286,16 @@ class NewsScraper(BaseScraper):
         rows get title/lead/categories/topic refreshed and
         last_seen bumped; the rest are inserted."""
         if not articles:
+            return
+        if self.dry_run and self._active_source.pk is None:
+            # --dry-run on an unseeded DB: _active_source is an
+            # unsaved NEWS_FEEDS fallback row and filtering a
+            # relation by it raises ValueError — report every
+            # parsed item as a would-be create instead.
+            logger.info(
+                '[dry-run] would create %d article(s)',
+                len(articles),
+            )
             return
         existing = {
             a.external_id: a

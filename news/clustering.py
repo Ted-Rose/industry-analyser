@@ -11,6 +11,13 @@ Latvian is heavily inflected ("budžetu"/"budžets",
 "Saeima"/"Saeimā"), so tokens are compared as 4-char prefix
 stems — crude, but it collapses the common declensions without
 a stemmer dependency.
+
+Pure-number stems (years, dates) are dropped from tokens and
+auto-merge additionally requires a minimum number of shared
+"substantive" stems — otherwise generic date/boilerplate stems
+glue distinct stories together ("Valsts budžets 2027. gadam"
+vs "Pašvaldību budžets 2027. gadam" would score 0.50 on stems
+budž+gada alone).
 """
 import logging
 import re
@@ -28,6 +35,15 @@ AUTO_THRESHOLD = 0.45
 CANDIDATE_THRESHOLD = 0.30
 # Token prefix length — collapses Latvian declension endings.
 STEM_LEN = 4
+# Auto-merge needs at least this many shared stems that are not
+# date boilerplate — the Jaccard score alone cannot tell a real
+# overlap from same-year boilerplate.
+MIN_SHARED_SUBSTANTIVE = 2
+
+# Stems that name a date rather than a story — the year-word
+# family (gada/gadam/gadu/gadā/gads). They stay in the Jaccard
+# token sets but never count as substantive shared stems.
+_DATE_STEMS = frozenset({'gada', 'gadu', 'gadā', 'gads'})
 
 # ~40-word Latvian stopword list.
 STOPWORDS = frozenset({
@@ -42,13 +58,22 @@ _WORD_RE = re.compile(r'\w+')
 
 
 def _tokens(text):
-    """Stopword-filtered 4-char-stem token set for a title."""
+    """Stopword-filtered 4-char-stem token set for a title.
+
+    Pure-number stems (years like 2027, dates) are dropped —
+    every same-year headline shares them, so they inflate the
+    Jaccard between unrelated stories.
+    """
     norm = unicodedata.normalize('NFKC', text or '').lower()
-    return {
-        w[:STEM_LEN]
-        for w in _WORD_RE.findall(norm)
-        if w not in STOPWORDS
-    }
+    stems = set()
+    for word in _WORD_RE.findall(norm):
+        if word in STOPWORDS:
+            continue
+        stem = word[:STEM_LEN]
+        if stem.isdigit():
+            continue
+        stems.add(stem)
+    return stems
 
 
 def _jaccard(a, b):
@@ -64,21 +89,24 @@ def _article_date(article):
 
 
 def _best_story(article_tokens, stories):
-    """(story, score) of the best candidate, or (None, best_score)
-    when nothing reaches CANDIDATE_THRESHOLD."""
+    """(story, score, shared_stems) of the best candidate —
+    shared_stems belongs to the single best-scoring member title.
+    (None, best_score, frozenset()) when nothing is close."""
     best_story = None
     best_score = 0.0
+    best_shared = frozenset()
     for story in stories:
         titles = [
             a.title for a in story.articles.all()
         ] or [story.title]
-        score = max(
-            _jaccard(article_tokens, _tokens(t)) for t in titles
-        )
-        if score > best_score:
-            best_story = story
-            best_score = score
-    return best_story, best_score
+        for title in titles:
+            story_tokens = _tokens(title)
+            score = _jaccard(article_tokens, story_tokens)
+            if score > best_score:
+                best_story = story
+                best_score = score
+                best_shared = article_tokens & story_tokens
+    return best_story, best_score, best_shared
 
 
 def _refresh_story(story, dry_run=False):
@@ -139,9 +167,18 @@ def link_unmatched_articles(days=2, dry_run=False):
             )
             .prefetch_related('articles')
         )
-        story, score = _best_story(article_tokens, stories)
+        story, score, shared = _best_story(article_tokens, stories)
+        # Stems shared with the best-matching title that are not
+        # date boilerplate — auto-merge requires several so a
+        # shared year + one generic noun cannot glue distinct
+        # stories.
+        substantive = shared - _DATE_STEMS
 
-        if story is not None and score >= AUTO_THRESHOLD:
+        if (
+            story is not None
+            and score >= AUTO_THRESHOLD
+            and len(substantive) >= MIN_SHARED_SUBSTANTIVE
+        ):
             status = 'auto'
         elif story is not None and score >= CANDIDATE_THRESHOLD:
             status = 'candidate'

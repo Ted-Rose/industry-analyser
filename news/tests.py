@@ -7,6 +7,9 @@ from types import SimpleNamespace
 from django.test import TestCase
 from django.utils import timezone
 
+from scrape_jobs.models import ScrapeJobItem
+from scrape_jobs.runner import ScrapeJobRunner
+
 from .classification import classify_topic
 from .clustering import link_unmatched_articles
 from .digest import build_digest
@@ -167,6 +170,48 @@ class CreateOrUpdateTests(TestCase):
         self.assertEqual(len(deduped), 1)
 
 
+class DryRunTests(TestCase):
+    """--dry-run on an unseeded DB: the unsaved NEWS_FEEDS/TOPICS
+    fallback objects must not reach related-object filters and
+    nothing may be written."""
+
+    def test_dry_run_unseeded_db_writes_nothing(self):
+        scraper = NewsScraper(dry_run=True)
+        scraper._active_source = scraper._enabled_sources()[0]
+        results = scraper.parse_results(_response(FEED_A))
+        articles = scraper.initiate_resources(results)
+        scraper.create_or_update_resources(articles)
+        self.assertEqual(NewsArticle.objects.count(), 0)
+
+
+class SourceFilterTests(TestCase):
+    """--source narrows the pass but must not deactivate the
+    other feeds' ScrapeJobItem rows."""
+
+    def setUp(self):
+        self.a = _source('a')
+        self.b = _source('b')
+
+    def test_source_run_keeps_other_items_active(self):
+        runner = ScrapeJobRunner(slug='news.feeds')
+        scraper = NewsScraper(runner=runner, source_slug='a')
+        urls = list(scraper.get_search_urls())
+        self.assertEqual(urls, ['https://a.lv/rss'])
+        items = {
+            i.key: i.is_active
+            for i in ScrapeJobItem.objects.all()
+        }
+        self.assertEqual(items, {'a': True, 'b': True})
+
+    def test_unknown_source_deactivates_nothing(self):
+        runner = ScrapeJobRunner(slug='news.feeds')
+        scraper = NewsScraper(runner=runner, source_slug='nope')
+        self.assertEqual(list(scraper.get_search_urls()), [])
+        self.assertEqual(
+            ScrapeJobItem.objects.filter(is_active=True).count(), 2
+        )
+
+
 class ClassificationTests(TestCase):
     def setUp(self):
         self.funding = NewsTopic.objects.create(
@@ -249,6 +294,27 @@ class ClusteringTests(TestCase):
         story = a1.story
         story.refresh_from_db()
         self.assertEqual(story.source_count, 2)
+
+    def test_generic_date_stems_do_not_auto_merge(self):
+        # Shared stems are only 'budž' + 'gada' — a topic word
+        # plus year boilerplate. The Jaccard reaches the
+        # candidate band, but auto-merge requires a second
+        # substantive shared stem, so the link is held for
+        # admin review instead of auto-merging state vs
+        # municipal budgets.
+        a1 = _article(
+            self.a, 'Valsts budžets 2027. gadam',
+            published=self.now,
+        )
+        a2 = _article(
+            self.b, 'Pašvaldību budžets 2027. gadam',
+            published=self.now,
+        )
+        link_unmatched_articles(days=2)
+        a1.refresh_from_db()
+        a2.refresh_from_db()
+        self.assertEqual(a2.story_match_status, 'candidate')
+        self.assertEqual(a2.story_id, a1.story_id)
 
     def test_old_articles_are_out_of_scope(self):
         old = _article(
