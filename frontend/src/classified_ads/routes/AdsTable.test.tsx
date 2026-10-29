@@ -37,10 +37,13 @@ function makeAd(overrides: Partial<AdOut> = {}): AdOut {
     max_floor: 5,
     floors: null,
     land_area_sqm: null,
+    house_type: null,
     price_per_sqm: 6,
     total_price: 300,
     monthly_price: 300,
     monthly_price_per_sqm: 6,
+    total_price_120m: 36000,
+    price_per_sqm_120m: 720,
     ...overrides,
   };
 }

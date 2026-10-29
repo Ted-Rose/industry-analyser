@@ -123,10 +123,20 @@ class BaseProperty(models.Model):
             cache.append(ad)
 
     def discard_linked_ad(self, ad):
-        """Drop an ad from the in-memory cache, if any."""
+        """Drop an ad from the in-memory cache, if any.
+
+        Matches on (class, pk), not pk alone: rent and sale ads
+        live in separate tables, so a cross-model pk collision
+        must not evict a still-linked sibling ad — a cache that
+        only *looks* emptied would delete a live property and
+        SET_NULL the remaining ad's link.
+        """
         cache = getattr(self, '_linked_ads_cache', None)
         if cache is not None:
-            cache[:] = [a for a in cache if a.pk != ad.pk]
+            cache[:] = [
+                a for a in cache
+                if not (isinstance(a, type(ad)) and a.pk == ad.pk)
+            ]
 
     @property
     def days_on_market(self):
@@ -151,6 +161,14 @@ class BaseProperty(models.Model):
         if field == 'street_no':
             from .property_matcher import normalize_street_no
             return normalize_street_no(value)
+        if field == 'apartment_no':
+            if value:
+                return value.strip()
+            # A fused "N-M" street_no carries the unit number in
+            # its suffix — seed it rather than leaving the field
+            # blank.
+            from .property_matcher import fused_street_no_apt
+            return fused_street_no_apt(getattr(ad, 'street_no', ''))
         # Block lookups filter on stripped values — keep stored
         # canonical strings clean so they always match.
         if isinstance(value, str):
@@ -454,6 +472,15 @@ class VisibleHouseManager(models.Manager):
         return super().get_queryset().filter(is_hidden=False)
 
 
+class CleanHouseRentalManager(models.Manager):
+    """Manager that excludes misclassified for-sale ads and hidden ads."""
+    def get_queryset(self):
+        return super().get_queryset().filter(
+            is_sale_misclassified=False,
+            is_hidden=False
+        )
+
+
 class BaseHouseAd(models.Model):
     ad_id = models.CharField(max_length=255, unique=True)
     comment = models.TextField(blank=True)
@@ -477,6 +504,10 @@ class BaseHouseAd(models.Model):
         blank=True,
         help_text='Plot area in m²',
     )
+    # "House type:" from the detail page ads_opt table ('' when the
+    # ad has no such row). Parsed at enrich time; historical rows
+    # are backfilled by `refetch_house_ads`.
+    house_type = models.CharField(max_length=255, blank=True)
     post_date = models.DateTimeField(null=True)
     seller = models.ForeignKey(
         'Seller',
@@ -511,6 +542,13 @@ class HouseForRent(BaseHouseAd):
     monthly_price_per_sqm = models.FloatField()
     total_price_120m = models.FloatField()
     price_per_sqm_120m = models.FloatField()
+    is_sale_misclassified = models.BooleanField(
+        default=False,
+        help_text=(
+            'True if this rental ad is actually a for-sale listing '
+            'posted in the wrong category'
+        )
+    )
     property = models.ForeignKey(
         HouseProperty,
         null=True,
@@ -528,7 +566,7 @@ class HouseForRent(BaseHouseAd):
         help_text='Proposed property link awaiting review',
     )
 
-    objects = VisibleHouseManager()
+    objects = CleanHouseRentalManager()
     all_objects = models.Manager()
 
     class Meta:

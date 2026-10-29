@@ -50,6 +50,11 @@ JOBS = [
     # classified-ads scrapes above (scrape_vacancy stays manual).
     ('link_ads_to_properties', 'command', ['--older-than-days', '3'],
      'dom:odd'),
+    # News digest pipeline: scrape feeds, cluster into stories,
+    # build the daily digest — in that order.
+    ('scrape_news', 'command', [], 'daily'),
+    ('link_news_stories', 'command', [], 'daily'),
+    ('build_news_digest', 'command', [], 'daily'),
     # ('sync_apartment_regions', 'command', [], 'manual'),
     # ('sync_housing_regions', 'command', [], 'manual'),
 ]

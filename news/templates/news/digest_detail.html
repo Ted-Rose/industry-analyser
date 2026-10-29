@@ -1,0 +1,25 @@
+{% extends "news/base.html" %}
+{% block title %}Kopsavilkums {{ digest.date }}{% endblock %}
+{% block content %}
+<nav class="back"><a href="{% url 'news:digest-list' %}">&larr; Visi kopsavilkumi</a></nav>
+<h2>{{ digest.date }}</h2>
+{% for item in items %}
+  <article class="item">
+    <h3>{{ item.rank }}. {{ item.headline }}</h3>
+    <p class="muted">
+      {{ item.rationale }}
+      {% if item.story.topic %}&middot; {{ item.story.topic.name }}{% endif %}
+    </p>
+    <ul class="articles">
+      {% for article in item.story.confirmed_articles %}
+        <li>
+          <a href="{{ article.link }}">{{ article.title }}</a>
+          <span class="muted">({{ article.source.name }})</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </article>
+{% empty %}
+  <p class="muted">Šajā kopsavilkumā nav ierakstu.</p>
+{% endfor %}
+{% endblock %}

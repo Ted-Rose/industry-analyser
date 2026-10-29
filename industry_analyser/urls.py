@@ -112,6 +112,9 @@ urlpatterns = [
         'classified-ads/',
         include('classified_ads.urls', namespace='classified_ads'),
     ),
+    # Plain-template digest pages — must precede the terminal
+    # catch-all drains and the root SPA <path:subpath> below.
+    path('news/', include('news.urls', namespace='news')),
 ]
 
 if settings.DEBUG:

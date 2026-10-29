@@ -8,19 +8,23 @@ CSRF): a deliberate tightening vs. the retired anonymous POST forms,
 matching the migration README's "mutations keep django_auth" rule.
 
 Query/aggregate logic mirrors the retired views in
-classified_ads/views.py verbatim — the heavy `_compute_*_region_stats`
-helpers moved here unchanged. Ad listers keep using the default
-`objects` managers, which hide is_hidden rows (and
-is_sale_misclassified rows on ApartmentForRent); the property detail
-endpoint intentionally goes through `prop.linked_ads()`, which uses
-`all_objects` — hidden/misclassified ads still belong to a property.
+classified_ads/views.py, with one deliberate change: the region
+window filter is "ad had a sighting inside the window" (supply
+active on the market, F5), not the retired views'
+first_seen-in-window "new listings entering the window". Ad listers
+keep using the default `objects` managers, which hide is_hidden rows
+(and is_sale_misclassified rows on ApartmentForRent); the property
+detail endpoint intentionally goes through `prop.linked_ads()`,
+which uses `all_objects` — hidden/misclassified ads still belong to
+a property.
 """
+import statistics
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import List, Literal, Optional
 
 from django.core.paginator import Paginator
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Q
 from django.shortcuts import get_object_or_404
 from ninja import Query, Router, Schema
 from pydantic import Field
@@ -92,13 +96,39 @@ class AdOut(Schema):
     # Houses only.
     floors: Optional[int]
     land_area_sqm: Optional[float]
+    # Detail-page "House type:" — houses gained the column in the F8
+    # migration; apartments already had it. '' when the ad's detail
+    # page lacks the row (common for house ads).
+    house_type: Optional[str]
     # Sale models (and the region-ads table, which showed the
-    # sale-equivalent columns for every deal type).
-    price_per_sqm: float
-    total_price: float
+    # sale-equivalent columns for every deal type). On rent rows
+    # these two mirror the monthly figures — see the descriptions.
+    price_per_sqm: float = Field(
+        description=(
+            'Sale EUR/m² on sale rows; on rent rows it mirrors '
+            'monthly_price_per_sqm (monthly rent per m²).'
+        )
+    )
+    total_price: float = Field(
+        description=(
+            'Sale price on sale rows; on rent rows it mirrors '
+            'monthly_price (the monthly rent, not a purchase '
+            'price).'
+        )
+    )
     # Rent models only — the ads tables' price columns for deal=rent.
     monthly_price: Optional[float]
     monthly_price_per_sqm: Optional[float]
+    # Rent models only — gross 10-year (120-month) rent, the
+    # buy-vs-rent comparator. Null on sale rows.
+    total_price_120m: Optional[float] = Field(
+        description='monthly_price × 120 on rent rows; null on sale.'
+    )
+    price_per_sqm_120m: Optional[float] = Field(
+        description=(
+            'monthly_price_per_sqm × 120 on rent rows; null on sale.'
+        )
+    )
 
     @staticmethod
     def resolve_project(obj):
@@ -140,12 +170,24 @@ class AdOut(Schema):
         return getattr(obj, 'land_area_sqm', None)
 
     @staticmethod
+    def resolve_house_type(obj):
+        return getattr(obj, 'house_type', None)
+
+    @staticmethod
     def resolve_monthly_price(obj):
         return getattr(obj, 'monthly_price', None)
 
     @staticmethod
     def resolve_monthly_price_per_sqm(obj):
         return getattr(obj, 'monthly_price_per_sqm', None)
+
+    @staticmethod
+    def resolve_total_price_120m(obj):
+        return getattr(obj, 'total_price_120m', None)
+
+    @staticmethod
+    def resolve_price_per_sqm_120m(obj):
+        return getattr(obj, 'price_per_sqm_120m', None)
 
 
 class AdsFiltersOut(Schema):
@@ -275,6 +317,31 @@ class RegionAdsOut(Schema):
     deal_type: str
 
 
+class RentVsBuyRowOut(Schema):
+    """One region row of the rent-vs-buy table. Medians are over
+    ads active in the window; `price_to_annual_rent_years` is the
+    median sale EUR/m² divided by (median monthly rent EUR/m² ×
+    12) — the years of rent needed to cover the purchase price
+    (LOWER means buying looks cheap relative to renting). All
+    three are null when a side has no active ads; the n_*_ads
+    counts let the frontend filter."""
+    region: RegionRefOut
+    n_rent_ads: int
+    n_sale_ads: int
+    median_monthly_rent_per_sqm: Optional[float]
+    median_sale_price_per_sqm: Optional[float]
+    price_to_annual_rent_years: Optional[float]
+
+
+class RentVsBuyOut(Schema):
+    kind: str
+    parent_regions: List[RegionRefOut]
+    selected_ids: List[int]
+    date_from: date
+    date_to: date
+    results: List[RentVsBuyRowOut]
+
+
 class DailySightingsRowOut(Schema):
     date: date
     apartment_rent: int
@@ -360,6 +427,9 @@ class LinkedAdOut(Schema):
     first_seen: date
     last_seen: date
     days_active: int
+    # No resolve_house_type here: this schema is built with explicit
+    # kwargs (not from_orm), and a resolver would shadow the value.
+    house_type: Optional[str]
 
 
 class PropertyDetailOut(Schema):
@@ -393,12 +463,41 @@ def _region_and_descendant_ids(region):
     return ids
 
 
+def _sighted_ad_ids(sighting_model, date_from, date_to):
+    """Subquery of ad ids with at least one sighting inside the
+    report window — the F5 "active on the market" filter (vs. the
+    old first_seen-in-window "new listings" filter). Used as an
+    `id__in` subquery so the ads queryset gains no JOIN duplicate
+    rows and aggregates stay unweighted.
+    """
+    return sighting_model.objects.filter(
+        seen_on__gte=date_from, seen_on__lte=date_to
+    ).values('ad_id')
+
+
+def _visible_ad_filter(prefix, ad_model):
+    """Q() replicating an ad model's `objects` visibility rules on a
+    joined path — `prefix` is e.g. 'ad__' (sighting → ad) or
+    'rent_ads__' (property → ads). Always is_hidden=False, plus
+    is_sale_misclassified=False on models that carry the flag (the
+    two rent tables; the sale tables lack it)."""
+    q = Q(**{f'{prefix}is_hidden': False})
+    if any(
+        field.name == 'is_sale_misclassified'
+        for field in ad_model._meta.fields
+    ):
+        q &= Q(**{f'{prefix}is_sale_misclassified': False})
+    return q
+
+
 def _linked_property_stats(ads_qs, sighting_models):
     """Per-property stats for ads with a confirmed property link.
 
-    Returns (distinct linked property count, avg days-on-market)
-    where days-on-market is the union of sighting dates across all
-    ads linked to each property (both deal types, and including ads
+    The property cohort is whatever the caller's ads_qs selects —
+    for the region stats that's ads active in the window. Returns
+    (distinct linked property count, avg days-on-market) where
+    days-on-market is the union of sighting dates across all ads
+    linked to each property (both deal types, and including ads
     outside the report window — the metric survives delete+repost).
     """
     prop_ids = (
@@ -448,32 +547,39 @@ def _default_date_range(date_from, date_to):
 def _compute_apartment_region_stats(
     region, date_from, date_to, deal_type=''
 ):
+    """Region row for the stats table — `total_ads` counts ads with
+    a sighting inside [date_from, date_to] (active in the window),
+    not ads first_seen inside it."""
     region_ids = _region_and_descendant_ids(region)
 
     if deal_type == 'RENT':
         ads_qs = ApartmentForRent.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                ApartmentForRentSighting, date_from, date_to
+            ),
         ).annotate(sighting_count=Count('sightings', distinct=True))
         price_field = 'monthly_price_per_sqm'
     elif deal_type == 'SELL':
         ads_qs = ApartmentForSale.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                ApartmentForSaleSighting, date_from, date_to
+            ),
         ).annotate(sighting_count=Count('sightings', distinct=True))
         price_field = 'price_per_sqm'
     else:
         rent_qs = ApartmentForRent.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                ApartmentForRentSighting, date_from, date_to
+            ),
         )
         sale_qs = ApartmentForSale.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                ApartmentForSaleSighting, date_from, date_to
+            ),
         )
         total_ads = rent_qs.count() + sale_qs.count()
         stats = {
@@ -508,32 +614,38 @@ def _compute_apartment_region_stats(
 def _compute_house_region_stats(
     region, date_from, date_to, deal_type=''
 ):
+    """House twin of _compute_apartment_region_stats — same
+    active-in-window (sighting-based) semantics."""
     region_ids = _region_and_descendant_ids(region)
 
     if deal_type == 'RENT':
         ads_qs = HouseForRent.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                HouseForRentSighting, date_from, date_to
+            ),
         ).annotate(sighting_count=Count('sightings', distinct=True))
         price_field = 'monthly_price_per_sqm'
     elif deal_type == 'SELL':
         ads_qs = HouseForSale.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                HouseForSaleSighting, date_from, date_to
+            ),
         ).annotate(sighting_count=Count('sightings', distinct=True))
         price_field = 'price_per_sqm'
     else:
         rent_qs = HouseForRent.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                HouseForRentSighting, date_from, date_to
+            ),
         )
         sale_qs = HouseForSale.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                HouseForSaleSighting, date_from, date_to
+            ),
         )
         total_ads = rent_qs.count() + sale_qs.count()
         stats = {
@@ -787,6 +899,111 @@ def region_stats(
 
 
 @router.get(
+    '/regions/rent-vs-buy/', auth=None, response=RentVsBuyOut
+)
+def rent_vs_buy(
+    request,
+    kind: Kind,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    # Parent region ids, same convention as /regions/stats/ — each
+    # selected region is aggregated over its whole subtree. Empty
+    # means "all of the kind's parent regions": this endpoint is an
+    # analysis table, not a gated report, so it doesn't keep
+    # results null until a selection like region_stats does.
+    regions: List[int] = Query([], max_length=500),
+):
+    """Rent-vs-buy comparison per region — for each parent region,
+    the median monthly rent EUR/m² of active rent ads vs the
+    median sale EUR/m² of active sale ads, plus
+    `price_to_annual_rent_years` (median sale EUR/m² ÷ median
+    monthly rent EUR/m² ÷ 12): years of rent needed to cover the
+    purchase price — LOWER means buying looks cheap relative to
+    renting.
+
+    "Active" is the F5 sighting semantics (a sighting inside
+    [date_from, date_to]) and both sides go through the `objects`
+    managers, so hidden and is_sale_misclassified rent ads are
+    excluded. Rows are returned for every selected region; when a
+    side has no active ads its median (and the ratio) is null and
+    the n_*_ads count is 0, so the frontend can filter.
+    """
+    date_from, date_to = _default_date_range(date_from, date_to)
+    category = 'APARTMENT' if kind == 'apartment' else 'HOUSE'
+    if kind == 'apartment':
+        rent_model, rent_sightings = (
+            ApartmentForRent, ApartmentForRentSighting
+        )
+        sale_model, sale_sightings = (
+            ApartmentForSale, ApartmentForSaleSighting
+        )
+    else:
+        rent_model, rent_sightings = (
+            HouseForRent, HouseForRentSighting
+        )
+        sale_model, sale_sightings = (
+            HouseForSale, HouseForSaleSighting
+        )
+
+    parent_regions = list(
+        Region.objects
+        .filter(parent__isnull=True, category=category)
+        .order_by('name')
+    )
+    if regions:
+        wanted = set(regions)
+        selected = [r for r in parent_regions if r.id in wanted]
+    else:
+        selected = parent_regions
+
+    results = []
+    for region in selected:
+        region_ids = _region_and_descendant_ids(region)
+        rent_prices = list(
+            rent_model.objects.filter(
+                region_id__in=region_ids,
+                id__in=_sighted_ad_ids(
+                    rent_sightings, date_from, date_to
+                ),
+            ).values_list('monthly_price_per_sqm', flat=True)
+        )
+        sale_prices = list(
+            sale_model.objects.filter(
+                region_id__in=region_ids,
+                id__in=_sighted_ad_ids(
+                    sale_sightings, date_from, date_to
+                ),
+            ).values_list('price_per_sqm', flat=True)
+        )
+        rent_median = (
+            statistics.median(rent_prices) if rent_prices else None
+        )
+        sale_median = (
+            statistics.median(sale_prices) if sale_prices else None
+        )
+        ratio = None
+        if rent_median and sale_median:
+            ratio = sale_median / (rent_median * 12)
+        results.append({
+            'region': region,
+            'n_rent_ads': len(rent_prices),
+            'n_sale_ads': len(sale_prices),
+            'median_monthly_rent_per_sqm': rent_median,
+            'median_sale_price_per_sqm': sale_median,
+            'price_to_annual_rent_years': ratio,
+        })
+
+    return RentVsBuyOut(
+        kind=kind,
+        parent_regions=parent_regions,
+        selected_ids=list(regions),
+        date_from=date_from,
+        date_to=date_to,
+        results=results,
+    )
+
+
+@router.get(
     '/regions/{region_id}/children/',
     auth=None,
     response=RegionStatsChildrenOut,
@@ -837,30 +1054,41 @@ def region_ads_list(
     page: int = 1,
 ):
     """Ads in a region subtree — mirrors the retired *_region_ads_list
-    views: the subtree filter is first_seen inside the window, and a
-    missing/blank deal_type yields an empty table."""
+    views except the window filter, which is F5 active-in-window: the
+    ad must have a sighting inside [date_from, date_to]. A
+    missing/blank deal_type still yields an empty table."""
     region = get_object_or_404(Region, pk=region_id)
     date_from, date_to = _default_date_range(date_from, date_to)
 
     region_ids = _region_and_descendant_ids(region)
-    rent_model = (
-        ApartmentForRent if kind == 'apartment' else HouseForRent
-    )
-    sale_model = (
-        ApartmentForSale if kind == 'apartment' else HouseForSale
-    )
+    if kind == 'apartment':
+        rent_model, rent_sightings = (
+            ApartmentForRent, ApartmentForRentSighting
+        )
+        sale_model, sale_sightings = (
+            ApartmentForSale, ApartmentForSaleSighting
+        )
+    else:
+        rent_model, rent_sightings = (
+            HouseForRent, HouseForRentSighting
+        )
+        sale_model, sale_sightings = (
+            HouseForSale, HouseForSaleSighting
+        )
 
     if deal_type == 'RENT':
         ads_qs = rent_model.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                rent_sightings, date_from, date_to
+            ),
         ).order_by('-first_seen')
     elif deal_type == 'SELL':
         ads_qs = sale_model.objects.filter(
             region_id__in=region_ids,
-            first_seen__date__gte=date_from,
-            first_seen__date__lte=date_to,
+            id__in=_sighted_ad_ids(
+                sale_sightings, date_from, date_to
+            ),
         ).order_by('-first_seen')
     else:
         ads_qs = rent_model.objects.none()
@@ -899,22 +1127,31 @@ def daily_sightings(
 ):
     """Daily sightings report — mirrors the retired
     daily_sightings_report view: per-day sighting counts for each of
-    the four ad tables, optionally restricted to a region subtree."""
+    the four ad tables, optionally restricted to a region subtree.
+
+    F12 semantic change: counts are manager-aware — sightings on
+    is_hidden ads (and is_sale_misclassified rent ads) are excluded,
+    matching what the ads tables show. Previously they counted
+    every sighting row (~26% inflation on prod)."""
     date_from, date_to = _default_date_range(date_from, date_to)
     if order not in ('asc', 'desc'):
         order = 'desc'
 
     apartment_rent_qs = ApartmentForRentSighting.objects.filter(
-        seen_on__gte=date_from, seen_on__lte=date_to
+        _visible_ad_filter('ad__', ApartmentForRent),
+        seen_on__gte=date_from, seen_on__lte=date_to,
     )
     apartment_sale_qs = ApartmentForSaleSighting.objects.filter(
-        seen_on__gte=date_from, seen_on__lte=date_to
+        _visible_ad_filter('ad__', ApartmentForSale),
+        seen_on__gte=date_from, seen_on__lte=date_to,
     )
     house_rent_qs = HouseForRentSighting.objects.filter(
-        seen_on__gte=date_from, seen_on__lte=date_to
+        _visible_ad_filter('ad__', HouseForRent),
+        seen_on__gte=date_from, seen_on__lte=date_to,
     )
     house_sale_qs = HouseForSaleSighting.objects.filter(
-        seen_on__gte=date_from, seen_on__lte=date_to
+        _visible_ad_filter('ad__', HouseForSale),
+        seen_on__gte=date_from, seen_on__lte=date_to,
     )
 
     if region is not None:
@@ -999,12 +1236,29 @@ def property_list(
     page: int = 1,
 ):
     """Property list — mirrors the retired property_list view:
-    properties with their linked-ad counts, district/street filters."""
+    properties with their linked-ad counts, district/street filters.
+
+    F12: the counts are manager-aware — hidden ads (and
+    is_sale_misclassified rent ads) are not counted, matching the
+    ads tables. The property detail endpoint still lists every
+    linked ad via all_objects."""
     model, label = PROPERTY_MODELS[kind]
 
     qs = model.objects.annotate(
-        rent_ad_count=Count('rent_ads', distinct=True),
-        sale_ad_count=Count('sale_ads', distinct=True),
+        rent_ad_count=Count(
+            'rent_ads',
+            filter=_visible_ad_filter(
+                'rent_ads__', ADS_TABLE_MODELS[(kind, 'rent')]
+            ),
+            distinct=True,
+        ),
+        sale_ad_count=Count(
+            'sale_ads',
+            filter=_visible_ad_filter(
+                'sale_ads__', ADS_TABLE_MODELS[(kind, 'sale')]
+            ),
+            distinct=True,
+        ),
     ).order_by('-last_seen')
 
     if district:
@@ -1070,6 +1324,7 @@ def property_detail(request, kind: str, pk: int):
             first_seen=ad.first_seen.date(),
             last_seen=ad.last_seen.date(),
             days_active=ad.days_active,
+            house_type=getattr(ad, 'house_type', None),
         ))
 
     return PropertyDetailOut(

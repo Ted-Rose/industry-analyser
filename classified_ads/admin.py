@@ -17,6 +17,7 @@ from .models import (
     Region,
     Seller,
 )
+from .property_links import delete_if_orphan
 
 
 class ApartmentForRentSightingInline(admin.TabularInline):
@@ -51,21 +52,6 @@ class HouseForSaleSightingInline(admin.TabularInline):
     ordering = ['-seen_on']
 
 
-def _delete_if_orphan(prop):
-    """Drop a property that no longer has any linked ads.
-
-    Uses ``all_objects`` — hidden/misclassified ads still count as
-    linked, otherwise their FK would be NULLed while their match
-    status still says linked.
-    """
-    linked = (
-        prop.rent_ads.model.all_objects.filter(property=prop).exists()
-        or prop.sale_ads.model.all_objects.filter(property=prop).exists()
-    )
-    if not linked:
-        prop.delete()
-
-
 class PropertyLinkActionsMixin:
     """Review-queue actions shared by the four ad admins."""
 
@@ -95,7 +81,7 @@ class PropertyLinkActionsMixin:
             prop.refresh_from_ads()
             if old_prop and old_prop.pk != prop.pk:
                 old_prop.refresh_from_ads()
-                _delete_if_orphan(old_prop)
+                delete_if_orphan(old_prop)
             linked += 1
         self.message_user(
             request, f'Confirmed {linked} property link(s).'
@@ -156,7 +142,7 @@ class PropertyLinkActionsMixin:
                 'property_match_status', 'property_match_score',
             ])
             old_prop.refresh_from_ads()
-            _delete_if_orphan(old_prop)
+            delete_if_orphan(old_prop)
             unlinked += 1
         self.message_user(
             request, f'Unlinked {unlinked} ad(s).'
@@ -272,14 +258,23 @@ class HouseForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'size',
         'floors',
         'land_area_sqm',
+        'house_type',
         'monthly_price',
         'monthly_price_per_sqm',
+        'is_sale_misclassified',
         'post_date',
         'seller',
         'days_active',
         'property_match_status',
     ]
-    list_filter = ['property_match_status', 'region', 'district']
+    list_filter = [
+        'is_sale_misclassified',
+        'property_match_status',
+        'region',
+        'district',
+        'house_type',
+    ]
+    list_editable = ['is_sale_misclassified']
     search_fields = [
         'district',
         'street_name',
@@ -308,6 +303,7 @@ class HouseForSaleAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'size',
         'floors',
         'land_area_sqm',
+        'house_type',
         'total_price',
         'price_per_sqm',
         'post_date',
@@ -315,7 +311,12 @@ class HouseForSaleAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'days_active',
         'property_match_status',
     ]
-    list_filter = ['property_match_status', 'region', 'district']
+    list_filter = [
+        'property_match_status',
+        'region',
+        'district',
+        'house_type',
+    ]
     search_fields = [
         'district',
         'street_name',

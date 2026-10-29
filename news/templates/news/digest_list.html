@@ -1,0 +1,23 @@
+{% extends "news/base.html" %}
+{% block title %}Ziņu kopsavilkumi{% endblock %}
+{% block content %}
+{% if not digests %}
+  <p class="muted">Vēl nav neviena kopsavilkuma.</p>
+{% endif %}
+{% for digest in digests %}
+  <section class="digest">
+    <h2>
+      <a href="{% url 'news:digest-detail' date=digest.date %}">
+        {{ digest.date }}
+      </a>
+    </h2>
+    <ol>
+      {% for item in digest.items.all %}
+        <li>{{ item.headline }}</li>
+      {% empty %}
+        <li class="muted">Nav ierakstu.</li>
+      {% endfor %}
+    </ol>
+  </section>
+{% endfor %}
+{% endblock %}
