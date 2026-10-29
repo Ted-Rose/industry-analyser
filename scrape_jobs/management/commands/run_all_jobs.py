@@ -8,6 +8,10 @@ consolidated ``all-jobs`` Cloud Run job.
 
 Schedules (evaluated against today's UTC date):
     daily                every day
+    local:<schedule>     like <schedule>, but only on local
+                         executions — never due on GCP Cloud
+                         Run, not even under --force (news
+                         feeds must be scraped locally only)
     weekly:<mon..sun>    once a week on that weekday
     dom:odd              odd days of the month (cron ``*/2`` dom)
     dom:<N>              day N of the month
@@ -26,6 +30,7 @@ from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
 from industry_analyser.sentry import capture_internal_exception
+from scrape_jobs.runner import detect_executed_by
 
 logger = logging.getLogger('scrape_jobs')
 
@@ -51,10 +56,12 @@ JOBS = [
     ('link_ads_to_properties', 'command', ['--older-than-days', '3'],
      'dom:odd'),
     # News digest pipeline: scrape feeds, cluster into stories,
-    # build the daily digest — in that order.
-    ('scrape_news', 'command', [], 'daily'),
-    ('link_news_stories', 'command', [], 'daily'),
-    ('build_news_digest', 'command', [], 'daily'),
+    # build the daily digest — in that order. local:daily —
+    # the feeds are scraped from the maintainer's machine;
+    # Cloud Run must never run them.
+    ('scrape_news', 'command', [], 'local:daily'),
+    ('link_news_stories', 'command', [], 'local:daily'),
+    ('build_news_digest', 'command', [], 'local:daily'),
     # ('sync_apartment_regions', 'command', [], 'manual'),
     # ('sync_housing_regions', 'command', [], 'manual'),
 ]
@@ -65,12 +72,30 @@ _WEEKDAYS = {
 }
 
 
-def is_due(schedule, today):
+def is_due(schedule, today, executed_by=None):
     """True when ``schedule`` matches the UTC date ``today``.
 
     ``manual`` is never due — those entries run only via --only (and
-    stay skipped under --force).
+    stay skipped under --force). ``local:<schedule>`` wraps any
+    other schedule: it is due only when the inner schedule matches
+    AND the pass runs locally — ``executed_by`` defaults to
+    ``detect_executed_by()``, and 'gcp_cloud_run' is never due.
     """
+    if schedule.startswith('local:'):
+        inner = schedule.split(':', 1)[1]
+        if not inner or inner.startswith('local:'):
+            raise ValueError(
+                f'invalid schedule {schedule!r}: empty or '
+                'nested local: schedules are not allowed'
+            )
+        # Evaluate the inner spec first so a typo'd
+        # 'local:bogus' still raises — on Cloud Run an
+        # executor-gated skip would otherwise hide it and
+        # leave a silently-dead entry.
+        inner_due = is_due(inner, today, executed_by)
+        if executed_by is None:
+            executed_by = detect_executed_by()
+        return inner_due and executed_by == 'local'
     if schedule == 'daily':
         return True
     if schedule == 'manual':
@@ -119,7 +144,9 @@ def _entry_label(job):
     return repr(job)
 
 
-def _validate_job_spec(label, kind, argv, schedule, today):
+def _validate_job_spec(
+    label, kind, argv, schedule, today, executed_by,
+):
     """Raise ValueError when a JOBS entry's spec is malformed.
 
     Checked up front for every entry — including under --force,
@@ -147,7 +174,8 @@ def _validate_job_spec(label, kind, argv, schedule, today):
             f'{label}: schedule must be a string, got '
             f'{schedule!r}'
         )
-    is_due(schedule, today)  # raises ValueError on a bad spec
+    # raises ValueError on a bad spec
+    is_due(schedule, today, executed_by)
 
 
 class Command(BaseCommand):
@@ -179,6 +207,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         today = datetime.now(timezone.utc).date()
+        # Resolve once per pass — the executor is an
+        # environment fact that cannot change mid-run, and a
+        # single snapshot keeps validation and due checks
+        # consistent.
+        executed_by = detect_executed_by()
         only = options['only']
         if only is not None and all(
                 _entry_label(job) != only for job in JOBS):
@@ -195,7 +228,8 @@ class Command(BaseCommand):
             try:
                 label, kind, argv, schedule = job
                 _validate_job_spec(
-                    label, kind, argv, schedule, today
+                    label, kind, argv, schedule, today,
+                    executed_by,
                 )
             except (TypeError, ValueError):
                 logger.exception('invalid JOBS entry: %r', job)
@@ -203,13 +237,22 @@ class Command(BaseCommand):
                 continue
             entries.append((label, kind, argv, schedule))
 
+        if options['dry_run']:
+            self.stdout.write(f'executor: {executed_by}')
+
         for label, kind, argv, schedule in entries:
             if only is not None:
                 due = label == only
             elif options['force']:
-                due = schedule != 'manual'
+                # --force overrides the calendar, not the
+                # executor — 'local:*' entries still never
+                # run on Cloud Run.
+                due = schedule != 'manual' and (
+                    not schedule.startswith('local:')
+                    or executed_by == 'local'
+                )
             else:
-                due = is_due(schedule, today)
+                due = is_due(schedule, today, executed_by)
 
             if options['dry_run']:
                 verb = 'RUN ' if due else 'skip'
