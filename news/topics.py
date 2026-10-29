@@ -1,8 +1,31 @@
-"""Seed topic definitions — keywords are Latvian words matched
-as 4-char stems (news.clustering.text_stems) against stemmed
-title + lead text, so inflected forms hit ("Saeimas" matches
-'Saeima'). Multi-word keywords hit only when ALL their stems
-are present, order-independent."""
+"""Seed topic definitions — Latvian keywords matched against
+title + lead tokens. Each keyword word carries an optional
+marker (see news.classification):
+
+  '=word'  EXACT  — literal token, unstemmed ('=Latvenergo'
+                    cannot hit 'Latvijas')
+  'word*'  PREFIX — token startswith ('premjer*' hits
+                    'premjerministrs'/'premjeru', not 'premija')
+  'word'   STEM   — 4-char stem (news.clustering.text_stems):
+                    'Saeimas' hits 'Saeima'
+
+Why the curation below matters: 4-char stems are too greedy
+for short roots — 'Latvenergo'->'latv' matched every
+Latvijas/latviešu token, 'eiro'/'eirozona'->'eiro' matched
+all Eiropas* tokens, 'līdzfinansējums'->'līdz' matched the
+preposition 'līdz' itself (kept because classification stems
+with drop_stopwords=False), 'eksports'->'eksp' matched
+eksperts, 'premjers'->'prem' matched premija,
+'partija'->'part' matched partneris, 'banka'->'bank' matched
+bankomāts/bankrotē, 'grants'->'gran' matched granāta and
+'elektroauto'->'elek' matched elektrība/elektroenerģija.
+Words on such roots use '='/'*' forms or safe inflections —
+e.g. 'banka*','bankā*','banku*' because 'bankām'/'bankās'
+start 'bankā', not 'banka', and plain 'banku' would re-stem
+to 'bank'.
+
+Multi-word keywords hit only when ALL their word-specs match,
+order-independent ('ES fondi' needs both 'es' and 'fond')."""
 
 TOPICS = (
     {
@@ -11,11 +34,12 @@ TOPICS = (
         'weight': 1.2,
         'keywords': [
             'ekonomika', 'inflācija', 'bezdarbs', 'alga', 'algas',
-            'nodokļi', 'nodoklis', 'eksports', 'imports', 'IKP',
-            'eiro', 'banka', 'akcijas', 'tirgus', 'recesija',
-            'cenas', 'tarifi', 'Latvenergo', 'elektroenerģija',
-            'eirozona', 'EKB', 'ECB', 'nafta', 'birža',
-            'investīcijas', 'procentu likmes',
+            'nodokl*', 'nodokļ*', 'eksport*', 'import*', 'IKP',
+            '=eiro', 'eirozon*', 'banka*', 'bankā*', 'banku*',
+            'akcijas', 'tirgus', 'recesij*', 'cenas', 'tarif*',
+            '=Latvenergo', 'elektroenerģij*', 'elektrīb*',
+            'EKB', 'ECB', 'nafta', 'birža', 'investīcij*',
+            'procentu likmes',
         ],
     },
     {
@@ -23,12 +47,12 @@ TOPICS = (
         'name': 'Politika',
         'weight': 1.0,
         'keywords': [
-            'Saeima', 'valdība', 'ministrs', 'ministrija',
-            'koalīcija', 'partija', 'vēlēšanas', 'prezidents',
+            'Saeima', 'valdība', 'ministr*', 'ministrij*',
+            'koalīcija', 'partij*', 'vēlēšan*', 'prezident*',
             'deputāts', 'opozīcija', 'NATO', 'sankcijas',
-            'likumprojekts', 'referendum', 'Satversme',
-            'premjers', 'premjerministrs', 'parlaments',
-            'ārlietu', 'diplomātija', 'aizsardzības ministrija',
+            'likumprojekts', 'referend*', 'Satversme',
+            'premjer*', 'parlaments',
+            'ārlietu', 'diplomā*', 'aizsardzības ministrij*',
         ],
     },
     {
@@ -37,8 +61,9 @@ TOPICS = (
         'weight': 1.3,
         'keywords': [
             'budžets', 'finansējums', 'subsīdija', 'dotācija',
-            'ES fondi', 'līdzfinansējums', 'ALTUM', 'elektroauto',
-            'atbalsta programma', 'grants', 'nodokļu atlaides',
+            'līdzfinansējum*', 'ES fondi', 'ALTUM',
+            'elektroauto*', 'elektromobi*',
+            'atbalsta programma', 'grant*', 'nodokļu atlaides',
             'Eiropas Savienības fondi', 'investīciju atbalsts',
             'pašvaldību finanšu', 'dotācijas', 'subsīdijas',
         ],

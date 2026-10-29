@@ -61,6 +61,17 @@ STOPWORDS = frozenset({
 _WORD_RE = re.compile(r'\w+')
 
 
+def text_words(text, drop_stopwords=True):
+    """NFKC-lowercased token list for arbitrary text — the same
+    normalization text_stems applies, kept un-stemmed so exact
+    and prefix keyword specs can match real tokens."""
+    norm = unicodedata.normalize('NFKC', text or '').lower()
+    return [
+        word for word in _WORD_RE.findall(norm)
+        if not drop_stopwords or word not in STOPWORDS
+    ]
+
+
 def text_stems(text, drop_stopwords=True):
     """4-char-stem token set for arbitrary text.
 
@@ -72,11 +83,8 @@ def text_stems(text, drop_stopwords=True):
     matching needs them ("ES fondi" stems to {'es', 'fond'}
     and 'es' is on the stopword list).
     """
-    norm = unicodedata.normalize('NFKC', text or '').lower()
     stems = set()
-    for word in _WORD_RE.findall(norm):
-        if drop_stopwords and word in STOPWORDS:
-            continue
+    for word in text_words(text, drop_stopwords):
         stem = word[:STEM_LEN]
         if stem.isdigit():
             continue

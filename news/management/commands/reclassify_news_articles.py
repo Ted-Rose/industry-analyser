@@ -89,7 +89,14 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         batch_size = options['batch_size']
-        topics = list(NewsTopic.objects.filter(is_enabled=True))
+        # order_by('pk'): classify_topic resolves score ties to
+        # the first topic — pk order keeps the tie-break
+        # deterministic.
+        topics = list(
+            NewsTopic.objects.filter(
+                is_enabled=True,
+            ).order_by('pk')
+        )
 
         qs = NewsArticle.objects.all()
         if not options['all_articles']:
@@ -148,7 +155,13 @@ class Command(BaseCommand):
         stories_refreshed = 0
         for story_id in sorted(touched_story_ids):
             story = NewsStory.objects.get(pk=story_id)
-            story.topic_id = _member_topic_id(story, overrides)
+            new_topic_id = _member_topic_id(story, overrides)
+            if new_topic_id == story.topic_id:
+                # Nothing changed — _refresh_story would still
+                # save() and bump last_seen (auto_now) for no
+                # gain.
+                continue
+            story.topic_id = new_topic_id
             # Sets source_count + importance_score (using the new
             # topic weight) and saves unless dry_run.
             _refresh_story(story, dry_run=dry_run)

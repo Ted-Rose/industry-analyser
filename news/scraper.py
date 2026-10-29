@@ -10,6 +10,7 @@ fetch/parse failure thrown back into the generator records the
 item failed and iteration continues with the next source.
 """
 import hashlib
+import html
 import logging
 from datetime import datetime
 from email.utils import parsedate_to_datetime
@@ -57,7 +58,9 @@ def _strip_html(raw):
         # Plain text — feeding it to bs4 risks a
         # MarkupResemblesLocatorWarning when it looks like a
         # filename/URL (bs4 guesses it is a locator, not markup).
-        return raw.strip()
+        # html.unescape still decodes '&amp;' etc. — skipping bs4
+        # must not skip entity handling.
+        return html.unescape(raw).strip()
     return BeautifulSoup(raw, 'html.parser').get_text().strip()
 
 
@@ -92,7 +95,12 @@ class NewsScraper(BaseScraper):
         self.dry_run = dry_run
         self.source_slug = source_slug
         self._active_source = None
-        self.topics = list(NewsTopic.objects.filter(is_enabled=True))
+        # order_by('pk'): classify_topic resolves score ties to
+        # the first topic — pk order keeps the tie-break
+        # deterministic.
+        self.topics = list(
+            NewsTopic.objects.filter(is_enabled=True).order_by('pk')
+        )
         if self.dry_run and not self.topics:
             # Unseeded DB under --dry-run: classify against
             # unsaved seed rows so output stays realistic.

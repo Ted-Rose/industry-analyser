@@ -28,8 +28,10 @@ class NewsTopic(models.Model):
 
     slug = models.SlugField(unique=True)
     name = models.CharField(max_length=100)
-    # List of Latvian keyword strings matched \b-bounded against
-    # title + lead.
+    # List of Latvian keyword strings matched against title +
+    # lead — per-word markers: '=word' exact token, 'word*'
+    # token prefix, plain word = 4-char stem (see
+    # news.classification / news.topics).
     keywords = models.JSONField(default=list)
     weight = models.FloatField(default=1.0)
     is_enabled = models.BooleanField(default=True)
