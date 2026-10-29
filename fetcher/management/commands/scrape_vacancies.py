@@ -77,6 +77,10 @@ class Command(BaseCommand):
                 ),
             )
         cycle_key = options['cycle'] or iso_week_cycle_key()
+        # One snapshot per pass — the executor is an environment
+        # fact that cannot change mid-run (same pattern as
+        # run_all_jobs).
+        executed_by = detect_executed_by()
         failed = []
         for pid in portal_ids:
             slug = f'fetcher.vacancies.{pid}'
@@ -86,7 +90,7 @@ class Command(BaseCommand):
                 or options['dry_run']
             ):
                 reason = cooldown_skip_reason(
-                    slug, detect_executed_by(), cycle_key,
+                    slug, executed_by, cycle_key,
                     days=GCP_COOLDOWN_DAYS,
                 )
                 if reason:

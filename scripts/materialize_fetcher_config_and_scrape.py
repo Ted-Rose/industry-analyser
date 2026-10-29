@@ -31,6 +31,9 @@ def main() -> int:
     else:
         portal_ids = ["1"]
     args = sys.argv[1:]
+    # Only store_true flags (e.g. --no-ocr) may be passed via the
+    # JOBS argv — a `--flag value` pair would misparse `value` as
+    # the portal id below.
     flags = [a for a in args if a.startswith("-")]
     positional = [a for a in args if not a.startswith("-")]
     only = positional[0] if positional else None
