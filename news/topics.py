@@ -33,9 +33,13 @@ TOPICS = (
         'name': 'Ekonomika',
         'weight': 1.2,
         'keywords': [
-            'ekonomika', 'inflācija', 'bezdarbs', 'alga', 'algas',
+            'ekonomika', 'inflācij*', 'bezdarbs', 'alga', 'algas',
             'nodokl*', 'nodokļ*', 'eksport*', 'import*', 'IKP',
-            '=eiro', 'eirozon*', 'banka*', 'bankā*', 'banku*',
+            '=eiro', 'eirozon*',
+            # 'banka*' also hits 'bankas' meaning jars
+            # ('Konservu bankas') — an inherent ambiguity,
+            # accepted rather than curated away.
+            'banka*', 'bankā*', 'banku*',
             'akcijas', 'tirgus', 'recesij*', 'cenas', 'tarif*',
             '=Latvenergo', 'elektroenerģij*', 'elektrīb*',
             'EKB', 'ECB', 'nafta', 'birža', 'investīcij*',
@@ -47,12 +51,16 @@ TOPICS = (
         'name': 'Politika',
         'weight': 1.0,
         'keywords': [
-            'Saeima', 'valdība', 'ministr*', 'ministrij*',
-            'koalīcija', 'partij*', 'vēlēšan*', 'prezident*',
+            'Saeima', 'valdīb*', 'koalīcij*', 'ministrij*',
+            '=ministrs', '=ministra', '=ministram',
+            'ministru*', 'ministri*', 'ministre*',
+            'partij*', 'vēlēšan*', 'prezident*',
             'deputāts', 'opozīcija', 'NATO', 'sankcijas',
-            'likumprojekts', 'referend*', 'Satversme',
-            'premjer*', 'parlaments',
-            'ārlietu', 'diplomā*', 'aizsardzības ministrij*',
+            'likumprojekts', 'referend*', 'Satversm*',
+            'premjerministr*', 'premjera*', 'premjeru*',
+            '=premjers', 'parlaments',
+            '=ārlietu', '=ārlietu ministr*', 'diplomā*',
+            'aizsardzības ministrij*',
         ],
     },
     {
@@ -60,12 +68,16 @@ TOPICS = (
         'name': 'Valsts finansējums',
         'weight': 1.3,
         'keywords': [
-            'budžets', 'finansējums', 'subsīdija', 'dotācija',
-            'līdzfinansējum*', 'ES fondi', 'ALTUM',
+            'budžets', 'finansējums', 'subsīdij*', 'dotācija',
+            'līdzfinansējum*',
+            # 'ES fondi' needs the 'es' stem — also the
+            # pronoun — plus 'fond'. Both stems must hit,
+            # so pronoun noise alone cannot trigger it.
+            'ES fondi', 'ALTUM',
             'elektroauto*', 'elektromobi*',
             'atbalsta programma', 'grant*', 'nodokļu atlaides',
             'Eiropas Savienības fondi', 'investīciju atbalsts',
-            'pašvaldību finanšu', 'dotācijas', 'subsīdijas',
+            'pašvaldību finanšu', 'dotācijas',
         ],
     },
 )

@@ -818,7 +818,10 @@ class CuratedSeedKeywordTests(TestCase):
     'premjers'->'prem' hit premija, 'partija'->'part' hit
     partneris, 'banka'->'bank' hit bankomāts/bankrotē,
     'grants'->'gran' hit granāta). The curated seeds must
-    reject all of them and still hit real inflections."""
+    reject all of them and still hit real inflections.
+    Round-2 additions cover satver/satvēra, ārlietās,
+    valdzina, premjerlīga, inflamācija, koala, substrāts
+    and ministrants."""
 
     def setUp(self):
         self.topics = [
@@ -940,6 +943,100 @@ class CuratedSeedKeywordTests(TestCase):
             self._topic('Partijas kongress nozīmē vadītāju'),
             self.by_slug['politics'],
         )
+
+    # Round-2 residual collisions: stem/prefix conversions
+    # must reject the lookalike tokens below while still
+    # hitting the real inflection families.
+
+    def test_satver_does_not_hit_satversme(self):
+        # 'satver' (police seize) shares the 'satv' stem.
+        self.assertIsNone(
+            self._topic('Policija satver aizdomās turēto zagli')
+        )
+
+    def test_arlietas_does_not_hit_arlietu(self):
+        # 'ārlietās' (outdoors) shares the 'ārli' stem.
+        self.assertIsNone(
+            self._topic('Pasākums notiks ārlietās')
+        )
+
+    def test_valdzina_does_not_hit_valdiba(self):
+        self.assertIsNone(
+            self._topic('Filma valdzina skatītājus')
+        )
+
+    def test_premjerliga_does_not_hit_premjers(self):
+        self.assertIsNone(self._topic('Premjerlīgas spēle'))
+
+    def test_inflamacija_does_not_hit_inflacija(self):
+        self.assertIsNone(self._topic('Pacientam inflamācija'))
+
+    def test_koala_does_not_hit_koalicija(self):
+        self.assertIsNone(self._topic('Koala zooparkā'))
+
+    def test_substrats_does_not_hit_subsidija(self):
+        self.assertIsNone(self._topic('Substrāts augiem'))
+
+    def test_ministrants_does_not_hit_ministrs(self):
+        self.assertIsNone(
+            self._topic('Ministrants dievkalpojumā')
+        )
+
+    def test_satversmes_hits_politics(self):
+        self.assertEqual(
+            self._topic('Satversmes tiesa skata lietu'),
+            self.by_slug['politics'],
+        )
+
+    def test_arlietu_ministra_hits_politics(self):
+        self.assertEqual(
+            self._topic('Ārlietu ministra paziņojums'),
+            self.by_slug['politics'],
+        )
+
+    def test_valdibas_hits_politics(self):
+        self.assertEqual(
+            self._topic('Valdības sēde pieņem lēmumu'),
+            self.by_slug['politics'],
+        )
+
+    def test_premjers_inflections_hit_politics(self):
+        for title in (
+            'Premjerministrs komentē reformu',
+            'Premjers atklāj forumu',
+            'Premjeru amatā apstiprina',
+            'Premjeram jauns uzdevums',
+        ):
+            self.assertEqual(
+                self._topic(title), self.by_slug['politics'],
+            )
+
+    def test_inflacijas_hits_economics(self):
+        self.assertEqual(
+            self._topic('Inflācijas temps pārsniedz prognozes'),
+            self.by_slug['economics'],
+        )
+
+    def test_koalicijas_hits_politics(self):
+        self.assertEqual(
+            self._topic('Koalīcijas partneri vienojas'),
+            self.by_slug['politics'],
+        )
+
+    def test_subsidijas_hits_funding(self):
+        self.assertEqual(
+            self._topic('Subsīdijas laukiem apstiprinātas'),
+            self.by_slug['government-funding'],
+        )
+
+    def test_ministrs_ministru_hit_politics(self):
+        for title in (
+            'Ministrs komentē lēmumu',
+            'Ministru apstiprina amatā',
+        ):
+            self.assertEqual(
+                self._topic(title), self.by_slug['politics'],
+            )
 
 
 class SeedSyncTests(TestCase):
