@@ -8,6 +8,7 @@ import RegionStats from './routes/RegionStats';
 import RegionStatsChildren from './routes/RegionStatsChildren';
 import RegionAdsList from './routes/RegionAdsList';
 import DailySightings from './routes/DailySightings';
+import RentVsBuy from './routes/RentVsBuy';
 import PropertyList from './routes/PropertyList';
 import PropertyDetail from './routes/PropertyDetail';
 
@@ -82,6 +83,7 @@ export default function App() {
           element={<RegionAdsList kind="house" />}
         />
         <Route path="/daily-sightings" element={<DailySightings />} />
+        <Route path="/rent-vs-buy" element={<RentVsBuy />} />
         <Route
           path="/properties/apartments"
           element={<PropertyList kind="apartment" />}

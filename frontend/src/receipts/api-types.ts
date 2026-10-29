@@ -360,6 +360,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/classified-ads/regions/rent-vs-buy/ranked/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rent Vs Buy Ranked
+         * @description Ranked rent-vs-buy view — cells of (exact region node x
+         *     property type) sorted ascending by `months_to_buyout`, the
+         *     median whole-unit sale price divided by the median monthly
+         *     rent of ads active in the window.
+         *
+         *     Unlike /regions/rent-vs-buy/ (parent rollup, per-m² ratio)
+         *     this groups by the ad's own region FK and ranks whole-unit
+         *     prices. Rent rows are whole-unit monthly lets only
+         *     (rate_period in ('', 'month'), is_room_share=False); sale rows
+         *     under 10 €/m² are dropped as land/garage residue. A cell
+         *     needs >= min_ads active ads on BOTH sides to rank. Ads parked
+         *     on a parent region node (or none) are residual — omitted by
+         *     default, returned under `residual` with include_residual.
+         */
+        get: operations["classified_ads_api_rent_vs_buy_ranked"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/classified-ads/regions/{region_id}/children/": {
         parameters: {
             query?: never;
@@ -1219,6 +1251,83 @@ export interface components {
             median_sale_price_per_sqm: number | null;
             /** Price To Annual Rent Years */
             price_to_annual_rent_years: number | null;
+        };
+        /** RentVsBuyRankedOut */
+        RentVsBuyRankedOut: {
+            /** Kind */
+            kind: string;
+            /** Days */
+            days: number;
+            /** Min Ads */
+            min_ads: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Results */
+            results: components["schemas"]["RentVsBuyRankedRowOut"][];
+            /** Residual */
+            residual: components["schemas"]["RentVsBuyRankedRowOut"][];
+        };
+        /**
+         * RentVsBuyRankedRowOut
+         * @description One ranked cell of the rent-vs-buy ranking — exact region
+         *     node (the ad's own region FK, no parent rollup) x property
+         *     type (project name for apartments, house_type for houses).
+         *
+         *     `months_to_buyout` is the headline metric: median whole-unit
+         *     sale price / median monthly rent — months of rent needed to
+         *     cover the purchase (LOWER means buying looks cheap relative
+         *     to renting). `is_residual` marks rows whose ads sit on a
+         *     parent region node (or no region at all) instead of a leaf —
+         *     excluded from `results` unless include_residual is passed,
+         *     then returned under `residual`. `region` is null only for
+         *     region-less ads. `paired_months_to_buyout` repeats the metric
+         *     on same-unit pairs (properties linked to both a rent and a
+         *     sale ad in the cell) when at least 5 pairs exist.
+         */
+        RentVsBuyRankedRowOut: {
+            region: components["schemas"]["RegionRefOut"] | null;
+            /** Region Label */
+            region_label: string;
+            /** Property Type */
+            property_type: string;
+            /** Is Residual */
+            is_residual: boolean;
+            /** N Rent Ads */
+            n_rent_ads: number;
+            /** N Sale Ads */
+            n_sale_ads: number;
+            /** Median Monthly Rent */
+            median_monthly_rent: number | null;
+            /** Median Total Price */
+            median_total_price: number | null;
+            /** Months To Buyout */
+            months_to_buyout: number | null;
+            /** Years To Buyout */
+            years_to_buyout: number | null;
+            /** Median Monthly Rent Per Sqm */
+            median_monthly_rent_per_sqm: number | null;
+            /** Median Sale Price Per Sqm */
+            median_sale_price_per_sqm: number | null;
+            /** Price To Rent Ratio Per Sqm */
+            price_to_rent_ratio_per_sqm: number | null;
+            /** Median Size Rent */
+            median_size_rent: number | null;
+            /** Median Size Sale */
+            median_size_sale: number | null;
+            /** Size Comparable */
+            size_comparable: boolean;
+            /** N Paired Properties */
+            n_paired_properties: number;
+            /** Paired Months To Buyout */
+            paired_months_to_buyout: number | null;
         };
         /** RegionStatsChildrenOut */
         RegionStatsChildrenOut: {
@@ -2194,6 +2303,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RentVsBuyOut"];
+                };
+            };
+        };
+    };
+    classified_ads_api_rent_vs_buy_ranked: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                days?: number;
+                min_ads?: number;
+                include_residual?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentVsBuyRankedOut"];
                 };
             };
         };

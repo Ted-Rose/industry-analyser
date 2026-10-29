@@ -75,6 +75,11 @@ export default function Index() {
             <li>
               <Link to="/daily-sightings">Daily Sightings Report</Link>
             </li>
+            <li>
+              <Link to="/rent-vs-buy">
+                Rent vs Buy — months of rent to buy out
+              </Link>
+            </li>
           </ul>
         </section>
       </div>
