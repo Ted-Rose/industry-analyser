@@ -43,6 +43,7 @@ from fetcher.models import (
     VacancyContainsKeyword,
     VacancyFile,
     VacancyIndustries,
+    VacancyProfession,
 )
 from fetcher.scraper import VacancyScrapper
 
@@ -269,6 +270,7 @@ class Command(BaseCommand):
             'files_saved': 0,
             'keywords_changed': 0,
             'industries_changed': 0,
+            'professions_changed': 0,
         }
         done = 0
         for vacancy in qs.iterator(
@@ -443,6 +445,17 @@ class Command(BaseCommand):
             pending_industries,
         ):
             counts['industries_changed'] += 1
+        pending_professions = {
+            p.id for p in getattr(fresh, '_pending_professions', [])
+        }
+        # A titled vacancy always classifies to exactly one
+        # profession ('other' included) — same "only swap when
+        # produced" rule as industries.
+        if pending_professions and self._replace_links(
+            vacancy, VacancyProfession, 'profession_id',
+            pending_professions,
+        ):
+            counts['professions_changed'] += 1
         vacancy_file = getattr(fresh, '_pending_file', None)
         if vacancy_file is not None:
             _, created = VacancyFile.objects.get_or_create(

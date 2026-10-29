@@ -54,6 +54,7 @@ function makeVacancy(overrides: Partial<VacancyOut> = {}): VacancyOut {
     days_open: 10,
     keywords: ['python'],
     industries: ['it'],
+    professions: ['software-developer'],
     ...overrides,
   };
 }
@@ -72,6 +73,7 @@ function makeVacancies(
     has_previous: false,
     keywords: ['python', 'django'],
     industries: ['it'],
+    professions: ['software-developer', 'qa-engineer'],
     ...overrides,
   };
 }
@@ -85,6 +87,8 @@ function makeSavedFilter(
     include_keywords: ['python'],
     exclude_keywords: ['senior'],
     include_industries: ['it'],
+    include_professions: [],
+    exclude_professions: [],
     show_active_only: true,
     company_filter: 'all',
     ...overrides,
@@ -187,6 +191,57 @@ describe('VacancyList', () => {
       expect(mockedApiGet).toHaveBeenCalledTimes(2),
     );
     expect(calledUrls()[1]).toContain('include_keywords=django');
+  });
+
+  it('passes profession params through to the API', async () => {
+    renderList(
+      '/vacancies?include_professions=software-developer' +
+        '&exclude_professions=manager',
+    );
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    const url = calledUrls()[0];
+    expect(url).toContain(
+      'include_professions=software-developer',
+    );
+    expect(url).toContain('exclude_professions=manager');
+  });
+
+  it('checks the professions named in the URL and renders the badge', async () => {
+    const { container } = renderList(
+      '/vacancies?include_professions=software-developer',
+    );
+    await screen.findAllByText('Python developer');
+    // Both the include and exclude profession lists render the
+    // name; the include checkbox comes first in DOM order.
+    const [includeBox, excludeBox] = screen.getAllByLabelText(
+      'software-developer',
+    );
+    expect(includeBox).toBeChecked();
+    expect(excludeBox).not.toBeChecked();
+    for (const box of screen.getAllByLabelText('qa-engineer')) {
+      expect(box).not.toBeChecked();
+    }
+    expect(
+      container.querySelector('.profession-tag'),
+    ).toHaveTextContent('software-developer');
+  });
+
+  it('stages profession checkboxes until Search is pressed', async () => {
+    renderList('/vacancies');
+    await screen.findAllByText('Python developer');
+    expect(mockedApiGet).toHaveBeenCalledTimes(1);
+
+    const [includeQa] = screen.getAllByLabelText('qa-engineer');
+    fireEvent.click(includeQa);
+    expect(mockedApiGet).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain(
+      'include_professions=qa-engineer',
+    );
   });
 
   it('resets ?page when filters are reapplied', async () => {
@@ -470,6 +525,8 @@ describe('VacancyList saved filters', () => {
         include_keywords: ['python', 'django'],
         exclude_keywords: [],
         include_industries: [],
+        include_professions: [],
+        exclude_professions: [],
         show_active_only: true,
         company_filter: 'all',
       },

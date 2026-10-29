@@ -14,11 +14,14 @@ from .models import (
     CompanyIdentity,
     Industry,
     Keyword,
+    Profession,
     Vacancy,
     VacancyContainsKeyword,
     VacancyFile,
     VacancyIndustries,
+    VacancyProfession,
 )
+from .professions import classify
 from typing import List
 from django.db.models import Q
 from django.utils import timezone
@@ -72,6 +75,7 @@ class VacancyScrapper(BaseScraper):
         # search pages must not re-save the same rows.
         self._seen_ids = set()
         self._industry_cache = None
+        self._profession_cache = {}
         # Detail-page enrichment counters — logged periodically so
         # Cloud Run logs show whether employer data (about etc.) is
         # being collected at all.
@@ -461,6 +465,27 @@ class VacancyScrapper(BaseScraper):
             }
         return self._industry_cache.get(name)
 
+    def _profession_named(self, name):
+        """Profession row by name — like ``_industry_named`` but
+        self-seeding: the classifier's taxonomy is fixed and
+        tiny (~25 names), so rows are created on demand.
+
+        A dry run must never write taxonomy rows: an existing row
+        is staged when the name is known, otherwise an unsaved
+        instance — ``_pending_professions`` still reflects what a
+        real run would link."""
+        if name not in self._profession_cache:
+            if self.dry_run:
+                self._profession_cache[name] = (
+                    Profession.objects.filter(name=name).first()
+                    or Profession(name=name)
+                )
+            else:
+                self._profession_cache[name] = (
+                    Profession.objects.get_or_create(name=name)[0]
+                )
+        return self._profession_cache[name]
+
     def initiate_resources(self, search_results) -> List[Vacancy]:
         vacancies = []
         for result in search_results:
@@ -596,6 +621,18 @@ class VacancyScrapper(BaseScraper):
         )
         vacancy._pending_keywords.extend(content_keywords)
 
+        # Profession tagging (plan §3-4): one ordered-rules
+        # classification per titled vacancy — 'other' is a real
+        # category, so every titled row gets exactly one link.
+        # NULL-title legacy rows get none.
+        vacancy._pending_professions = []
+        if vacancy.title:
+            vacancy._pending_professions.append(
+                self._profession_named(
+                    classify(vacancy.title, searchable_content)
+                )
+            )
+
         logger.debug(
             f"Vacancy {vacancy_portal_id}: "
             f"Portal keywords: {len(portal_keywords or [])}, "
@@ -660,6 +697,9 @@ class VacancyScrapper(BaseScraper):
                 vacancy._pending_industries
             )
             existing._pending_keywords = vacancy._pending_keywords
+            existing._pending_professions = (
+                vacancy._pending_professions
+            )
             existing._pending_file = getattr(
                 vacancy, '_pending_file', None
             )
@@ -677,12 +717,19 @@ class VacancyScrapper(BaseScraper):
                 for v in (*new_vacancies, *m2m_vacancies, *sighted)
                 if getattr(v, '_pending_employer', None)
             }
+            # m2m_vacancies covers every existing row (sighted and
+            # changed), so new + m2m is the full staged set.
+            profession_links = sum(
+                len(getattr(v, '_pending_professions', ()))
+                for v in (*new_vacancies, *m2m_vacancies)
+            )
             logger.info(
                 f"[dry-run] Would create {len(new_vacancies)} "
                 f"new vacancies and update "
                 f"{len(m2m_vacancies)} existing; "
-                f"{len(employer_ids)} distinct employer(s) observed "
-                f"— no vacancy/file/company writes."
+                f"{len(employer_ids)} distinct employer(s) and "
+                f"{profession_links} profession link(s) staged "
+                f"— no vacancy/file/company/profession writes."
             )
             return
 
@@ -721,6 +768,7 @@ class VacancyScrapper(BaseScraper):
         # relation — unique_together makes conflicts harmless.
         industry_rows = []
         keyword_rows = []
+        profession_rows = []
         for vacancy in (*new_vacancies, *m2m_vacancies):
             for industry in vacancy._pending_industries:
                 industry_rows.append(VacancyIndustries(
@@ -730,6 +778,10 @@ class VacancyScrapper(BaseScraper):
                 keyword_rows.append(VacancyContainsKeyword(
                     vacancy=vacancy, keyword=keyword,
                 ))
+            for profession in vacancy._pending_professions:
+                profession_rows.append(VacancyProfession(
+                    vacancy=vacancy, profession=profession,
+                ))
         if industry_rows:
             VacancyIndustries.objects.bulk_create(
                 industry_rows, ignore_conflicts=True
@@ -737,6 +789,10 @@ class VacancyScrapper(BaseScraper):
         if keyword_rows:
             VacancyContainsKeyword.objects.bulk_create(
                 keyword_rows, ignore_conflicts=True
+            )
+        if profession_rows:
+            VacancyProfession.objects.bulk_create(
+                profession_rows, ignore_conflicts=True
             )
 
         # Persist OCR'd vacancy files (file_id is unique — a file

@@ -33,11 +33,18 @@ from fetcher.models import (
     CompanyPreference,
     Industry,
     Keyword,
+    Profession,
     SavedVacancyFilter,
     Vacancy,
     VacancyContainsKeyword,
     VacancyFile,
     VacancyIndustries,
+    VacancyProfession,
+)
+from fetcher.professions import (
+    PROFESSION_NAMES,
+    classify,
+    normalize_title,
 )
 from fetcher.scraper import VacancyScrapper
 
@@ -528,11 +535,11 @@ class CreateOrUpdateResourcesTests(NextJsScraperTestCase):
         self.assertFalse(VacancyFile.objects.exists())
 
 
-def make_scraper(config, portal_id=1):
+def make_scraper(config, portal_id=1, dry_run=False):
     with mock.patch.object(
         VacancyScrapper, 'load_config', return_value=config
     ):
-        return VacancyScrapper(portal_id=portal_id)
+        return VacancyScrapper(portal_id=portal_id, dry_run=dry_run)
 
 
 class ApiSweepTests(TestCase):
@@ -2317,3 +2324,498 @@ class RefetchVacanciesTests(TestCase):
             stdout=out,
         )
         self.assertIn('no_next_data=1', out.getvalue())
+
+    def test_refetch_swaps_profession_links(self):
+        vacancy = make_vacancy(42, title='Grāmatvedis')
+        out = io.StringIO()
+        self._run(
+            '--ids', '42', response_obj=refetch_detail(42),
+            stdout=out,
+        )
+        vacancy.refresh_from_db()
+        # The fresh title 'Fresh python developer' re-tags the
+        # vacancy — same _replace_links swap as keywords.
+        self.assertEqual(
+            [p.name for p in vacancy.professions.all()],
+            ['software-developer'],
+        )
+        self.assertIn('professions_changed=1', out.getvalue())
+
+
+class NormalizeTitleTests(TestCase):
+
+    def test_strips_gender_and_seniority_noise(self):
+        self.assertEqual(
+            normalize_title('Vecākais programmētājs/-a (m/f/d)'),
+            'programmētājs',
+        )
+        self.assertEqual(
+            normalize_title('SENIOR Java Developer'),
+            'java developer',
+        )
+        self.assertEqual(
+            normalize_title('  Lead Developer  '),
+            'developer',
+        )
+
+    def test_trailing_lead_is_the_role_not_seniority(self):
+        self.assertEqual(normalize_title('Tech Lead'), 'tech lead')
+
+    def test_empty_and_none(self):
+        self.assertEqual(normalize_title(''), '')
+        self.assertEqual(normalize_title(None), '')
+
+
+class ProfessionClassifierTests(TestCase):
+    """Ordered-rule coverage — one title per category plus the
+    §1 precedence pairs (driver-vs-manager, sysadmin-vs-office,
+    it-vs-building architect, infosec-vs-guard, specific-vs-
+    generic)."""
+
+    CASES = (
+        # intern — wins over any field the title mentions
+        ('IT prakse', 'intern'),
+        ('Praktikants/-e', 'intern'),
+        ('Marketing intern', 'intern'),
+        ('Stažieris', 'intern'),
+        # driver trap — these never reach generic `vadītājs`
+        ('Kravas automašīnas vadītājs', 'other'),
+        ('Kravas auto vadītājs', 'other'),
+        ('Auto vadītājs', 'other'),
+        ('Iekrāvēja vadītājs', 'other'),
+        ('Autovadītājs', 'other'),
+        ('Šoferis', 'other'),
+        ('Truck driver', 'other'),
+        # …but an `auto` compound that isn't a driver role does:
+        # fleet manager escapes the trap and lands on `manager`.
+        ('Autoparka vadītājs', 'manager'),
+        # infosec vs security guard
+        ('Informācijas drošības speciālists', 'it-security'),
+        ('IT drošības inženieris', 'it-security'),
+        ('Security engineer', 'it-security'),
+        ('Cybersecurity analyst', 'it-security'),
+        ('Penetration tester', 'it-security'),
+        ('Apsargs', 'other'),
+        ('Drošības inspektors', 'other'),
+        # sysadmin vs office admin
+        ('Sistēmu administrators', 'sysadmin'),
+        # One-word LV compound — the sysadmin bucket must win
+        # before any `sistēm…` engineer/architect rule.
+        ('Sistēmadministrators', 'sysadmin'),
+        ('Datorsistēmu administrators', 'sysadmin'),
+        ('Datortīklu administrators', 'sysadmin'),
+        ('System administrator', 'sysadmin'),
+        ('Network administrator', 'sysadmin'),
+        ('IT administrators', 'sysadmin'),
+        ('Database administrator', 'sysadmin'),
+        ('Biroja administrators', 'other'),
+        ('Administrators', 'other'),
+        # IT architect vs building architect
+        ('Risinājumu arhitekts', 'it-architect'),
+        ('Sistēmu arhitekts', 'it-architect'),
+        ('Sistēmarhitekts', 'it-architect'),
+        ('Tehnoloģiju arhitekts', 'it-architect'),
+        ('Solution architect', 'it-architect'),
+        ('Data architect', 'it-architect'),
+        ('Cloud arhitekts', 'it-architect'),
+        ('Arhitekts', 'other'),
+        # qa
+        ('QA engineer', 'qa-engineer'),
+        ('Testētājs', 'qa-engineer'),
+        ('Test automation engineer', 'qa-engineer'),
+        ('Quality assurance specialist', 'qa-engineer'),
+        ('Manual tester', 'qa-engineer'),
+        # data roles
+        ('Data scientist', 'data-scientist'),
+        ('Datu zinātnieks', 'data-scientist'),
+        ('Machine learning engineer', 'data-scientist'),
+        ('AI engineer', 'data-scientist'),
+        ('Data engineer', 'data-engineer'),
+        ('Datu inženieris', 'data-engineer'),
+        ('ETL developer', 'data-engineer'),
+        ('Data analyst', 'data-analyst'),
+        ('Datu analītiķis', 'data-analyst'),
+        ('BI analyst', 'data-analyst'),
+        ('Power BI developer', 'data-analyst'),
+        # specific analyst vs bare analītiķis
+        ('Sistēmanalītiķis', 'business-analyst'),
+        ('Sistēmu analītiķis', 'business-analyst'),
+        ('Biznesa analītiķis', 'business-analyst'),
+        ('Business analyst', 'business-analyst'),
+        ('IT analītiķis', 'business-analyst'),
+        ('Finanšu analītiķis', 'other'),
+        ('Analītiķis', 'other'),
+        # devops
+        ('DevOps engineer', 'devops-engineer'),
+        ('Site reliability engineer', 'devops-engineer'),
+        ('Platform engineer', 'devops-engineer'),
+        ('Cloud engineer', 'devops-engineer'),
+        # mobile — incl. react native before react/frontend
+        ('iOS developer', 'mobile-developer'),
+        ('Android developer', 'mobile-developer'),
+        ('Mobile developer', 'mobile-developer'),
+        ('Flutter developer', 'mobile-developer'),
+        ('React native developer', 'mobile-developer'),
+        # frontend
+        ('Frontend developer', 'frontend-developer'),
+        ('Front-end izstrādātājs', 'frontend-developer'),
+        ('Front end developer', 'frontend-developer'),
+        ('React developer', 'frontend-developer'),
+        ('Angular developer', 'frontend-developer'),
+        # backend / fullstack
+        ('Backend developer', 'backend-developer'),
+        ('Back end engineer', 'backend-developer'),
+        ('Fullstack developer', 'fullstack-developer'),
+        ('Full-stack developer', 'fullstack-developer'),
+        ('Full stack engineer', 'fullstack-developer'),
+        # ux
+        ('UX designer', 'ux-designer'),
+        ('UI/UX designer', 'ux-designer'),
+        ('Product designer', 'ux-designer'),
+        ('Web designer', 'ux-designer'),
+        # it-consultant — vendor names classify anywhere
+        ('IT konsultants', 'it-consultant'),
+        ('IT consultant', 'it-consultant'),
+        ('SAP konsultants', 'it-consultant'),
+        ('ERP consultant', 'it-consultant'),
+        ('Salesforce developer', 'it-consultant'),
+        ('CRM speciālists', 'it-consultant'),
+        # it-support
+        ('IT atbalsta speciālists', 'it-support'),
+        ('IT support specialist', 'it-support'),
+        ('Lietotāju atbalsta speciālists', 'it-support'),
+        ('Tehniskā atbalsta speciālists', 'it-support'),
+        ('Service desk agent', 'it-support'),
+        ('Helpdesk', 'it-support'),
+        ('Support engineer', 'it-support'),
+        # tech-lead — trailing "lead" survives normalization
+        ('Tech lead', 'tech-lead'),
+        ('Team lead', 'tech-lead'),
+        ('Engineering lead', 'tech-lead'),
+        ('Izstrādes vadītājs', 'tech-lead'),
+        ('Development manager', 'tech-lead'),
+        ('Engineering manager', 'tech-lead'),
+        # product vs project manager
+        ('Product owner', 'product-manager'),
+        ('Product manager', 'product-manager'),
+        ('Produktu vadītājs', 'product-manager'),
+        ('Projektu vadītājs', 'project-manager'),
+        ('Projekta vadītājs', 'project-manager'),
+        ('Project manager', 'project-manager'),
+        ('Project coordinator', 'project-manager'),
+        ('Scrum master', 'project-manager'),
+        # compound precedence (plan §1)
+        ('Pārdošanas projektu vadītājs', 'project-manager'),
+        ('IT projektu vadītājs', 'project-manager'),
+        # it-manager
+        ('IT vadītājs', 'it-manager'),
+        ('IT nodaļas vadītājs', 'it-manager'),
+        ('IKT vadītājs', 'it-manager'),
+        ('CIO', 'it-manager'),
+        ('Chief information officer', 'it-manager'),
+        # executive
+        ('CEO', 'executive'),
+        ('CTO', 'executive'),
+        ('Chief marketing officer', 'executive'),
+        ('Founder', 'executive'),
+        ('Co-founder', 'executive'),
+        ('Īpašnieks', 'executive'),
+        ('Valdes loceklis', 'executive'),
+        ('Direktors', 'executive'),
+        ('Izpilddirektors', 'executive'),
+        ('Komersdirektors', 'executive'),
+        ('Sales director', 'executive'),
+        # generic dev — after every specific role
+        ('Programmētājs', 'software-developer'),
+        ('PHP programmētājs', 'software-developer'),
+        ('Izstrādātājs', 'software-developer'),
+        ('Software developer', 'software-developer'),
+        ('Software engineer', 'software-developer'),
+        ('Python developer', 'software-developer'),
+        ('Web developer', 'software-developer'),
+        ('Sistēmu inženieris', 'software-developer'),
+        ('Programmatūras inženieris', 'software-developer'),
+        # One-word LV compounds of the same roles.
+        ('Sistēminženieris', 'software-developer'),
+        ('Programmatūrasinženieris', 'software-developer'),
+        # generic manager — incl. the non-IT tail
+        ('Vadītājs', 'manager'),
+        ('Pārdošanas vadītājs', 'manager'),
+        ('Sales manager', 'manager'),
+        ('Nodaļas vadītājs', 'manager'),
+        ('Head of sales', 'manager'),
+        ('Supervisor', 'manager'),
+        ('Veikala pārzinis', 'manager'),
+        ('Koordinators', 'manager'),
+        # other — long-tail/creative + non-IT
+        ('Pārdevējs', 'other'),
+        ('Grāmatvedis', 'other'),
+        ('Pievienojies mūsu komandai', 'other'),
+        ('Būvnieks', 'other'),
+        # gender/seniority noise stripped first
+        ('Vecākais programmētājs', 'software-developer'),
+        ('Senior backend developer', 'backend-developer'),
+        ('Jaunākais testētājs', 'qa-engineer'),
+        ('Lead developer', 'software-developer'),
+        ('Programmētājs/-a', 'software-developer'),
+        ('Projektu vadītājs/-a (m/f/d)', 'project-manager'),
+    )
+
+    def test_classify_cases(self):
+        for title, expected in self.CASES:
+            with self.subTest(title=title):
+                self.assertEqual(classify(title), expected)
+
+    def test_empty_and_untitled_return_other(self):
+        self.assertEqual(classify(''), 'other')
+        self.assertEqual(classify(None), 'other')
+
+    def test_first_match_wins_for_multi_match_titles(self):
+        # "SAP projektu vadītājs" matches both the SAP consultant
+        # bucket and projektu vadītājs — the earlier rule wins.
+        self.assertEqual(
+            classify('SAP projektu vadītājs'), 'it-consultant'
+        )
+
+
+class ProfessionStagingTests(TestCase):
+    """``_build_vacancy`` stages ``_pending_professions`` and
+    ``create_or_update_resources`` bulk-inserts the through rows
+    next to the keyword/industry writes (plan §4)."""
+
+    def setUp(self):
+        super().setUp()
+        self.scraper = make_scraper(API_CONFIG, portal_id=1)
+
+    def _scrape(self, result):
+        vacancy = self.scraper.initiate_resource(result)
+        self.scraper.create_or_update_resources([vacancy])
+
+    def test_new_vacancy_gets_one_profession_row(self):
+        self._scrape(vacancy_result(
+            88, positionTitle='Backend developer'
+        ))
+        stored = Vacancy.objects.get(vacancy_portal_id=88)
+        self.assertEqual(
+            list(stored.professions.values_list('name', flat=True)),
+            ['backend-developer'],
+        )
+        self.assertTrue(
+            Profession.objects.filter(
+                name='backend-developer'
+            ).exists()
+        )
+
+    def test_unmatched_title_gets_other(self):
+        self._scrape(vacancy_result(
+            89, positionTitle='Grāmatvedis'
+        ))
+        stored = Vacancy.objects.get(vacancy_portal_id=89)
+        self.assertEqual(
+            [p.name for p in stored.professions.all()], ['other']
+        )
+
+    def test_untitled_vacancy_gets_no_link(self):
+        self._scrape(vacancy_result(90, positionTitle=None))
+        stored = Vacancy.objects.get(vacancy_portal_id=90)
+        self.assertFalse(stored.professions.exists())
+
+    def test_existing_vacancy_link_is_idempotent(self):
+        existing = make_vacancy(
+            91, title='Stored vacancy', company_name='Acme',
+        )
+        self._scrape(vacancy_result(91))
+        self.assertEqual(
+            set(existing.professions.values_list('name', flat=True)),
+            {'software-developer'},
+        )
+        self._scrape(vacancy_result(91))
+        self.assertEqual(VacancyProfession.objects.count(), 1)
+
+    def test_dry_run_writes_no_profession_rows(self):
+        """A dry run builds the same staged vacancies but the
+        on-demand taxonomy get_or_create must stay read-only."""
+        dry_scraper = make_scraper(API_CONFIG, dry_run=True)
+        vacancy = dry_scraper.initiate_resource(
+            vacancy_result(92, positionTitle='Backend developer')
+        )
+        dry_scraper.create_or_update_resources([vacancy])
+        self.assertFalse(Profession.objects.exists())
+        self.assertFalse(Vacancy.objects.exists())
+        self.assertFalse(VacancyProfession.objects.exists())
+        # The staged link still shows what a real run would write.
+        self.assertEqual(
+            vacancy._pending_professions[0].name,
+            'backend-developer',
+        )
+
+
+class ClassifyVacancyProfessionsTests(TestCase):
+    """The title-only backfill command (plan §5)."""
+
+    def _run(self, *args, **kwargs):
+        out = io.StringIO()
+        call_command(
+            'classify_vacancy_professions', *args,
+            stdout=out, **kwargs,
+        )
+        return out.getvalue()
+
+    def test_dry_run_reports_counts_and_writes_nothing(self):
+        make_vacancy(1, title='Backend developer')
+        make_vacancy(2, title='Grāmatvedis')
+        out = self._run('--dry-run')
+        self.assertIn('backend-developer: 1', out)
+        self.assertIn('other: 1', out)
+        self.assertIn('would write 2', out)
+        self.assertFalse(Profession.objects.exists())
+        self.assertFalse(VacancyProfession.objects.exists())
+
+    def test_run_creates_taxonomy_and_links_idempotently(self):
+        make_vacancy(1, title='Backend developer')
+        make_vacancy(2, title='Projektu vadītājs')
+        make_vacancy(3, title=None)
+        self._run()
+        self.assertEqual(
+            Profession.objects.count(), len(PROFESSION_NAMES)
+        )
+        self.assertEqual(VacancyProfession.objects.count(), 2)
+        self.assertEqual(
+            Vacancy.objects.get(
+                vacancy_portal_id=1
+            ).professions.get().name,
+            'backend-developer',
+        )
+        # Second run — nothing left untagged, nothing written.
+        out = self._run()
+        self.assertIn('0 vacancy(ies) classified', out)
+        self.assertEqual(VacancyProfession.objects.count(), 2)
+
+    def test_reclassify_retags_stale_links(self):
+        vacancy = make_vacancy(1, title='Kravas šoferis')
+        self._run()
+        vacancy.refresh_from_db()
+        self.assertEqual(
+            vacancy.professions.get().name, 'other'
+        )
+        # Force a stale link, then --reclassify swaps it back.
+        VacancyProfession.objects.filter(vacancy=vacancy).update(
+            profession=Profession.objects.get(name='manager')
+        )
+        self._run('--reclassify')
+        self.assertEqual(
+            vacancy.professions.get().name, 'other'
+        )
+        self.assertEqual(VacancyProfession.objects.count(), 1)
+
+    def test_ids_limit_scope(self):
+        make_vacancy(1, title='Backend developer')
+        make_vacancy(2, title='Frontend developer')
+        self._run('--ids', '1')
+        self.assertEqual(VacancyProfession.objects.count(), 1)
+
+
+class ProfessionApiTests(TestCase):
+    """professions on the vacancy payload + include/exclude
+    params (plan §6)."""
+
+    API = '/api/vacancies'
+
+    def _link(self, vacancy, name):
+        VacancyProfession.objects.create(
+            vacancy=vacancy,
+            profession=Profession.objects.create(name=name),
+        )
+
+    def test_payload_carries_professions_and_option_list(self):
+        vacancy = make_vacancy(1)
+        self._link(vacancy, 'backend-developer')
+        resp = self.client.get(f'{self.API}/')
+        body = resp.json()
+        self.assertEqual(
+            body['vacancies'][0]['professions'],
+            ['backend-developer'],
+        )
+        self.assertEqual(
+            body['professions'], ['backend-developer']
+        )
+
+    def test_include_professions_filter(self):
+        match = make_vacancy(1)
+        self._link(match, 'backend-developer')
+        make_vacancy(2)
+        resp = self.client.get(
+            f'{self.API}/',
+            {'include_professions': ['backend-developer']},
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(
+            body['vacancies'][0]['id'], str(match.pk)
+        )
+
+    def test_exclude_professions_filter(self):
+        excluded = make_vacancy(1)
+        self._link(excluded, 'manager')
+        kept = make_vacancy(2)
+        resp = self.client.get(
+            f'{self.API}/', {'exclude_professions': ['manager']}
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 1)
+        self.assertEqual(body['vacancies'][0]['id'], str(kept.pk))
+
+
+class ProfessionSavedFilterApiTests(TestCase):
+    """include/exclude_professions round-trip through the saved
+    filter CRUD and the name check (plan §6)."""
+
+    API = '/api/vacancies/filters'
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='alice', password='pw'
+        )
+        self.client.force_login(self.user)
+        Profession.objects.create(name='backend-developer')
+        Profession.objects.create(name='manager')
+
+    def post(self, payload):
+        return self.client.post(
+            f'{self.API}/',
+            data=json.dumps(payload),
+            content_type='application/json',
+        )
+
+    def test_professions_round_trip(self):
+        resp = self.post({
+            'name': 'backend',
+            'include_professions': ['backend-developer'],
+            'exclude_professions': ['manager'],
+        })
+        self.assertEqual(resp.status_code, 201)
+        body = resp.json()
+        self.assertEqual(
+            body['include_professions'], ['backend-developer']
+        )
+        self.assertEqual(body['exclude_professions'], ['manager'])
+        saved = SavedVacancyFilter.objects.get(pk=body['id'])
+        self.assertEqual(
+            saved.include_professions, ['backend-developer']
+        )
+        self.assertEqual(saved.exclude_professions, ['manager'])
+
+    def test_professions_default_to_empty_lists(self):
+        resp = self.post({'name': 'bare'})
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['include_professions'], [])
+        self.assertEqual(resp.json()['exclude_professions'], [])
+
+    def test_unknown_profession_name_400(self):
+        resp = self.post({
+            'name': 'x',
+            'include_professions': ['nosuchprofession'],
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('nosuchprofession', resp.json()['detail'])
+        self.assertFalse(SavedVacancyFilter.objects.exists())

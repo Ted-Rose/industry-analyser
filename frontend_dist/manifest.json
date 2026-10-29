@@ -69,7 +69,7 @@
     ]
   },
   "src/vacancies/main.tsx": {
-    "file": "vacancies/vacancies.CL8Pjsot.js",
+    "file": "vacancies/vacancies.CpHRJeed.js",
     "name": "vacancies",
     "src": "src/vacancies/main.tsx",
     "isEntry": true,
@@ -79,7 +79,7 @@
       "_useBootstrap.BTTvCBdW.js"
     ],
     "css": [
-      "vacancies/vacancies.B_nxqsow.css"
+      "vacancies/vacancies.Jn48WkaF.css"
     ]
   }
 }
