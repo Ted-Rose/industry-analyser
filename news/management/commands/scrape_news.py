@@ -33,7 +33,11 @@ class Command(BaseCommand):
         parser.add_argument(
             '--fresh',
             action='store_true',
-            help="Ignore this cycle's completed items — full pass",
+            help="Ignore this cycle's completed items — full "
+                 "pass; also skips conditional-GET headers so "
+                 "feeds are re-parsed even when unchanged (to "
+                 "force just one feed, clear its "
+                 "etag/last_modified in admin instead)",
         )
         parser.add_argument(
             '--resume-from',
@@ -47,7 +51,9 @@ class Command(BaseCommand):
             action='store_true',
             dest='dry_run',
             help='Fetch and parse but write nothing (no articles '
-                 'or run rows)',
+                 'or run rows). Right after a real run a feed '
+                 'unchanged since then answers 304 and shows '
+                 'nothing — add --fresh to force parsing',
         )
         parser.add_argument(
             '--ignore-cooldown',
@@ -61,7 +67,8 @@ class Command(BaseCommand):
             '--source',
             type=str,
             default=None,
-            help='Scrape only the source with this slug',
+            help='Scrape only the source with this slug '
+                 '(re-fetches even if the feed is unchanged)',
         )
 
     def handle(self, *args, **options):

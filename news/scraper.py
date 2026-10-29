@@ -197,7 +197,13 @@ class NewsScraper(BaseScraper):
             )
             self.last_search_had_results = False
             return None
-        if source is not None and response is not None:
+        # Only a real 200 feed body may refresh the stored
+        # validators — an error page (403/404/...) can carry its
+        # own ETag that would wrongly 304 the feed afterwards.
+        if (
+            source is not None
+            and getattr(response, 'status', None) == 200
+        ):
             self._store_feed_validators(source, response)
         # Mirrors BaseScraper.scrape_portal from here on.
         if self.stop_on_redirect and self._was_redirected(
@@ -228,6 +234,12 @@ class NewsScraper(BaseScraper):
         headers = dict(self.default_headers)
         if source is None:
             return headers
+        if getattr(self.runner, 'fresh', False):
+            # --fresh / --source: a deliberate re-scrape must
+            # re-parse the feed — a 304 would return early and
+            # keep manually deleted articles missing. Fresh 200
+            # validators are still stored for the next poll.
+            return headers
         if source.etag:
             headers['If-None-Match'] = source.etag
         if source.last_modified:
@@ -242,10 +254,13 @@ class NewsScraper(BaseScraper):
         response_headers = getattr(response, 'headers', None)
         if response_headers is None:
             return
-        new_etag = response_headers.get('ETag') or None
+        # Truncated to the field's max_length — an oversized
+        # header value would otherwise DataError on save and fail
+        # the item every cycle.
+        new_etag = (response_headers.get('ETag') or '')[:200] or None
         new_modified = (
-            response_headers.get('Last-Modified') or None
-        )
+            response_headers.get('Last-Modified') or ''
+        )[:200] or None
         if (
             source.etag == new_etag
             and source.last_modified == new_modified

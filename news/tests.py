@@ -298,6 +298,96 @@ class StatefulScrapeTests(TestCase):
         self.assertNotIn('If-None-Match', headers)
         self.assertNotIn('If-Modified-Since', headers)
 
+    def test_fresh_run_sends_no_conditional_headers(self):
+        """--fresh is the escape hatch: the runner's fresh flag
+        suppresses conditional headers so a deliberately
+        re-scraped feed is re-parsed instead of 304ing."""
+        self.source.etag = '"v1"'
+        self.source.last_modified = 'Wed, 29 Oct 2026 10:00:00 GMT'
+        self.source.save()
+        runner = ScrapeJobRunner(slug='news.feeds', fresh=True)
+        scraper = NewsScraper(runner=runner)
+        scraper._active_source = self.source
+        response = _response(FEED_A, headers={'ETag': '"v2"'})
+        with patch.object(
+            NewsScraper, 'make_request', return_value=response
+        ) as mock_request:
+            scraper.scrape_portal(self.source.feed_url)
+        headers = mock_request.call_args.kwargs['headers']
+        self.assertNotIn('If-None-Match', headers)
+        self.assertNotIn('If-Modified-Since', headers)
+        # Fresh 200 validators are still stored for the next
+        # (non-fresh) poll.
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.etag, '"v2"')
+
+    def test_error_response_does_not_store_validators(self):
+        """A 403/404 error page can carry its own ETag — storing
+        it would wrongly 304 the feed on the next poll."""
+        response = _response(
+            b'forbidden',
+            status=403,
+            headers={
+                'ETag': '"err"',
+                'Last-Modified': 'Thu, 30 Oct 2026 08:00:00 GMT',
+            },
+        )
+        with patch.object(
+            NewsScraper, 'make_request', return_value=response
+        ):
+            self.scraper.scrape_portal(self.source.feed_url)
+        self.source.refresh_from_db()
+        self.assertIsNone(self.source.etag)
+        self.assertIsNone(self.source.last_modified)
+
+    def test_oversized_validators_are_truncated(self):
+        """A >200-char ETag/Last-Modified must be truncated to
+        the field max_length, not DataError on save."""
+        long_etag = '"' + 'x' * 300 + '"'
+        long_modified = 'M' * 300
+        response = _response(
+            FEED_A,
+            headers={
+                'ETag': long_etag,
+                'Last-Modified': long_modified,
+            },
+        )
+        with patch.object(
+            NewsScraper, 'make_request', return_value=response
+        ):
+            self.scraper.scrape_portal(self.source.feed_url)
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.etag, long_etag[:200])
+        self.assertEqual(
+            self.source.last_modified, long_modified[:200]
+        )
+
+    def test_feed_url_change_clears_validators(self):
+        """An admin feed_url edit points the source at a
+        different resource — the old resource's validators must
+        not be sent or a legitimate 304 would skip parsing."""
+        self.source.etag = '"v1"'
+        self.source.last_modified = 'Wed, 29 Oct 2026 10:00:00 GMT'
+        self.source.save()
+        self.source.feed_url = 'https://a.lv/other-rss'
+        self.source.save()
+        self.source.refresh_from_db()
+        self.assertIsNone(self.source.etag)
+        self.assertIsNone(self.source.last_modified)
+
+    def test_unchanged_feed_url_keeps_validators(self):
+        self.source.etag = '"v1"'
+        self.source.last_modified = 'Wed, 29 Oct 2026 10:00:00 GMT'
+        self.source.save()
+        self.source.name = 'Renamed'
+        self.source.save()
+        self.source.refresh_from_db()
+        self.assertEqual(self.source.etag, '"v1"')
+        self.assertEqual(
+            self.source.last_modified,
+            'Wed, 29 Oct 2026 10:00:00 GMT',
+        )
+
     def test_second_pass_inserts_nothing_only_bumps_last_seen(self):
         with patch.object(
             NewsScraper,

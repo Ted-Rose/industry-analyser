@@ -26,6 +26,29 @@ class NewsSource(models.Model):
     class Meta:
         db_table = 'news_source'
 
+    def save(self, *args, **kwargs):
+        # The stored validators describe the previous feed_url —
+        # a different resource can legitimately answer 304 to
+        # them and then never be re-parsed, so a feed_url edit
+        # drops them and the next poll is unconditional.
+        update_fields = kwargs.get('update_fields')
+        if self.pk is not None and (
+            update_fields is None or 'feed_url' in update_fields
+        ):
+            old_url = (
+                NewsSource.objects.filter(pk=self.pk)
+                .values_list('feed_url', flat=True)
+                .first()
+            )
+            if old_url is not None and old_url != self.feed_url:
+                self.etag = None
+                self.last_modified = None
+                if update_fields is not None:
+                    kwargs['update_fields'] = set(
+                        update_fields
+                    ) | {'etag', 'last_modified'}
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f'{self.name} ({self.slug})'
 
