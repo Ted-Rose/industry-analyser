@@ -26,6 +26,13 @@ HOUSING_DEAL_SUFFIXES = {
     'sell/': 'SELL',
 }
 
+# Listings at or below this floor area are sheds/garages/land
+# scraps, not houses — they are still stored (sightings, audit)
+# but created is_hidden=True so the default manager never
+# surfaces them. Mirrors the quarantine criteria in
+# scripts/quarantine_junk_ads.py.
+MIN_HOUSE_SIZE_SQM = 5.0
+
 
 def _parse_land_area(raw: str):
     """
@@ -175,7 +182,13 @@ class HousingAdScraper(BaseScraper):
             else:
                 alt_price = total_price
 
-            if total_price == 0.0:
+            size = self._clean_size(cells[4])
+
+            # size<=0 rows are unparseable/non-physical junk —
+            # drop them outright (same guard as the apartment
+            # scraper). Tiny-but-positive sizes are kept and
+            # flagged is_hidden in initiate_resource instead.
+            if total_price == 0.0 or size <= 0.0:
                 continue
 
             try:
@@ -204,7 +217,7 @@ class HousingAdScraper(BaseScraper):
                 'street_name': street_name,
                 'street_no': street_no,
                 'rooms': 0,
-                'size': cells[4],
+                'size': size,
                 'floors': floors,
                 'land_area_sqm': land_area_sqm,
                 'total_price': total_price,
@@ -232,6 +245,16 @@ class HousingAdScraper(BaseScraper):
         if len(parts) > 1 and parts[-1][:1].isdigit():
             return ' '.join(parts[:-1]), parts[-1]
         return street_raw, ''
+
+    def _clean_size(self, size_str) -> float:
+        """Convert size string to float; '-'/invalid -> 0.0."""
+        size_str = str(size_str).strip()
+        if size_str == '-' or not size_str:
+            return 0.0
+        try:
+            return float(size_str.replace(',', ''))
+        except (ValueError, TypeError):
+            return 0.0
 
     def _clean_price(self, price_str) -> float:
         price_str = str(price_str).strip()
@@ -426,6 +449,16 @@ class HousingAdScraper(BaseScraper):
             result['total_price'] / size_val if size_val > 0 else 0.0
         )
 
+        # Junk listings — a token floor area (sheds, garages, land
+        # scraps) or a zero computed price-per-m² from an
+        # unparseable size — arrive already hidden so the default
+        # manager never surfaces them. Same criteria as
+        # scripts/quarantine_junk_ads.py.
+        is_junk = (
+            0 < size_val <= MIN_HOUSE_SIZE_SQM
+            or price_per_sqm == 0.0
+        )
+
         deal_type = result['deal_type']
         if deal_type == 'RENT':
             monthly_price = result['total_price']
@@ -456,6 +489,7 @@ class HousingAdScraper(BaseScraper):
                 monthly_price_per_sqm=monthly_price_per_sqm,
                 total_price_120m=total_price_120m,
                 price_per_sqm_120m=price_per_sqm_120m,
+                is_hidden=is_junk,
                 is_sale_misclassified=(
                     result.get('sale_listed', False)
                     or is_sale_misclassified(
@@ -481,6 +515,7 @@ class HousingAdScraper(BaseScraper):
                 seller=seller,
                 price_per_sqm=price_per_sqm,
                 total_price=result['total_price'],
+                is_hidden=is_junk,
             )
 
         return None

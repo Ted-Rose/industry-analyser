@@ -1531,3 +1531,111 @@ class FlagHouseCrosslistingsCommandTest(TestCase):
                 ad_id='tr_twin'
             ).is_sale_misclassified
         )
+
+
+class HousingJunkIngestGuardTest(TestCase):
+    """F2 ingest guards in HousingAdScraper: size<=0 listing rows
+    are dropped in parse_results; tiny-size or zero-ppsqm rows
+    are still stored but created is_hidden=True."""
+
+    # ss.com housing listing row: 9 cells, size in cells[4],
+    # floors in cells[5], land area in cells[7], price in
+    # cells[8].
+    HOUSE_ROW = (
+        '<tr id="{ad_id}"><td></td>'
+        '<td><a href="/msg/en/{ad_id}.html">x</a></td>'
+        '<td>note</td><td>Street 1</td><td>{size}</td>'
+        '<td>2</td><td>type</td><td>500</td>'
+        '<td>{price}</td></tr>'
+    )
+
+    def setUp(self):
+        self.region = Region.objects.create(
+            name='Riga houses',
+            url='https://www.ss.com/en/real-estate/'
+                'homes-summer-residences/riga/',
+            category='HOUSE',
+        )
+
+    def _scraper(self, deal='SELL'):
+        scraper = HousingAdScraper()
+        scraper._current_region = self.region
+        scraper._current_deal_type = deal
+        return scraper
+
+    def _parse(self, rows, deal='SELL'):
+        html = ('<table>' + ''.join(rows) + '</table>').encode()
+        return self._scraper(deal).parse_results(
+            SimpleNamespace(data=html)
+        )
+
+    def _row(self, ad_id='tr_1', size='120', price='240000'):
+        return self.HOUSE_ROW.format(
+            ad_id=ad_id, size=size, price=price
+        )
+
+    def test_parse_results_skips_non_positive_size(self):
+        for bad_size in ('0', '-', 'abc'):
+            results = self._parse(
+                [self._row(ad_id='tr_bad', size=bad_size)]
+            )
+            self.assertEqual(results, [], bad_size)
+
+    def test_parse_results_keeps_valid_row(self):
+        results = self._parse([
+            self._row(ad_id='tr_bad', size='0'),
+            self._row(ad_id='tr_ok', size='120'),
+        ])
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]['ad_id'], 'tr_ok')
+        self.assertEqual(results[0]['size'], 120.0)
+
+    def test_tiny_size_sale_created_hidden(self):
+        (result,) = self._parse([self._row(size='4')])
+        scraper = self._scraper()
+        ad = scraper.initiate_resource(result)
+        self.assertIsInstance(ad, HouseForSale)
+        self.assertTrue(ad.is_hidden)
+
+        scraper.create_or_update_resources([ad])
+        self.assertEqual(HouseForSale.objects.count(), 0)
+        stored = HouseForSale.all_objects.get(ad_id='tr_1')
+        self.assertTrue(stored.is_hidden)
+
+    def test_tiny_size_rent_created_hidden(self):
+        (result,) = self._parse(
+            [self._row(size='5', price='1000')], deal='RENT'
+        )
+        ad = self._scraper('RENT').initiate_resource(result)
+        self.assertIsInstance(ad, HouseForRent)
+        self.assertTrue(ad.is_hidden)
+
+    def test_unparseable_size_creates_hidden_row(self):
+        # Belt-and-braces: parse_results drops size<=0 before it
+        # reaches initiate_resource, but a direct result dict
+        # with an unparseable size still yields a hidden row via
+        # the computed price_per_sqm == 0 guard.
+        result = {
+            'ad_id': 'tr_junk',
+            'deal_type': 'SELL',
+            'district': 'Riga houses',
+            'region_name': 'Riga houses',
+            'link': 'https://www.ss.com/msg/en/tr_junk.html',
+            'comment': '',
+            'street_name': 'Street',
+            'street_no': '1',
+            'rooms': 0,
+            'size': '-',
+            'floors': 1,
+            'land_area_sqm': None,
+            'total_price': 5000.0,
+            'alt_price': 5000.0,
+        }
+        ad = self._scraper().initiate_resource(result)
+        self.assertEqual(ad.price_per_sqm, 0.0)
+        self.assertTrue(ad.is_hidden)
+
+    def test_normal_row_created_visible(self):
+        (result,) = self._parse([self._row()])
+        ad = self._scraper().initiate_resource(result)
+        self.assertFalse(ad.is_hidden)
