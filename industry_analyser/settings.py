@@ -213,6 +213,7 @@ INSTALLED_APPS = [
     'ai_providers',
     'scrape_jobs',
     'receipts',
+    'news',
     'django_vite',
     'ninja',
     # The project package itself must be installed so APP_DIRS finds
@@ -477,6 +478,11 @@ LOGGING = {
             'propagate': True,
         },
         'receipts': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'news': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,
