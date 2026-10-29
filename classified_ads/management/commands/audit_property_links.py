@@ -54,6 +54,7 @@ from itertools import combinations
 from django.core.management.base import BaseCommand
 from django.db.models import Prefetch
 
+from classified_ads import property_links as plinks
 from classified_ads import property_matcher as pm
 from classified_ads.models import (
     ApartmentForRent,
@@ -66,7 +67,6 @@ from classified_ads.models import (
 
 logger = logging.getLogger('classified_ads')
 
-LINKED_STATUSES = ('auto', 'manual')
 OVERLAP_MIN_DAYS = 2
 BULK_SAME_DAY_MIN = 3
 BULK_AD_SET_MIN = 8
@@ -220,52 +220,35 @@ class Command(BaseCommand):
 
         Returns the set of property pks whose linked ads' twins
         diverge to >=2 distinct targets — the decisive conflation
-        signature from conflation plan §3c.
+        signature from conflation plan §3c. The pair list itself
+        comes from ``property_links.diverged_twin_pairs`` so the
+        audit and ``relink_property_ads --twin-fix`` share one
+        queue definition.
         """
-        fields = (
-            'ad_id', 'property_id', 'district', 'street_name',
-            'street_no',
-        )
-        linked = dict(
-            property_id__isnull=False,
-            property_match_status__in=LINKED_STATUSES,
-        )
-        rent_links = {
-            r[0]: r[1:]
-            for r in rent_model.all_objects.filter(
-                **linked
-            ).values_list(*fields)
-        }
-        sale_links = {
+        pairs = plinks.diverged_twin_pairs(rent_model, sale_model)
+        divergent = plinks.twin_fanout_props(pairs)
+        locations = {
             r[0]: r[1:]
             for r in sale_model.all_objects.filter(
-                **linked
-            ).values_list(*fields)
+                ad_id__in=[p[0] for p in pairs]
+            ).values_list(
+                'ad_id', 'district', 'street_name', 'street_no'
+            )
         }
-
-        targets = defaultdict(set)  # prop pk -> twin-side prop pks
-        for ad_id in sorted(set(rent_links) & set(sale_links)):
-            r_prop = rent_links[ad_id][0]
-            s_prop, district, street, no = sale_links[ad_id]
-            if r_prop == s_prop:
-                continue
-            targets[r_prop].add(s_prop)
-            targets[s_prop].add(r_prop)
+        for ad_id, r_prop, s_prop in pairs:
+            district, street, no = locations.get(
+                ad_id, ('', '', '')
+            )
             flags['TWIN_DIVERGED'].append({
                 'flag': 'TWIN_DIVERGED',
                 'ad_id': ad_id,
                 'rent_property': r_prop,
                 'sale_property': s_prop,
                 'location': self._addr(district, street, no),
+                'conflation': (
+                    r_prop in divergent or s_prop in divergent
+                ),
             })
-        divergent = {
-            pk for pk, tset in targets.items() if len(tset) >= 2
-        }
-        for item in flags['TWIN_DIVERGED']:
-            item['conflation'] = (
-                item['rent_property'] in divergent
-                or item['sale_property'] in divergent
-            )
         return divergent
 
     def _audit_apt_nos(self, prop, ads, flags):
