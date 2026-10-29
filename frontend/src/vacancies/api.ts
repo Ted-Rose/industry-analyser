@@ -43,6 +43,8 @@ export interface VacancyParams {
   includeKeywords: string[];
   excludeKeywords: string[];
   includeIndustries: string[];
+  includeProfessions: string[];
+  excludeProfessions: string[];
   showActiveOnly: boolean;
   companyFilter: CompanyFilter;
   page?: string | null;
@@ -69,6 +71,12 @@ export function fetchVacancies(
   );
   params.includeIndustries.forEach((i) =>
     qs.append('include_industries', i),
+  );
+  params.includeProfessions.forEach((p) =>
+    qs.append('include_professions', p),
+  );
+  params.excludeProfessions.forEach((p) =>
+    qs.append('exclude_professions', p),
   );
   if (params.showActiveOnly) qs.set('show_active_only', '1');
   if (params.companyFilter && params.companyFilter !== 'all') {

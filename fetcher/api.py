@@ -30,6 +30,7 @@ from .models import (
     CompanyPreference,
     Industry,
     Keyword,
+    Profession,
     SavedVacancyFilter,
     Vacancy,
 )
@@ -70,6 +71,7 @@ class VacancyOut(Schema):
     days_open: Optional[int]
     keywords: List[str]
     industries: List[str]
+    professions: List[str]
 
     @staticmethod
     def resolve_company_preference(obj):
@@ -85,6 +87,10 @@ class VacancyOut(Schema):
     def resolve_industries(obj):
         return [i.name for i in obj.industries.all()]
 
+    @staticmethod
+    def resolve_professions(obj):
+        return [p.name for p in obj.professions.all()]
+
 
 class VacanciesOut(Schema):
     """One page of vacancies plus the filter option lists the page
@@ -99,6 +105,7 @@ class VacanciesOut(Schema):
     has_previous: bool
     keywords: List[str]
     industries: List[str]
+    professions: List[str]
 
 
 # Public URL of an employer identity on its portal. cv.lv has no
@@ -234,6 +241,8 @@ class SavedFilterIn(Schema):
     include_keywords: List[str] = []
     exclude_keywords: List[str] = []
     include_industries: List[str] = []
+    include_professions: List[str] = []
+    exclude_professions: List[str] = []
     show_active_only: bool = False
     company_filter: CompanyFilter = 'all'
 
@@ -254,6 +263,8 @@ class SavedFilterOut(Schema):
     include_keywords: List[str]
     exclude_keywords: List[str]
     include_industries: List[str]
+    include_professions: List[str]
+    exclude_professions: List[str]
     show_active_only: bool
     company_filter: CompanyFilter
 
@@ -281,6 +292,8 @@ def list_vacancies(
     include_keywords: List[str] = Query([]),
     exclude_keywords: List[str] = Query([]),
     include_industries: List[str] = Query([]),
+    include_professions: List[str] = Query([]),
+    exclude_professions: List[str] = Query([]),
     show_active_only: bool = False,
     company_filter: CompanyFilter = 'all',
     page: int = 1,
@@ -299,11 +312,19 @@ def list_vacancies(
                 include_keywords
             )
         } if include_keywords else {},
+        **{
+            'professions__name__in': include_professions
+        } if include_professions else {},
     )
 
     if exclude_keywords:
         vacancies = vacancies.exclude(
             vacancycontainskeyword__keyword__name__in=exclude_keywords
+        )
+
+    if exclude_professions:
+        vacancies = vacancies.exclude(
+            professions__name__in=exclude_professions
         )
 
     if show_active_only:
@@ -339,7 +360,7 @@ def list_vacancies(
 
     vacancies = vacancies.distinct().order_by(
         F('application_deadline').desc(nulls_last=True), '-last_seen'
-    ).prefetch_related('keywords', 'industries')
+    ).prefetch_related('keywords', 'industries', 'professions')
 
     paginator = Paginator(vacancies, VACANCIES_PER_PAGE)
     vacancies_page = paginator.get_page(page)
@@ -367,6 +388,9 @@ def list_vacancies(
         ],
         industries=[
             i.name for i in Industry.objects.order_by('name')
+        ],
+        professions=[
+            p.name for p in Profession.objects.order_by('name')
         ],
     )
 
@@ -534,9 +558,9 @@ def add_keyword(request, payload: KeywordIn):
 
 
 def _check_saved_filter_names(payload: SavedFilterIn) -> None:
-    """Reject names that match no Keyword/Industry row — a preset
-    referencing a deleted/renamed name would silently match nothing,
-    so surface it at save time instead."""
+    """Reject names that match no Keyword/Industry/Profession row —
+    a preset referencing a deleted/renamed name would silently
+    match nothing, so surface it at save time instead."""
     keyword_names = (
         payload.include_keywords + payload.exclude_keywords
     )
@@ -550,17 +574,30 @@ def _check_saved_filter_names(payload: SavedFilterIn) -> None:
         .filter(name__in=payload.include_industries)
         .values_list('name', flat=True)
     )
+    profession_names = (
+        payload.include_professions + payload.exclude_professions
+    )
+    known_professions = set(
+        Profession.objects
+        .filter(name__in=profession_names)
+        .values_list('name', flat=True)
+    )
     unknown = list(dict.fromkeys(
         [n for n in keyword_names if n not in known_keywords]
         + [
             n for n in payload.include_industries
             if n not in known_industries
         ]
+        + [
+            n for n in profession_names
+            if n not in known_professions
+        ]
     ))
     if unknown:
         raise ApiHttpError(
             400,
-            'Unknown keyword/industry names: ' + ', '.join(unknown),
+            'Unknown keyword/industry/profession names: '
+            + ', '.join(unknown),
             code='unknown_filter_names',
         )
 
@@ -572,6 +609,8 @@ def _apply_saved_filter(
     saved.include_keywords = payload.include_keywords
     saved.exclude_keywords = payload.exclude_keywords
     saved.include_industries = payload.include_industries
+    saved.include_professions = payload.include_professions
+    saved.exclude_professions = payload.exclude_professions
     saved.show_active_only = payload.show_active_only
     saved.company_filter = payload.company_filter
 

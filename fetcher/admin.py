@@ -8,6 +8,7 @@ from .models import (
     CompanyAlias,
     CompanyIdentity,
     CompanyPreference,
+    Profession,
 )
 
 
@@ -161,6 +162,25 @@ class CompanyAliasAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(Profession)
+class ProfessionAdmin(admin.ModelAdmin):
+    list_display = ['name', 'vacancy_count']
+    search_fields = ['name']
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .annotate(
+                vacancy_total=Count('vacancyprofession',
+                                    distinct=True)
+            )
+        )
+
+    @admin.display(description='Vacancies', ordering='vacancy_total')
+    def vacancy_count(self, obj):
+        return obj.vacancy_total
 
 
 @admin.register(CompanyPreference)

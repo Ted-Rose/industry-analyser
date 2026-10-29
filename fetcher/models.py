@@ -196,6 +196,9 @@ class Vacancy(models.Model):
     keywords = models.ManyToManyField(
         'Keyword', through='VacancyContainsKeyword'
     )
+    professions = models.ManyToManyField(
+        'Profession', through='VacancyProfession'
+    )
     salary_from = models.FloatField(null=True, )
     salary_to = models.FloatField(null=True)
     url = models.URLField(max_length=200)
@@ -276,6 +279,23 @@ class VacancyIndustries(models.Model):
         db_table = 'fetcher_vacancy_industries'
 
 
+class Profession(models.Model):
+    id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=255, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class VacancyProfession(models.Model):
+    vacancy = models.ForeignKey('Vacancy', on_delete=models.CASCADE)
+    profession = models.ForeignKey('Profession', on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = (('vacancy', 'profession'),)
+        db_table = 'fetcher_vacancy_professions'
+
+
 class Keyword(models.Model):
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, unique=True)
@@ -303,10 +323,10 @@ class VacancyContainsKeyword(models.Model):
 class SavedVacancyFilter(models.Model):
     """A named URL-params snapshot for the vacancy list page.
 
-    Stores keyword/industry *names* (not FKs) because both the URL
-    params and the list API filter by name — a preset is literally a
-    bookmarkable query string. If a keyword is deleted later the name
-    stays and simply matches nothing.
+    Stores keyword/industry/profession *names* (not FKs) because
+    both the URL params and the list API filter by name — a preset
+    is literally a bookmarkable query string. If a keyword is
+    deleted later the name stays and simply matches nothing.
     """
     id = models.UUIDField(
         primary_key=True, default=uuid.uuid4, editable=False
@@ -320,6 +340,9 @@ class SavedVacancyFilter(models.Model):
     include_keywords = models.JSONField(default=list)   # keyword names
     exclude_keywords = models.JSONField(default=list)
     include_industries = models.JSONField(default=list)  # industry names
+    # profession names — see Profession/VacancyProfession
+    include_professions = models.JSONField(default=list)
+    exclude_professions = models.JSONField(default=list)
     show_active_only = models.BooleanField(default=False)
     # 'all' | 'liked' | 'not_disliked' | 'disliked' — mirrors the
     # vacancy list's ?company_filter= param.

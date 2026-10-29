@@ -508,6 +508,8 @@ export interface components {
             keywords: string[];
             /** Industries */
             industries: string[];
+            /** Professions */
+            professions: string[];
         };
         /** VacancyOut */
         VacancyOut: {
@@ -540,6 +542,8 @@ export interface components {
             keywords: string[];
             /** Industries */
             industries: string[];
+            /** Professions */
+            professions: string[];
         };
         /** CompaniesOut */
         CompaniesOut: {
@@ -743,6 +747,10 @@ export interface components {
             exclude_keywords: string[];
             /** Include Industries */
             include_industries: string[];
+            /** Include Professions */
+            include_professions: string[];
+            /** Exclude Professions */
+            exclude_professions: string[];
             /** Show Active Only */
             show_active_only: boolean;
             /**
@@ -773,6 +781,16 @@ export interface components {
              * @default []
              */
             include_industries: string[];
+            /**
+             * Include Professions
+             * @default []
+             */
+            include_professions: string[];
+            /**
+             * Exclude Professions
+             * @default []
+             */
+            exclude_professions: string[];
             /**
              * Show Active Only
              * @default false
@@ -1635,6 +1653,8 @@ export interface operations {
                 include_keywords?: string[];
                 exclude_keywords?: string[];
                 include_industries?: string[];
+                include_professions?: string[];
+                exclude_professions?: string[];
                 show_active_only?: boolean;
                 company_filter?: "all" | "liked" | "not_disliked" | "disliked";
                 page?: number;
