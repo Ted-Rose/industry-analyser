@@ -11,13 +11,20 @@ Usage:
 Idempotent: a run only touches ads with match status 'unmatched'
 ('--relink' also reconsiders 'auto'-linked ads). Oldest ads are
 processed first so repost chains accumulate onto one property.
+
+Before block scoring, each ad checks the sibling deal table for a
+row with the same ad_id (the "twin shortcut", conflation plan
+§3a.1): an already-linked twin is decisive — the ad links to the
+twin's property when the hard gates pass, or enters the review
+queue against it when attributes conflict.
 """
 import logging
+import re
 from collections import defaultdict
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 from classified_ads import property_matcher as pm
@@ -164,10 +171,19 @@ class Command(BaseCommand):
     def _load_block(self, ad, prop_model):
         """Fetch block candidates and cache their linked ads."""
         rent_model, sale_model = PROP_AD_MODELS[prop_model]
+        norm_no = pm.normalize_street_no(ad.street_no)
+        street_filter = Q(street_no__iexact=norm_no)
+        if norm_no.isdigit():
+            # Properties created before the N-M split may still
+            # store the fused token raw ("12-3"); they normalize
+            # into this block at match time, so fetch them too.
+            street_filter |= Q(
+                street_no__iregex=rf'^{re.escape(norm_no)}-\d+$'
+            )
         props = list(
             prop_model.objects.filter(
+                street_filter,
                 district__iexact=ad.district.strip(),
-                street_no__iexact=pm.normalize_street_no(ad.street_no),
             ).prefetch_related(
                 Prefetch(
                     'rent_ads',
@@ -193,12 +209,83 @@ class Command(BaseCommand):
             )
         return props
 
+    def _twin_property(self, ad, prop_model):
+        """The property the ad's cross-deal twin is linked to.
+
+        The twin is the row with the same ``ad_id`` in the sibling
+        deal table (ApartmentForRent<->ApartmentForSale etc.) — a
+        near-decisive same-unit signal (conflation plan §3a.1).
+        Returns the twin's property with its linked-ad list hydrated,
+        or None when no linked twin exists.
+        """
+        rent_model, sale_model = PROP_AD_MODELS[prop_model]
+        sibling = (
+            sale_model if isinstance(ad, rent_model) else rent_model
+        )
+        twin = sibling.all_objects.filter(ad_id=ad.ad_id).first()
+        if twin is None or not twin.property_id:
+            return None
+        if twin.property_match_status not in ('auto', 'manual'):
+            return None
+        prop = prop_model.objects.filter(pk=twin.property_id).first()
+        if prop is None:
+            return None
+        # Hydrate the in-memory ad list so hard gates, alarms and
+        # refresh_from_ads see what _load_block caches for block
+        # candidates.
+        prop._linked_ads_cache = prop.linked_ads()
+        return prop
+
+    def _twin_link(self, ad, prop, block, counts, histogram):
+        """Apply the twin shortcut. Returns True when handled.
+
+        Clean gates + no conflation alarms -> auto-link to the twin's
+        property (score 1.0). Hard-gate conflict -> review candidate
+        on the twin's property (the listing may have been repurposed
+        for a different unit). Alarms on the twin's property skip the
+        shortcut entirely so the normal scoring path applies.
+        """
+        ad_no = pm._ad_apartment_no(ad)
+        prop_nos = pm._property_apartment_nos(prop)
+        if pm._hard_reject(ad, prop, ad_no, prop_nos):
+            ad.candidate_property = prop
+            ad.property_match_status = 'candidate'
+            ad.property_match_score = self.auto_threshold
+            self._save_ad(ad)
+            counts['candidate'] += 1
+            counts['twin_conflict'] += 1
+            return True
+        alarms = pm.conflation_alarms(
+            ad, prop, prop_nos, list(prop.iter_linked_ads())
+        )
+        if alarms:
+            logger.info(
+                'twin shortcut skipped for ad %s, prop %s: %s',
+                ad.ad_id, prop.pk, sorted(alarms),
+            )
+            return False
+        self._apply_link(ad, prop, 1.0, counts, block)
+        histogram[1.0] += 1
+        counts['twin_linked'] += 1
+        return True
+
     def _link_ad(self, ad, prop_model, blocks, counts, histogram):
         key = self._block_key(ad)
         if key not in blocks:
             blocks[key] = self._load_block(ad, prop_model)
+        block = blocks[key]
+        twin_prop = self._twin_property(ad, prop_model)
+        if twin_prop is not None:
+            # Reuse the block's copy when present so its cached
+            # linked-ad list stays coherent with note_linked_ad.
+            twin_prop = next(
+                (p for p in block if p.pk == twin_prop.pk),
+                twin_prop,
+            )
+            if self._twin_link(ad, twin_prop, block, counts, histogram):
+                return
         candidates = [
-            prop for prop in blocks[key]
+            prop for prop in block
             if not ad.property_id or prop.pk != ad.property_id
         ]
         prop, score, decision = pm.match_property(
@@ -206,6 +293,9 @@ class Command(BaseCommand):
             candidates,
             auto_threshold=self.auto_threshold,
             candidate_threshold=self.candidate_threshold,
+            twin_prop_ids=(
+                {twin_prop.pk} if twin_prop is not None else None
+            ),
         )
         histogram[round(min(score, 1.0), 1)] += 1
 
@@ -298,7 +388,11 @@ class Command(BaseCommand):
         self.stdout.write(f'  Ads processed:     {counts["processed"]}')
         self.stdout.write(f'  New properties:    {counts["new_property"]}')
         self.stdout.write(f'  Auto-linked:       {counts["auto_linked"]}')
+        self.stdout.write(f'  of which twins:    {counts["twin_linked"]}')
         self.stdout.write(f'  Review candidates: {counts["candidate"]}')
+        self.stdout.write(
+            f'  of which twin-conflicts: {counts["twin_conflict"]}'
+        )
         if self.relink:
             self.stdout.write(f'  Kept existing:     {counts["kept"]}')
         if histogram:

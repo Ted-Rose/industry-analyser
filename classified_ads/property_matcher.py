@@ -1,10 +1,13 @@
 """Score-based matching of classified ads to canonical properties.
 
 Used by the ``link_ads_to_properties`` management command; see
-``docs/plans/property_linking_plan.md`` for the full design.
+``docs/plans/property_linking_plan.md`` for the matching design and
+``docs/plans/property_conflation_prevention_plan.md`` §3a for the
+conflation alarms that demote ``auto`` decisions to ``candidate``.
 """
 import logging
 import re
+from itertools import combinations
 
 from django.core.exceptions import ObjectDoesNotExist
 
@@ -15,6 +18,17 @@ CANDIDATE_THRESHOLD = 0.45
 TEMPORAL_GAP_DAYS = 14
 SIZE_HARD_REJECT_PCT = 0.15
 COMMENT_SIMILARITY_MIN = 0.8
+# Same-deal linked ads whose seen-windows overlap >= N days are a
+# batch-absorption signature (mirrors audit_property_links).
+OVERLAP_MIN_DAYS = 2
+
+# Conflation alarm names — aligned with the audit_property_links flag
+# taxonomy (TWIN_DIVERGED is produced by the audit, not the matcher).
+ALARM_APTNO_CONFLICT = 'APTNO_CONFLICT'
+ALARM_COEXISTING = 'COEXISTING'
+ALARM_FLOOR_CONFLICT = 'FLOOR_CONFLICT'
+ALARM_DEGENERATE_BLOCK = 'DEGENERATE_BLOCK'
+ALARM_MULTI_CANDIDATE = 'MULTI_CANDIDATE'
 
 # Trailing street designators stripped when normalizing street names.
 _STREET_DESIGNATORS = (
@@ -36,17 +50,46 @@ _INITIALS_RE = re.compile(r'^(?:[a-zāčēģīķļņšūž]\.\s*)+')
 
 _WS_RE = re.compile(r'\s+')
 
+# ss.com fuses house+apartment numbers into one token ("12-3" = house
+# 12, apt 3). Only the pure digits-digits shape is split — corpus
+# suffixes like "5k-1" must not be touched (conflation plan §3a.4).
+_FUSED_STREET_NO_RE = re.compile(r'^(\d+)-(\d+)$')
+
 # Apartment numbers mentioned in comments, e.g. "Dzīvoklis Nr. 49".
-# The marker word is required — a bare number after "dzīvoklis" is too
-# often a floor or room count.
+# A marker word is required — a bare number after "dzīvoklis" is too
+# often a floor or room count (conflation plan §3b).
 _APT_NO_PATTERNS = (
     re.compile(
         r'dz[īi]vok\w*\.?\s+(?:nr\.?|numurs|#)\s*[:.]?\s*(\d{1,4})',
         re.IGNORECASE,
     ),
+    # Windowed form: "dzīvokli ... Nr. 7" within ~30 chars. The gap
+    # must be "māja"-free — "dzīvokļu māja Nr. 5" is the building's
+    # number, not a unit.
+    re.compile(
+        r'dz[īi]vok\w*(?:(?!māj)[^\n.]){0,30}?'
+        r'\bnr\.?\s*[:.]?\s*(\d{1,4})',
+        re.IGNORECASE,
+    ),
     re.compile(r'\bdz\.\s*nr\.?\s*(\d{1,4})', re.IGNORECASE),
+    # "dz. 12" without nr — guarded against room counts
+    # ("dz. 3 istabas") and floor shorthand ("dz. 3. stāvā",
+    # "dz. 3 st.").
+    re.compile(
+        r'\bdz\.?\s*(\d{1,4})(?!\d)(?!\s*ist)'
+        r'(?!\s*\.?\s*st(?:\b|[āa]))',
+        re.IGNORECASE,
+    ),
     re.compile(
         r'\b(?:flat|apartment)\s+(?:nr\.?|no\.?|#)\s*(\d{1,4})',
+        re.IGNORECASE,
+    ),
+    # English bare forms: "apt. 7" / "flat 9".
+    re.compile(r'\b(?:apt|flat)\.?\s*(\d{1,4})\b', re.IGNORECASE),
+    # Russian "кв. 12" — guarded against "кв. N м" square metres and
+    # "кв. N-комнатная" / "кв. N комн." room counts.
+    re.compile(
+        r'\bкв\.?\s*(\d{1,4})(?!\d)(?!\s*м)(?![\s-]*комн)',
         re.IGNORECASE,
     ),
 )
@@ -65,7 +108,17 @@ def normalize_street_name(name):
 
 
 def normalize_street_no(no):
-    return _WS_RE.sub(' ', (no or '').strip().lower())
+    """Canonical street number for block keys and comparisons.
+
+    A fused ``N-M`` house-apt token ("12-3") normalizes to its house
+    part ("12"); the suffix is recovered as a match-time apartment
+    number by :func:`_ad_apartment_no`.
+    """
+    s = _WS_RE.sub(' ', (no or '').strip().lower())
+    match = _FUSED_STREET_NO_RE.match(s)
+    if match:
+        return match.group(1)
+    return s
 
 
 def normalize_apartment_no(no):
@@ -73,6 +126,20 @@ def normalize_apartment_no(no):
     if s.isdigit():
         return str(int(s))
     return s
+
+
+def fused_street_no_apt(street_no):
+    """The ``M`` suffix of a fused ``N-M`` street_no token, else ''.
+
+    ss.com writes house+unit as one token ("12-3"); the suffix is
+    the apartment number (conflation plan §3a.4).
+    """
+    match = _FUSED_STREET_NO_RE.match(
+        (street_no or '').strip().lower()
+    )
+    if match:
+        return str(int(match.group(2)))
+    return ''
 
 
 def extract_apartment_no(comment):
@@ -87,12 +154,19 @@ def extract_apartment_no(comment):
 
 
 def _ad_apartment_no(ad):
-    """Stored apartment number, or one extracted from the comment."""
-    return normalize_apartment_no(
-        getattr(ad, 'apartment_no', '') or extract_apartment_no(
-            getattr(ad, 'comment', '')
-        )
-    )
+    """Stored apartment number, or one recovered at match time.
+
+    Falls back to the comment text, then to the ``M`` suffix of a
+    fused ``N-M`` street_no ("12-3" → apt "3") — a candidate value
+    only; the stored fields are never rewritten.
+    """
+    stored = normalize_apartment_no(getattr(ad, 'apartment_no', ''))
+    if stored:
+        return stored
+    extracted = extract_apartment_no(getattr(ad, 'comment', ''))
+    if extracted:
+        return extracted
+    return fused_street_no_apt(getattr(ad, 'street_no', ''))
 
 
 def _property_apartment_nos(prop):
@@ -201,6 +275,71 @@ def _temporally_adjacent(ad, prop):
     return -1 <= gap_days <= TEMPORAL_GAP_DAYS
 
 
+def _same_seller_pair(a, b):
+    """Do two ads share a seller (id, phone or contact_id)?"""
+    if a.seller_id and a.seller_id == b.seller_id:
+        return True
+    sa, sb = _seller_or_none(a), _seller_or_none(b)
+    if sa and sb:
+        return bool(
+            (sa.phone and sa.phone == sb.phone)
+            or (sa.contact_id and sa.contact_id == sb.contact_id)
+        )
+    return False
+
+
+def _seen_window(ad):
+    """(first_seen, last_seen) as dates, or None if undated."""
+    first = getattr(ad, 'first_seen', None)
+    if first is None:
+        return None
+    last = getattr(ad, 'last_seen', None) or first
+    return first.date(), last.date()
+
+
+def _has_coexisting_pair(ads):
+    """Same-seller ad pair whose seen-windows overlap >= 2 days."""
+    for a, b in combinations(ads, 2):
+        if not _same_seller_pair(a, b):
+            continue
+        wa, wb = _seen_window(a), _seen_window(b)
+        if not wa or not wb:
+            continue
+        overlap = (min(wa[1], wb[1]) - max(wa[0], wb[0])).days
+        if overlap >= OVERLAP_MIN_DAYS:
+            return True
+    return False
+
+
+def conflation_alarms(ad, prop, prop_nos, linked):
+    """Conflation signatures for linking ``ad`` onto ``prop``.
+
+    Returns a set of alarm names using the audit_property_links flag
+    taxonomy. Any alarm demotes an ``auto`` decision to ``candidate``
+    — the evidence-shaped alarms (degenerate block, multiple
+    candidates) are added by :func:`match_property` only when the ad
+    lacks decisive evidence (apt_no match or a linked twin).
+    """
+    alarms = set()
+    if len(prop_nos) >= 2:
+        # Property already holds multiple unit numbers.
+        alarms.add(ALARM_APTNO_CONFLICT)
+    same_deal = [a for a in linked if type(a) is type(ad)]
+    if _has_coexisting_pair(same_deal):
+        # Batch-absorption signature: two same-seller ads of the same
+        # deal type already coexist on one property.
+        alarms.add(ALARM_COEXISTING)
+    floor_attr = 'floor' if hasattr(prop, 'floor') else 'floors'
+    floors = {getattr(a, floor_attr, None) for a in linked}
+    floors.discard(None)
+    ad_floor = getattr(ad, floor_attr, None)
+    if len(floors) > 1 or (
+        floors and ad_floor is not None and floors != {ad_floor}
+    ):
+        alarms.add(ALARM_FLOOR_CONFLICT)
+    return alarms
+
+
 def _score_candidate(ad, prop, ad_no, prop_nos, linked):
     score = 0.0
     if ad_no and ad_no in prop_nos:
@@ -239,20 +378,28 @@ def _score_candidate(ad, prop, ad_no, prop_nos, linked):
 
 def match_property(ad, candidates,
                    auto_threshold=AUTO_THRESHOLD,
-                   candidate_threshold=CANDIDATE_THRESHOLD):
+                   candidate_threshold=CANDIDATE_THRESHOLD,
+                   twin_prop_ids=None):
     """Match ``ad`` against blocked ``candidates`` (same building).
 
     ``candidates`` is an iterable of property objects already narrowed
     to the ad's block (district + street number) by the caller.
+    ``twin_prop_ids`` holds the pks of properties the ad's cross-deal
+    twin is linked to — membership is decisive evidence alongside an
+    apartment-number match.
+
     Returns ``(property_or_None, score, decision)`` where decision is
     'auto' (link now), 'candidate' (review queue) or 'new' (create a
-    fresh property — also when no candidates survive).
+    fresh property — also when no candidates survive). Conflation
+    alarms cap an 'auto' decision at 'candidate' — they demote, they
+    never promote a sub-threshold score.
     """
     ad_street = normalize_street_name(ad.street_name)
     ad_street_no = normalize_street_no(ad.street_no)
     ad_no = _ad_apartment_no(ad)
+    twin_ids = set(twin_prop_ids or ())
 
-    best_prop, best_score = None, 0.0
+    survivors = []
     for prop in candidates:
         if normalize_street_name(prop.street_name) != ad_street:
             continue
@@ -261,16 +408,46 @@ def match_property(ad, candidates,
         prop_nos = _property_apartment_nos(prop)
         if _hard_reject(ad, prop, ad_no, prop_nos):
             continue
-        score = _score_candidate(
-            ad, prop, ad_no, prop_nos, list(prop.iter_linked_ads())
-        )
-        if score > best_score:
-            best_prop, best_score = prop, score
+        linked = list(prop.iter_linked_ads())
+        score = _score_candidate(ad, prop, ad_no, prop_nos, linked)
+        survivors.append((prop, score, prop_nos, linked))
 
-    if best_prop is None:
+    if not survivors:
         return None, 0.0, 'new'
+
+    # Decisive evidence: the ad's apartment number already lives on
+    # the property, or the ad's cross-deal twin is linked there.
+    # Evaluate it across all survivors — when several survive, the
+    # property holding the evidence wins over a higher-scoring
+    # lookalike.
+    decisive_pool = [
+        s for s in survivors
+        if (ad_no and ad_no in s[2]) or s[0].pk in twin_ids
+    ]
+    decisive = bool(decisive_pool)
+    prop, best_score, prop_nos, linked = max(
+        decisive_pool or survivors, key=lambda s: s[1]
+    )
+    alarms = conflation_alarms(ad, prop, prop_nos, linked)
+    if not ad_street_no and not decisive:
+        # Settlement-level block (street_no == ''): the street name
+        # is a town, so the bucket spans the whole district — only
+        # decisive evidence may auto-link here.
+        alarms.add(ALARM_DEGENERATE_BLOCK)
+    if len(survivors) > 1 and not decisive:
+        # The score alone is choosing between lookalike properties.
+        alarms.add(ALARM_MULTI_CANDIDATE)
+    if alarms:
+        logger.info(
+            'conflation alarms for ad %s -> prop %s: %s',
+            getattr(ad, 'ad_id', '?'), prop.pk, sorted(alarms),
+        )
+        if best_score >= candidate_threshold:
+            return prop, best_score, 'candidate'
+        return None, best_score, 'new'
+
     if best_score >= auto_threshold:
-        return best_prop, best_score, 'auto'
+        return prop, best_score, 'auto'
     if best_score >= candidate_threshold:
-        return best_prop, best_score, 'candidate'
+        return prop, best_score, 'candidate'
     return None, best_score, 'new'
