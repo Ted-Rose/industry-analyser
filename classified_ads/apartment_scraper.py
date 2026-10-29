@@ -13,6 +13,7 @@ from .models import (
     ApartmentForSale, ApartmentForSaleSighting,
     Project, Region, Seller,
 )
+from .sale_flags import is_sale_misclassified
 
 logger = logging.getLogger('classified_ads')
 
@@ -20,34 +21,6 @@ DEAL_SUFFIXES = {
     'hand_over/': 'RENT',
     'sell/': 'SELL',
 }
-
-PRICE_THRESHOLD = 50
-SALE_KEYWORDS = [
-    'pārdod', 'pārdošan', 'pārdots', 'izpirkum', 'pirkt',
-    'pardod', 'pardosan', 'pardots',
-    'продаётся', 'Продаем', 'Продается', 'Продам',
-]
-
-
-def is_sale_misclassified(comment, monthly_price_per_sqm):
-    """
-    Check if a rental ad is actually a for-sale listing (Strategy C+).
-
-    Two complementary signals:
-    1. Price signal: monthly_price_per_sqm > 50 (sale price entered as rent)
-    2. Keyword signal: Latvian/Russian sale vocabulary in comment
-
-    See: docs/misclassified_sale_ads_analysis.md
-    """
-    if monthly_price_per_sqm > PRICE_THRESHOLD:
-        return True
-
-    comment_lower = comment.lower()
-    for keyword in SALE_KEYWORDS:
-        if keyword.lower() in comment_lower:
-            return True
-
-    return False
 
 
 class ApartmentAdScraper(BaseScraper):

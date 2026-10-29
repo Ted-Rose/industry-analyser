@@ -274,12 +274,19 @@ class HouseForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'land_area_sqm',
         'monthly_price',
         'monthly_price_per_sqm',
+        'is_sale_misclassified',
         'post_date',
         'seller',
         'days_active',
         'property_match_status',
     ]
-    list_filter = ['property_match_status', 'region', 'district']
+    list_filter = [
+        'is_sale_misclassified',
+        'property_match_status',
+        'region',
+        'district',
+    ]
+    list_editable = ['is_sale_misclassified']
     search_fields = [
         'district',
         'street_name',
