@@ -13,6 +13,10 @@ from scrape_jobs.runner import (
 logger = logging.getLogger('classified_ads')
 
 JOB_SLUG = 'classified_ads.apartment_ads'
+# The scrape is scheduled every other day (dom:odd), so the GCP
+# fallback cooldown is one day — just enough to dedup the
+# month-end 31st→1st consecutive odd days and same-day reruns.
+GCP_COOLDOWN_DAYS = 1
 
 
 class Command(BaseCommand):
@@ -55,7 +59,7 @@ class Command(BaseCommand):
             action='store_true',
             dest='ignore_cooldown',
             help='Run even if a scrape already succeeded in the '
-                 'cooldown window (6 days on GCP, current cycle '
+                 'cooldown window (1 day on GCP, current cycle '
                  'locally)',
         )
 
@@ -66,7 +70,8 @@ class Command(BaseCommand):
             or options['dry_run']
         ):
             reason = cooldown_skip_reason(
-                JOB_SLUG, detect_executed_by(), options['cycle']
+                JOB_SLUG, detect_executed_by(), options['cycle'],
+                days=GCP_COOLDOWN_DAYS,
             )
             if reason:
                 msg = f'{JOB_SLUG}: skipping — {reason}'

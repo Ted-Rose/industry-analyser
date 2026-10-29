@@ -108,14 +108,14 @@ class RunAllJobsTests(SimpleTestCase):
         return run, out.getvalue()
 
     def test_normal_pass_runs_only_due_entries_in_order(self):
-        # 2026-10-19 is a Monday with an odd day-of-month:
-        # weekly:mon + dom:odd due; last_day_of_month + manual not.
+        # 2026-10-19 has an odd day-of-month: every dom:odd entry
+        # is due; last_day_of_month + manual are not.
         with _patched_today(date(2026, 10, 19)):
             run, _ = self._handle()
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
-             'scrape_apartment_ads'],
+             'scrape_apartment_ads', 'link_ads_to_properties'],
         )
 
     def test_dry_run_prints_plan_and_runs_nothing(self):
@@ -124,8 +124,9 @@ class RunAllJobsTests(SimpleTestCase):
         run.assert_not_called()
         self.assertIn('RUN  scrape_tv_programs', out)
         self.assertIn('RUN  scrape_housing_ads', out)
+        self.assertIn('RUN  scrape_apartment_ads', out)
+        self.assertIn('RUN  link_ads_to_properties', out)
         self.assertIn('skip sync_receipt_emails', out)
-        self.assertIn('skip link_ads_to_properties', out)
         self.assertIn('skip scrape_vacancy', out)
         for label, _kind, _argv, _schedule in JOBS:
             self.assertIn(label, out)
@@ -143,28 +144,30 @@ class RunAllJobsTests(SimpleTestCase):
 
     def test_only_takes_precedence_over_force(self):
         # With both flags, --only wins: even a `manual` entry runs.
-        run, _ = self._handle(only='link_ads_to_properties',
-                              force=True)
-        self.assertEqual(self._labels(run), ['link_ads_to_properties'])
+        run, _ = self._handle(only='scrape_vacancy', force=True)
+        self.assertEqual(self._labels(run), ['scrape_vacancy'])
 
     def test_force_runs_all_non_manual_entries(self):
         run, _ = self._handle(force=True)
         self.assertEqual(
             self._labels(run),
             ['sync_receipt_emails', 'scrape_tv_programs',
-             'scrape_housing_ads', 'scrape_apartment_ads'],
+             'scrape_housing_ads', 'scrape_apartment_ads',
+             'link_ads_to_properties'],
         )
 
     def test_failure_continues_and_exits_nonzero(self):
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom'), None, None]
+                run.side_effect = [
+                    RuntimeError('boom'), None, None, None,
+                ]
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
-             'scrape_apartment_ads'],
+             'scrape_apartment_ads', 'link_ads_to_properties'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -174,7 +177,9 @@ class RunAllJobsTests(SimpleTestCase):
         # so the loop is unaffected either way.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom'), None, None]
+                run.side_effect = [
+                    RuntimeError('boom'), None, None, None,
+                ]
                 with mock.patch(
                     f'{MODULE}.capture_internal_exception'
                 ) as capture:
@@ -190,13 +195,13 @@ class RunAllJobsTests(SimpleTestCase):
         # not allowed to abort the remaining entries.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [SystemExit(1), None, None]
+                run.side_effect = [SystemExit(1), None, None, None]
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
-             'scrape_apartment_ads'],
+             'scrape_apartment_ads', 'link_ads_to_properties'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 

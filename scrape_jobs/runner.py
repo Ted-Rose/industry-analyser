@@ -148,20 +148,24 @@ def cycle_scrape_exists(slug, cycle_key=None):
     return _live_run_exists(job)
 
 
-def cooldown_skip_reason(slug, executed_by, cycle_key=None):
+def cooldown_skip_reason(slug, executed_by, cycle_key=None,
+                         days=6):
     """Skip reason for the cadence gates, or None to scrape.
 
-    GCP Cloud Run is the weekly fallback — skipped when a SUCCESS
-    run completed within the last 6 days. Local runs are daily —
-    skipped once the current cycle already has a SUCCESS run.
-    A live RUNNING run skips both.
+    GCP Cloud Run is the fallback — skipped when a SUCCESS run
+    completed within the last ``days`` days (default 6, the
+    weekly-fallback window; denser schedules pass a smaller
+    window). Local runs are daily — skipped once the current
+    cycle already has a SUCCESS run. A live RUNNING run skips
+    both.
     """
     if executed_by == 'gcp_cloud_run':
-        if recent_scrape_exists(slug):
+        if recent_scrape_exists(slug, days=days):
+            plural = 's' if days != 1 else ''
             return (
                 'a successful run completed within the last '
-                '6 days (or one is in progress); GCP run is a '
-                'weekly fallback'
+                f'{days} day{plural} (or one is in progress); '
+                'GCP run is a fallback'
             )
         return None
     if cycle_scrape_exists(slug, cycle_key):

@@ -104,8 +104,9 @@ class IsoWeekCycleKeyTests(TestCase):
 
 
 class CooldownGateTests(TestCase):
-    """cadence gates: GCP is the weekly fallback (6-day SUCCESS
-    window), local is daily (current-cycle SUCCESS window); a live
+    """cadence gates: GCP is the fallback (SUCCESS within the
+    last ``days`` days — default 6; denser schedules pass less),
+    local is daily (current-cycle SUCCESS window); a live
     RUNNING run gates both."""
 
     def _run(self, slug, status, cycle_key='2000-01-01',
@@ -165,6 +166,29 @@ class CooldownGateTests(TestCase):
         self.assertIsNone(
             cooldown_skip_reason('test.job', 'gcp_cloud_run')
         )
+
+    def test_gcp_cooldown_window_is_configurable(self):
+        # Denser schedules pass a smaller days= window — the
+        # classified-ads scrapes run dom:odd and use days=1.
+        self._run(
+            'test.job', ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(days=3),
+        )
+        self.assertIsNone(
+            cooldown_skip_reason(
+                'test.job', 'gcp_cloud_run', days=1
+            )
+        )
+
+    def test_gcp_short_window_still_gates_same_day(self):
+        self._run(
+            'test.job', ScrapeJobRun.SUCCESS,
+            completed_at=timezone.now() - timedelta(hours=12),
+        )
+        reason = cooldown_skip_reason(
+            'test.job', 'gcp_cloud_run', days=1
+        )
+        self.assertIn('1 day', reason)
 
     def test_unknown_job_not_gated(self):
         self.assertIsNone(
