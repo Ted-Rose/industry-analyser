@@ -63,16 +63,22 @@ _APT_NO_PATTERNS = (
         r'dz[īi]vok\w*\.?\s+(?:nr\.?|numurs|#)\s*[:.]?\s*(\d{1,4})',
         re.IGNORECASE,
     ),
-    # Windowed form: "dzīvokli ... Nr. 7" within ~30 chars.
+    # Windowed form: "dzīvokli ... Nr. 7" within ~30 chars. The gap
+    # must be "māja"-free — "dzīvokļu māja Nr. 5" is the building's
+    # number, not a unit.
     re.compile(
-        r'dz[īi]vok\w*[^\n.]{0,30}?\bnr\.?\s*[:.]?\s*(\d{1,4})',
+        r'dz[īi]vok\w*(?:(?!māj)[^\n.]){0,30}?'
+        r'\bnr\.?\s*[:.]?\s*(\d{1,4})',
         re.IGNORECASE,
     ),
     re.compile(r'\bdz\.\s*nr\.?\s*(\d{1,4})', re.IGNORECASE),
     # "dz. 12" without nr — guarded against room counts
-    # ("dz. 3 istabas").
+    # ("dz. 3 istabas") and floor shorthand ("dz. 3. stāvā",
+    # "dz. 3 st.").
     re.compile(
-        r'\bdz\.?\s*(\d{1,4})(?!\d)(?!\s*ist)', re.IGNORECASE
+        r'\bdz\.?\s*(\d{1,4})(?!\d)(?!\s*ist)'
+        r'(?!\s*\.?\s*st(?:\b|[āa]))',
+        re.IGNORECASE,
     ),
     re.compile(
         r'\b(?:flat|apartment)\s+(?:nr\.?|no\.?|#)\s*(\d{1,4})',
@@ -80,9 +86,11 @@ _APT_NO_PATTERNS = (
     ),
     # English bare forms: "apt. 7" / "flat 9".
     re.compile(r'\b(?:apt|flat)\.?\s*(\d{1,4})\b', re.IGNORECASE),
-    # Russian "кв. 12" — guarded against "кв. N м" square metres.
+    # Russian "кв. 12" — guarded against "кв. N м" square metres and
+    # "кв. N-комнатная" / "кв. N комн." room counts.
     re.compile(
-        r'\bкв\.?\s*(\d{1,4})(?!\d)(?!\s*м)', re.IGNORECASE
+        r'\bкв\.?\s*(\d{1,4})(?!\d)(?!\s*м)(?![\s-]*комн)',
+        re.IGNORECASE,
     ),
 )
 
@@ -120,6 +128,20 @@ def normalize_apartment_no(no):
     return s
 
 
+def fused_street_no_apt(street_no):
+    """The ``M`` suffix of a fused ``N-M`` street_no token, else ''.
+
+    ss.com writes house+unit as one token ("12-3"); the suffix is
+    the apartment number (conflation plan §3a.4).
+    """
+    match = _FUSED_STREET_NO_RE.match(
+        (street_no or '').strip().lower()
+    )
+    if match:
+        return str(int(match.group(2)))
+    return ''
+
+
 def extract_apartment_no(comment):
     """Pull an apartment number out of ad comment text, if present."""
     if not comment:
@@ -144,12 +166,7 @@ def _ad_apartment_no(ad):
     extracted = extract_apartment_no(getattr(ad, 'comment', ''))
     if extracted:
         return extracted
-    fused = _FUSED_STREET_NO_RE.match(
-        (getattr(ad, 'street_no', '') or '').strip().lower()
-    )
-    if fused:
-        return str(int(fused.group(2)))
-    return ''
+    return fused_street_no_apt(getattr(ad, 'street_no', ''))
 
 
 def _property_apartment_nos(prop):
@@ -397,14 +414,19 @@ def match_property(ad, candidates,
 
     if not survivors:
         return None, 0.0, 'new'
-    prop, best_score, prop_nos, linked = max(
-        survivors, key=lambda s: s[1]
-    )
 
     # Decisive evidence: the ad's apartment number already lives on
     # the property, or the ad's cross-deal twin is linked there.
-    decisive = bool(
-        (ad_no and ad_no in prop_nos) or prop.pk in twin_ids
+    # Evaluate it across all survivors — when several survive, the
+    # property holding the evidence wins over a higher-scoring
+    # lookalike.
+    decisive_pool = [
+        s for s in survivors
+        if (ad_no and ad_no in s[2]) or s[0].pk in twin_ids
+    ]
+    decisive = bool(decisive_pool)
+    prop, best_score, prop_nos, linked = max(
+        decisive_pool or survivors, key=lambda s: s[1]
     )
     alarms = conflation_alarms(ad, prop, prop_nos, linked)
     if not ad_street_no and not decisive:

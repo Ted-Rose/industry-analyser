@@ -151,6 +151,14 @@ class BaseProperty(models.Model):
         if field == 'street_no':
             from .property_matcher import normalize_street_no
             return normalize_street_no(value)
+        if field == 'apartment_no':
+            if value:
+                return value.strip()
+            # A fused "N-M" street_no carries the unit number in
+            # its suffix — seed it rather than leaving the field
+            # blank.
+            from .property_matcher import fused_street_no_apt
+            return fused_street_no_apt(getattr(ad, 'street_no', ''))
         # Block lookups filter on stripped values — keep stored
         # canonical strings clean so they always match.
         if isinstance(value, str):

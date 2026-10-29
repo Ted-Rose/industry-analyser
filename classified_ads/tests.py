@@ -1200,8 +1200,23 @@ class StreetNameNormalizationTest(TestCase):
         self.assertEqual(extract_apartment_no('квартира 602'), '')
         # Room counts must not read as unit numbers.
         self.assertEqual(extract_apartment_no('dz. 3 istabas'), '')
+        self.assertEqual(extract_apartment_no('кв. 3-комнатная'), '')
+        self.assertEqual(extract_apartment_no('кв. 6 комн.'), '')
+        # Floor shorthand after "dz. N" is not a unit number.
+        self.assertEqual(extract_apartment_no('dz. 3. stāvā'), '')
+        self.assertEqual(extract_apartment_no('dz. 3 st.'), '')
         # A bare "Nr." without a flat marker stays gated.
         self.assertEqual(extract_apartment_no('Mājas Nr. 5'), '')
+        # "dzīvokļu māja Nr. N" numbers the *building*, not a unit —
+        # the windowed pattern's gap must be māja-free.
+        self.assertEqual(
+            extract_apartment_no('Dzīvokļu māja Nr. 5'), ''
+        )
+        self.assertEqual(
+            extract_apartment_no('Pārdod dzīvokļu māju Nr. 12'), ''
+        )
+        # ...while "dzīvokļu Nr. N" as a unit stays valid.
+        self.assertEqual(extract_apartment_no('Dzīvokļu Nr. 5'), '5')
 
     def test_normalize_street_no_splits_fused_house_apt(self):
         # ss.com fuses house+apt into "N-M": house part is the
@@ -1510,6 +1525,37 @@ class PropertyMatcherTest(TestCase):
         self.assertEqual(decision, 'new')
         self.assertIsNone(best)
 
+    def test_from_ad_seeds_apartment_no_from_fused_street_no(self):
+        """A '12-3' ad creates a prop with street_no '12' AND
+        apartment_no '3' — the fused suffix isn't dropped."""
+        ad = self._rent_ad(street_no='12-3')
+        prop = ApartmentProperty.from_ad(ad)
+
+        self.assertEqual(prop.street_no, '12')
+        self.assertEqual(prop.apartment_no, '3')
+
+    def test_decisive_survivor_beats_score_winner(self):
+        """With >1 survivor the property holding the matching
+        apt_no wins over a higher-scoring lookalike — decisive
+        evidence is evaluated across all survivors."""
+        ad_a = self._rent_ad(comment='Pirmais variants')
+        prop_a = self._property_from(ad_a)
+        ad_b = self._rent_ad(
+            apartment_no='7', comment='Cits',
+            seller=self.other_seller,
+        )
+        prop_b = self._property_from(ad_b)
+
+        # prop_a scores higher (same seller, same comment) but only
+        # prop_b holds the ad's apartment number.
+        ad3 = self._rent_ad(
+            apartment_no='7', comment='Pirmais variants'
+        )
+        best, score, decision = match_property(ad3, [prop_a, prop_b])
+
+        self.assertEqual(decision, 'auto')
+        self.assertIs(best, prop_b)
+
 
 class LinkAdsToPropertiesCommandTest(TestCase):
     def _rent_ad(self, ad_id, **kw):
@@ -1603,6 +1649,32 @@ class LinkAdsToPropertiesCommandTest(TestCase):
         self.assertIsNotNone(old_ad.property_id)
         self.assertEqual(new_ad.property_match_status, 'unmatched')
         self.assertIsNone(new_ad.property_id)
+
+    def test_legacy_fused_street_no_property_is_reachable(self):
+        """Pre-split properties stored street_no='12-3' raw — the
+        block query must still surface them or every incoming fused
+        ad manufactures a duplicate property."""
+        seller = Seller.objects.create(phone='111')
+        legacy_ad = self._rent_ad('old', seller=seller, street_no='12-3')
+        prop = ApartmentProperty.from_ad(legacy_ad)
+        # Pre-split rows kept the raw fused token and no apt number.
+        prop.street_no = '12-3'
+        prop.apartment_no = ''
+        prop.save()
+        legacy_ad.property = prop
+        legacy_ad.property_match_status = 'manual'
+        legacy_ad.save()
+
+        new_ad = self._rent_ad('new', seller=seller, street_no='12-3')
+        call_command(
+            'link_ads_to_properties',
+            '--type', 'apartment', '--deal', 'rent',
+        )
+        new_ad.refresh_from_db()
+
+        self.assertEqual(new_ad.property_id, prop.pk)
+        self.assertEqual(new_ad.property_match_status, 'auto')
+        self.assertEqual(ApartmentProperty.objects.count(), 1)
 
 
 class TwinShortcutCommandTest(TestCase):
@@ -1793,6 +1865,22 @@ class TwinShortcutCommandTest(TestCase):
         self.assertEqual(rent.property_id, sale_prop.pk)
         self.assertEqual(rent.property_match_score, 1.0)
         self.assertEqual(ApartmentProperty.objects.count(), 1)
+
+    def test_twin_conflict_count_is_surfaced_in_report(self):
+        """A hard-gate conflict on the twin's property is counted
+        AND printed — it used to be tallied but invisible."""
+        from io import StringIO
+
+        self._sale_ad('tc1', rooms=2)
+        self._link_ads('--type', 'apartment', '--deal', 'sale')
+        self._rent_ad('tc1', rooms=3)
+
+        out = StringIO()
+        call_command(
+            'link_ads_to_properties',
+            '--type', 'apartment', '--deal', 'rent', stdout=out,
+        )
+        self.assertIn('of which twin-conflicts: 1', out.getvalue())
 
     def test_twin_shortcut_is_symmetric_for_houses(self):
         rent = self._house_rent_ad('h1')

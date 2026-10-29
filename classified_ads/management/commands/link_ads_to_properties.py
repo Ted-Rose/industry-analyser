@@ -19,11 +19,12 @@ twin's property when the hard gates pass, or enters the review
 queue against it when attributes conflict.
 """
 import logging
+import re
 from collections import defaultdict
 from datetime import timedelta
 
 from django.core.management.base import BaseCommand
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q
 from django.utils import timezone
 
 from classified_ads import property_matcher as pm
@@ -170,10 +171,19 @@ class Command(BaseCommand):
     def _load_block(self, ad, prop_model):
         """Fetch block candidates and cache their linked ads."""
         rent_model, sale_model = PROP_AD_MODELS[prop_model]
+        norm_no = pm.normalize_street_no(ad.street_no)
+        street_filter = Q(street_no__iexact=norm_no)
+        if norm_no.isdigit():
+            # Properties created before the N-M split may still
+            # store the fused token raw ("12-3"); they normalize
+            # into this block at match time, so fetch them too.
+            street_filter |= Q(
+                street_no__iregex=rf'^{re.escape(norm_no)}-\d+$'
+            )
         props = list(
             prop_model.objects.filter(
+                street_filter,
                 district__iexact=ad.district.strip(),
-                street_no__iexact=pm.normalize_street_no(ad.street_no),
             ).prefetch_related(
                 Prefetch(
                     'rent_ads',
@@ -238,7 +248,6 @@ class Command(BaseCommand):
         ad_no = pm._ad_apartment_no(ad)
         prop_nos = pm._property_apartment_nos(prop)
         if pm._hard_reject(ad, prop, ad_no, prop_nos):
-            histogram[round(self.auto_threshold, 1)] += 1
             ad.candidate_property = prop
             ad.property_match_status = 'candidate'
             ad.property_match_score = self.auto_threshold
@@ -381,6 +390,9 @@ class Command(BaseCommand):
         self.stdout.write(f'  Auto-linked:       {counts["auto_linked"]}')
         self.stdout.write(f'  of which twins:    {counts["twin_linked"]}')
         self.stdout.write(f'  Review candidates: {counts["candidate"]}')
+        self.stdout.write(
+            f'  of which twin-conflicts: {counts["twin_conflict"]}'
+        )
         if self.relink:
             self.stdout.write(f'  Kept existing:     {counts["kept"]}')
         if histogram:
