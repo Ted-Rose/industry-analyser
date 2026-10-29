@@ -31,6 +31,7 @@ from .models import (
     NewsTopic,
 )
 from .scraper import NewsScraper
+from .topics import TOPICS
 
 FEED_A = b"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
@@ -559,8 +560,8 @@ class DigestTests(TestCase):
         result = build_digest(self.today, top_n=5)
         _, _, rationale = result['items'][0]
         # The 'candidate' link awaits admin review — it must not
-        # count as coverage.
-        self.assertEqual(rationale, '1 outlets: a')
+        # count as coverage. Singular count is not pluralized.
+        self.assertEqual(rationale, '1 outlet: a')
 
     def test_all_candidate_story_excluded_from_digest(self):
         story = NewsStory.objects.create(
@@ -589,3 +590,191 @@ class DigestTests(TestCase):
         content = response.content.decode()
         self.assertIn('Ziņa viens', content)
         self.assertNotIn(cand.title, content)
+
+
+class StemClassificationTests(TestCase):
+    """Inflected Latvian must still hit the base-form keyword —
+    the shared stemmer collapses 'Saeimas'/'Saeima' onto the
+    'saei' stem; multi-word keywords need all their stems."""
+
+    def setUp(self):
+        self.funding = NewsTopic.objects.create(
+            slug='government-funding',
+            name='Valsts finansējums',
+            weight=1.3,
+            keywords=[
+                'budžets', 'finansējums', 'ES fondi',
+                'Eiropas Savienības fondi',
+            ],
+        )
+        self.politics = NewsTopic.objects.create(
+            slug='politics',
+            name='Politika',
+            weight=1.0,
+            keywords=['Saeima', 'valdība', 'deputāts'],
+        )
+        self.economics = NewsTopic.objects.create(
+            slug='economics',
+            name='Ekonomika',
+            weight=1.2,
+            keywords=['tarifi', 'elektroenerģija'],
+        )
+        # Topic order decides score ties — funding first so the
+        # 'budž' vs 'vald' tie below resolves to funding.
+        self.topics = [self.funding, self.politics, self.economics]
+
+    def test_inflected_saeima_hits_politics(self):
+        topic = classify_topic(
+            'Saeimas deputāti balso par likumu',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.politics)
+
+    def test_inflected_budget_hits_funding(self):
+        topic = classify_topic(
+            'Valdības budžeta izmaiņas',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.funding)
+
+    def test_inflected_energy_hits_economics(self):
+        topic = classify_topic(
+            'Elektroenerģijas tarifi pieaugs',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.economics)
+
+    def test_unrelated_title_returns_none(self):
+        topic = classify_topic(
+            'Dziedātāja izlaiž jaunu albumu',
+            'Koncertu tūre sākas rudenī.',
+            self.topics,
+        )
+        self.assertIsNone(topic)
+
+    def test_multiword_keyword_all_stems_present(self):
+        # 'ES fondi' stems to {es, fond} — both appear inflected
+        # in the title; 'Eiropas Savienības fondi' only partially
+        # overlaps and does not hit.
+        topic = classify_topic(
+            'ES fondu līdzekļi pašvaldībām',
+            '',
+            self.topics,
+        )
+        self.assertEqual(topic, self.funding)
+
+    def test_multiword_keyword_partial_stems_miss(self):
+        # Only 'fond' is present — 'ES fondi' requires 'es' too.
+        topic = classify_topic(
+            'Fondu pārvalde pārskata prioritātes',
+            '',
+            self.topics,
+        )
+        self.assertIsNone(topic)
+
+    def test_title_hits_weigh_double(self):
+        # economics: 'tarifi' in the title (2 points); politics:
+        # 'Saeima' only in the lead (1 point) — the title hit
+        # wins outright rather than tying.
+        topic = classify_topic(
+            'Tarifi pieaugs',
+            'Saeima debatēs.',
+            self.topics,
+        )
+        self.assertEqual(topic, self.economics)
+
+
+class ReclassifyCommandTests(TestCase):
+    def setUp(self):
+        self.source = _source('a')
+        self.politics = NewsTopic.objects.create(
+            slug='politics', name='Politika', weight=2.0,
+            keywords=['Saeima', 'deputāts'],
+        )
+
+    def _clustered_article(self):
+        article = _article(
+            self.source, 'Saeimas deputāti pieņem likumu',
+            published=timezone.now(),
+        )
+        link_unmatched_articles(days=2)
+        article.refresh_from_db()
+        return article
+
+    def test_dry_run_writes_nothing(self):
+        article = self._clustered_article()
+        story = article.story
+        old_importance = story.importance_score
+        call_command(
+            'reclassify_news_articles',
+            '--dry-run',
+            stdout=StringIO(),
+        )
+        article.refresh_from_db()
+        story.refresh_from_db()
+        self.assertIsNone(article.topic_id)
+        self.assertIsNone(story.topic_id)
+        self.assertEqual(story.importance_score, old_importance)
+
+    def test_run_flips_topic_and_refreshes_story(self):
+        article = self._clustered_article()
+        story = article.story
+        self.assertIsNone(story.topic_id)
+        call_command('reclassify_news_articles', stdout=StringIO())
+        article.refresh_from_db()
+        story.refresh_from_db()
+        self.assertEqual(article.topic_id, self.politics.id)
+        # The story adopts the member topic and its refreshed
+        # importance uses that weight (1 source x 2.0 x 1.0).
+        self.assertEqual(story.topic_id, self.politics.id)
+        self.assertEqual(story.importance_score, 2.0)
+
+    def test_all_flag_reclassifies_assigned_articles(self):
+        other = NewsTopic.objects.create(
+            slug='other', name='Cits', keywords=['zzzz'],
+        )
+        article = _article(
+            self.source, 'Saeimas deputāti pieņem likumu',
+            topic=other, published=timezone.now(),
+        )
+        # Default scope touches untopicked articles only.
+        call_command('reclassify_news_articles', stdout=StringIO())
+        article.refresh_from_db()
+        self.assertEqual(article.topic_id, other.id)
+        call_command(
+            'reclassify_news_articles', '--all', stdout=StringIO(),
+        )
+        article.refresh_from_db()
+        self.assertEqual(article.topic_id, self.politics.id)
+
+
+class SeedSyncTests(TestCase):
+    def setUp(self):
+        call_command('seed_news_sources', stdout=StringIO())
+
+    def _edit_politics(self):
+        topic = NewsTopic.objects.get(slug='politics')
+        topic.keywords = ['pielāgots']
+        topic.weight = 9.9
+        topic.save()
+        return topic
+
+    def test_seed_preserves_admin_edits(self):
+        topic = self._edit_politics()
+        call_command('seed_news_sources', stdout=StringIO())
+        topic.refresh_from_db()
+        self.assertEqual(topic.keywords, ['pielāgots'])
+        self.assertEqual(topic.weight, 9.9)
+
+    def test_sync_overwrites_keywords_and_weight(self):
+        topic = self._edit_politics()
+        call_command(
+            'seed_news_sources', '--sync', stdout=StringIO(),
+        )
+        topic.refresh_from_db()
+        seed = next(t for t in TOPICS if t['slug'] == 'politics')
+        self.assertEqual(topic.keywords, seed['keywords'])
+        self.assertEqual(topic.weight, seed['weight'])

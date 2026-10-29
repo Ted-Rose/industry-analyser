@@ -103,16 +103,26 @@ NEWS_FEEDS = (
 )
 
 
-def ensure_seeded(dry_run=False):
+def ensure_seeded(dry_run=False, sync=False):
     """Idempotently seed NewsSource rows from NEWS_FEEDS and
-    NewsTopic rows from TOPICS. get_or_create only — admin edits
-    are never overwritten. Returns counts of rows created (or
-    that would be created under ``dry_run``).
+    NewsTopic rows from TOPICS.
+
+    Default is get_or_create only — admin edits are never
+    overwritten. With ``sync=True`` the seed's ``keywords`` and
+    ``weight`` are written onto existing topic rows whose slug
+    matches a seed slug (the maintainer's explicit "adopt new
+    seed keyword lists" switch; ``name`` and ``is_enabled`` are
+    still left alone). Returns counts of rows created/updated
+    (or that would be, under ``dry_run``).
     """
     from .models import NewsSource, NewsTopic
     from .topics import TOPICS
 
-    stats = {'sources_created': 0, 'topics_created': 0}
+    stats = {
+        'sources_created': 0,
+        'topics_created': 0,
+        'topics_updated': 0,
+    }
     for feed in NEWS_FEEDS:
         slug = feed['slug']
         defaults = {k: v for k, v in feed.items() if k != 'slug'}
@@ -129,12 +139,26 @@ def ensure_seeded(dry_run=False):
         slug = topic['slug']
         defaults = {k: v for k, v in topic.items() if k != 'slug'}
         if dry_run:
-            if not NewsTopic.objects.filter(slug=slug).exists():
+            row = NewsTopic.objects.filter(slug=slug).first()
+            if row is None:
                 stats['topics_created'] += 1
+            elif sync and (
+                row.keywords != defaults['keywords']
+                or row.weight != defaults['weight']
+            ):
+                stats['topics_updated'] += 1
             continue
-        _, created = NewsTopic.objects.get_or_create(
+        row, created = NewsTopic.objects.get_or_create(
             slug=slug, defaults=defaults,
         )
         if created:
             stats['topics_created'] += 1
+        elif sync and (
+            row.keywords != defaults['keywords']
+            or row.weight != defaults['weight']
+        ):
+            row.keywords = defaults['keywords']
+            row.weight = defaults['weight']
+            row.save(update_fields=['keywords', 'weight'])
+            stats['topics_updated'] += 1
     return stats

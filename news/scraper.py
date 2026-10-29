@@ -53,6 +53,11 @@ def _strip_html(raw):
     """Strip HTML markup from a feed description, keeping text."""
     if not raw:
         return ''
+    if '<' not in raw:
+        # Plain text — feeding it to bs4 risks a
+        # MarkupResemblesLocatorWarning when it looks like a
+        # filename/URL (bs4 guesses it is a locator, not markup).
+        return raw.strip()
     return BeautifulSoup(raw, 'html.parser').get_text().strip()
 
 
