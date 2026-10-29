@@ -1,8 +1,11 @@
 """RSS feed scraper for Latvian news outlets.
 
-Flow per source: fetch feed_url -> parse <item>s -> in-session
-dedup on external_id -> unsaved NewsArticle rows (topic
-classified) -> bulk create/update. No enrichment, no paid AI.
+Flow per source: conditional GET of feed_url (a 304 means the
+feed is unchanged and the source's item is done) -> parse
+<item>s -> in-session dedup on external_id -> split on DB-known
+external_ids (known rows get a last_seen bump only) -> unsaved
+NewsArticle rows (topic classified) -> bulk create/update.
+No enrichment, no paid AI.
 
 Runner/checkpoint precedent: tv_programs/scraper.py —
 sync_items keyed by source.slug, yield inside try/except so a
@@ -172,6 +175,103 @@ class NewsScraper(BaseScraper):
                 continue
             runner.item_done(item)
 
+    def scrape_portal(self, search_url):
+        """Fetch the feed with a conditional GET, then run the
+        base parse -> dedup -> extract flow.
+
+        The source's stored ETag/Last-Modified ride along as
+        If-None-Match/If-Modified-Since. A 304 means the feed is
+        unchanged: nothing is parsed and get_search_urls still
+        marks the runner item done, so the feed is not retried
+        this cycle. Otherwise the response's fresh validators
+        are stored on the source for the next poll.
+        """
+        source = self._active_source
+        response = self.make_request(
+            search_url, headers=self._feed_headers(source)
+        )
+        if getattr(response, 'status', None) == 304:
+            logger.info(
+                'Feed %s unchanged (304 Not Modified)',
+                getattr(source, 'slug', search_url),
+            )
+            self.last_search_had_results = False
+            return None
+        # Only a real 200 feed body may refresh the stored
+        # validators — an error page (403/404/...) can carry its
+        # own ETag that would wrongly 304 the feed afterwards.
+        if (
+            source is not None
+            and getattr(response, 'status', None) == 200
+        ):
+            self._store_feed_validators(source, response)
+        # Mirrors BaseScraper.scrape_portal from here on.
+        if self.stop_on_redirect and self._was_redirected(
+            response
+        ):
+            logger.info(
+                f"{search_url} redirected to "
+                f"{response.geturl()}, treating as the end "
+                "of paginated results"
+            )
+            self.last_search_had_results = False
+            return None
+        parsed_results = self.parse_results(response)
+        if not parsed_results:
+            logger.info(f"No results found for {search_url}")
+            self.last_search_had_results = False
+            return None
+        pruned_results = self.remove_redundant_results(
+            parsed_results
+        )
+        self.last_search_had_results = bool(parsed_results)
+        return self.extract_resources(pruned_results)
+
+    def _feed_headers(self, source):
+        """Browser defaults plus this feed's conditional-GET
+        validators (make_request replaces the header set
+        wholesale when given one, so the merge happens here)."""
+        headers = dict(self.default_headers)
+        if source is None:
+            return headers
+        if getattr(self.runner, 'fresh', False):
+            # --fresh / --source: a deliberate re-scrape must
+            # re-parse the feed — a 304 would return early and
+            # keep manually deleted articles missing. Fresh 200
+            # validators are still stored for the next poll.
+            return headers
+        if source.etag:
+            headers['If-None-Match'] = source.etag
+        if source.last_modified:
+            headers['If-Modified-Since'] = source.last_modified
+        return headers
+
+    def _store_feed_validators(self, source, response):
+        """Persist the feed's fresh ETag/Last-Modified for the
+        next conditional GET. A validator the server stopped
+        sending is cleared — a stale one could wrongly 304 a
+        changed feed."""
+        response_headers = getattr(response, 'headers', None)
+        if response_headers is None:
+            return
+        # Truncated to the field's max_length — an oversized
+        # header value would otherwise DataError on save and fail
+        # the item every cycle.
+        new_etag = (response_headers.get('ETag') or '')[:200] or None
+        new_modified = (
+            response_headers.get('Last-Modified') or ''
+        )[:200] or None
+        if (
+            source.etag == new_etag
+            and source.last_modified == new_modified
+        ):
+            return
+        source.etag = new_etag
+        source.last_modified = new_modified
+        if self.dry_run or source.pk is None:
+            return
+        source.save(update_fields=['etag', 'last_modified'])
+
     def parse_results(self, response):
         """Parse an RSS 2.0 feed body into a list of item dicts.
 
@@ -292,9 +392,48 @@ class NewsScraper(BaseScraper):
         return deduped
 
     def initiate_resources(self, results):
-        """Build unsaved NewsArticle instances; topic is classified
-        here so both new and refreshed rows carry it."""
-        return [self.initiate_resource(r) for r in results]
+        """Split parsed items on external_id: rows already in the
+        DB get a last_seen bump in one UPDATE and are skipped —
+        no re-classify, no field rewrite. Only new items are
+        topic-classified and instantiated for bulk_create."""
+        if not results:
+            return []
+        source = self._active_source
+        known_ids = set()
+        if source is not None and source.pk is not None:
+            # One query per feed: the ids this source already has.
+            known_ids = set(
+                NewsArticle.objects.filter(
+                    source=source,
+                    external_id__in=[
+                        r['external_id'][:64] for r in results
+                    ],
+                ).values_list('external_id', flat=True)
+            )
+        if not known_ids:
+            return [self.initiate_resource(r) for r in results]
+        new_results = [
+            r for r in results
+            if r['external_id'][:64] not in known_ids
+        ]
+        if self.dry_run:
+            logger.info(
+                '[dry-run] would bump last_seen on %d known '
+                'article(s)',
+                len(known_ids),
+            )
+        else:
+            NewsArticle.objects.filter(
+                source=source,
+                external_id__in=known_ids,
+            ).update(last_seen=timezone.now())
+        logger.info(
+            'Feed %s: %d known item(s) skipped, %d new',
+            getattr(source, 'slug', '?'),
+            len(results) - len(new_results),
+            len(new_results),
+        )
+        return [self.initiate_resource(r) for r in new_results]
 
     def initiate_resource(self, result):
         topic = classify_topic(

@@ -15,9 +15,39 @@ class NewsSource(models.Model):
     # 'none' = the feed carries no usable category signal.
     category_strategy = models.CharField(max_length=8, default='none')
     importance_weight = models.FloatField(default=1.0)
+    # HTTP validators from the last 200 response — sent back as
+    # If-None-Match / If-Modified-Since so an unchanged feed
+    # answers 304 and skips parsing entirely.
+    etag = models.CharField(max_length=200, null=True, blank=True)
+    last_modified = models.CharField(
+        max_length=200, null=True, blank=True
+    )
 
     class Meta:
         db_table = 'news_source'
+
+    def save(self, *args, **kwargs):
+        # The stored validators describe the previous feed_url —
+        # a different resource can legitimately answer 304 to
+        # them and then never be re-parsed, so a feed_url edit
+        # drops them and the next poll is unconditional.
+        update_fields = kwargs.get('update_fields')
+        if self.pk is not None and (
+            update_fields is None or 'feed_url' in update_fields
+        ):
+            old_url = (
+                NewsSource.objects.filter(pk=self.pk)
+                .values_list('feed_url', flat=True)
+                .first()
+            )
+            if old_url is not None and old_url != self.feed_url:
+                self.etag = None
+                self.last_modified = None
+                if update_fields is not None:
+                    kwargs['update_fields'] = set(
+                        update_fields
+                    ) | {'etag', 'last_modified'}
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.name} ({self.slug})'
