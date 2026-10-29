@@ -14,8 +14,8 @@ from classified_ads.housing_scraper import HousingAdScraper
 from classified_ads.models import (
     ApartmentForRent, ApartmentForRentSighting, ApartmentForSale,
     ApartmentForSaleSighting, ApartmentProperty, HouseForRent,
-    HouseForRentSighting, HouseForSale, HouseProperty, Region,
-    Seller,
+    HouseForRentSighting, HouseForSale, HouseForSaleSighting,
+    HouseProperty, Region, Seller,
 )
 from classified_ads.sale_flags import is_sale_misclassified
 from classified_ads.property_matcher import (
@@ -1639,3 +1639,203 @@ class HousingJunkIngestGuardTest(TestCase):
         (result,) = self._parse([self._row()])
         ad = self._scraper().initiate_resource(result)
         self.assertFalse(ad.is_hidden)
+
+
+class ReconcileHiddenAdsCommandTest(TestCase):
+    """reconcile_hidden_ads — un-hide rows that migration 0015 hid
+    but that still receive sightings (F3)."""
+
+    def setUp(self):
+        self._counter = 0
+        self.today = timezone.localdate()
+
+    def _rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'tr_{9000000 + self._counter}',
+            link=f'https://example.com/rent/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=6.0,
+            total_price=300.0,
+            monthly_price=300.0,
+            monthly_price_per_sqm=6.0,
+            total_price_120m=360.0,
+            price_per_sqm_120m=7.2,
+            is_hidden=True,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _house_rent_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'tr_{8000000 + self._counter}',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+            is_hidden=True,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def _house_sale_ad(self, ad_id=None, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=ad_id or f'tr_{7000000 + self._counter}',
+            link=f'https://example.com/hsale/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=2000.0,
+            total_price=240000.0,
+            is_hidden=True,
+        )
+        defaults.update(kw)
+        return HouseForSale.all_objects.create(**defaults)
+
+    def _sight(self, sighting_model, ad, seen_on=None):
+        return sighting_model.objects.create(
+            ad=ad, seen_on=seen_on or self.today
+        )
+
+    def test_unhides_sighted_hidden_ad(self):
+        ad = self._rent_ad()
+        self._sight(ApartmentForRentSighting, ad)
+        # auto_now bump guard: backdate last_seen, expect it kept.
+        back = timezone.now() - timedelta(days=5)
+        ApartmentForRent.all_objects.filter(pk=ad.pk).update(
+            last_seen=back
+        )
+
+        call_command('reconcile_hidden_ads')
+
+        ad.refresh_from_db()
+        self.assertFalse(ad.is_hidden)
+        self.assertEqual(ad.last_seen, back)
+
+    def test_stale_or_missing_sighting_stays_hidden(self):
+        stale = self._rent_ad()
+        self._sight(
+            ApartmentForRentSighting, stale,
+            seen_on=self.today - timedelta(days=30),
+        )
+        never = self._rent_ad()
+
+        call_command('reconcile_hidden_ads')
+
+        stale.refresh_from_db()
+        never.refresh_from_db()
+        self.assertTrue(stale.is_hidden)
+        self.assertTrue(never.is_hidden)
+
+    def test_malformed_ad_id_stays_hidden(self):
+        ad = self._rent_ad(ad_id='tr_54290794Skolas 23606')
+        self._sight(ApartmentForRentSighting, ad)
+
+        call_command('reconcile_hidden_ads')
+
+        ad.refresh_from_db()
+        self.assertTrue(ad.is_hidden)
+
+    def test_visible_same_link_sibling_stays_hidden(self):
+        link = 'https://example.com/dup/1'
+        hidden = self._rent_ad(ad_id='tr_1111111', link=link)
+        self._sight(ApartmentForRentSighting, hidden)
+        # Frozen-canonical pair: a visible composite-id row holds
+        # the same link — F6 owns the swap, F3 must not un-hide.
+        self._rent_ad(
+            ad_id='tr_1111111junk', link=link, is_hidden=False
+        )
+
+        call_command('reconcile_hidden_ads')
+
+        hidden.refresh_from_db()
+        self.assertTrue(hidden.is_hidden)
+
+    def test_all_hidden_dup_group_unhides_one(self):
+        link = 'https://example.com/dup/2'
+        first = self._rent_ad(ad_id='tr_2000001', link=link)
+        second = self._rent_ad(ad_id='tr_2000002', link=link)
+        self._sight(ApartmentForRentSighting, first)
+        self._sight(ApartmentForRentSighting, second)
+
+        call_command('reconcile_hidden_ads')
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertFalse(first.is_hidden)
+        self.assertTrue(second.is_hidden)
+
+    def test_misclassified_rental_stays_hidden(self):
+        apt = self._rent_ad(is_sale_misclassified=True)
+        self._sight(ApartmentForRentSighting, apt)
+        house = self._house_rent_ad(is_sale_misclassified=True)
+        self._sight(HouseForRentSighting, house)
+
+        call_command('reconcile_hidden_ads')
+
+        apt.refresh_from_db()
+        house.refresh_from_db()
+        self.assertTrue(apt.is_hidden)
+        self.assertTrue(house.is_hidden)
+
+    def test_days_arg_widens_window(self):
+        ad = self._rent_ad()
+        self._sight(
+            ApartmentForRentSighting, ad,
+            seen_on=self.today - timedelta(days=20),
+        )
+
+        call_command('reconcile_hidden_ads')
+        ad.refresh_from_db()
+        self.assertTrue(ad.is_hidden)
+
+        call_command('reconcile_hidden_ads', '--days', '30')
+        ad.refresh_from_db()
+        self.assertFalse(ad.is_hidden)
+
+    def test_model_filter_limits_table(self):
+        rent = self._rent_ad()
+        self._sight(ApartmentForRentSighting, rent)
+        house = self._house_sale_ad()
+        self._sight(HouseForSaleSighting, house)
+
+        call_command('reconcile_hidden_ads', '--model', 'house-sale')
+
+        rent.refresh_from_db()
+        house.refresh_from_db()
+        self.assertTrue(rent.is_hidden)
+        self.assertFalse(house.is_hidden)
+
+    def test_dry_run_writes_nothing(self):
+        from io import StringIO
+
+        ad = self._rent_ad()
+        self._sight(ApartmentForRentSighting, ad)
+        out = StringIO()
+        call_command(
+            'reconcile_hidden_ads', '--dry-run', stdout=out
+        )
+        output = out.getvalue()
+        self.assertIn('DRY-RUN', output)
+        self.assertIn(f'pk={ad.pk} tr_9000001', output)
+        self.assertIn('Would un-hide', output)
+
+        ad.refresh_from_db()
+        self.assertTrue(ad.is_hidden)
