@@ -61,9 +61,11 @@ PROFESSION_RULES: list[tuple[str, tuple[str, ...]]] = [
         r'\bstažier',
     )),
     # Driver trap → other: must run before generic `vadītājs`.
+    # `auto` is bounded so compounds like "autoparka vadītājs"
+    # (fleet manager) fall through to `manager`.
     (OTHER, (
         r'\bšofer',
-        r'\b(?:auto|automašīnas?|autobusa|kravas|iekrāvēja?|'
+        r'\b(?:auto\b|automašīnas?|autobusa|kravas|iekrāvēja?|'
         r'vilcēja?|taksometra|taksi)\w*\s+(?:\w+\s+){0,2}vadītāj',
         r'\bautovadītāj',
         r'\bdriver\b',
@@ -99,8 +101,8 @@ PROFESSION_RULES: list[tuple[str, tuple[str, ...]]] = [
     ('it-architect', (
         r'\b(?:solution|software|technical|technology|data|'
         r'enterprise|infrastructure|cloud|it|ict)\s+architect',
-        r'\b(?:risinājumu|tehnoloģij\w*|datu|infrastruktūras|it|'
-        r'ikt)\s+arhitekt',
+        r'\b(?:risinājumu|tehnoloģij\w*|datu|infrastruktūras|'
+        r'cloud|it|ikt)\s+arhitekt',
         r'\w*sistēm\w*\s+arhitekt',
     )),
     ('qa-engineer', (
@@ -241,7 +243,9 @@ PROFESSION_RULES: list[tuple[str, tuple[str, ...]]] = [
         r'\bco[\s-]?founder|\bfounder\b',
         r'\bīpašniek|\blīdzīpašniek',
         r'\bvaldes\s+(?:locekl|priekšsēdētāj)',
-        r'\bdirektor',
+        # \w* prefix catches LV compounds — izpild-/komers-/
+        # finanšu-direktors are all executive roles.
+        r'\w*direktor',
         r'\bdirector\b',
         r'\bmanaging\s+director',
         r'\bboard\s+member',
@@ -257,6 +261,8 @@ PROFESSION_RULES: list[tuple[str, tuple[str, ...]]] = [
         r'\bprogrammers?\b',
         r'\bcoders?\b|\bkodētāj',
         r'\bprogrammēšanas\s+inženier',
+        r'\bprogrammatūr\w*\s+inženier',
+        r'\w*sistēm\w*\s+inženier',
     )),
     # Generic manager bucket — "vadītājs", "head of" etc. catch
     # the non-IT management tail too (a meaningful filter).

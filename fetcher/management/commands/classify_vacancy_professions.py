@@ -21,6 +21,7 @@ import logging
 from collections import Counter
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from fetcher.models import (
     Profession,
@@ -174,18 +175,20 @@ class Command(BaseCommand):
         }
         # A vacancy lands on exactly one link: delete the stale
         # set outright, then insert the desired row (idempotent
-        # via unique_together + ignore_conflicts).
-        VacancyProfession.objects.filter(
-            vacancy_id__in=changed
-        ).delete()
-        VacancyProfession.objects.bulk_create(
-            [
-                VacancyProfession(
-                    vacancy_id=pk,
-                    profession_id=professions[desired[pk]],
-                )
-                for pk in changed
-            ],
-            ignore_conflicts=True,
-        )
+        # via unique_together + ignore_conflicts). Atomic — a
+        # mid-batch failure must not leave vacancies link-free.
+        with transaction.atomic():
+            VacancyProfession.objects.filter(
+                vacancy_id__in=changed
+            ).delete()
+            VacancyProfession.objects.bulk_create(
+                [
+                    VacancyProfession(
+                        vacancy_id=pk,
+                        profession_id=professions[desired[pk]],
+                    )
+                    for pk in changed
+                ],
+                ignore_conflicts=True,
+            )
         return len(changed)

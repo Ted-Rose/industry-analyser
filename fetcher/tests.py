@@ -535,11 +535,11 @@ class CreateOrUpdateResourcesTests(NextJsScraperTestCase):
         self.assertFalse(VacancyFile.objects.exists())
 
 
-def make_scraper(config, portal_id=1):
+def make_scraper(config, portal_id=1, dry_run=False):
     with mock.patch.object(
         VacancyScrapper, 'load_config', return_value=config
     ):
-        return VacancyScrapper(portal_id=portal_id)
+        return VacancyScrapper(portal_id=portal_id, dry_run=dry_run)
 
 
 class ApiSweepTests(TestCase):
@@ -2380,10 +2380,15 @@ class ProfessionClassifierTests(TestCase):
         ('Stažieris', 'intern'),
         # driver trap — these never reach generic `vadītājs`
         ('Kravas automašīnas vadītājs', 'other'),
+        ('Kravas auto vadītājs', 'other'),
+        ('Auto vadītājs', 'other'),
         ('Iekrāvēja vadītājs', 'other'),
         ('Autovadītājs', 'other'),
         ('Šoferis', 'other'),
         ('Truck driver', 'other'),
+        # …but an `auto` compound that isn't a driver role does:
+        # fleet manager escapes the trap and lands on `manager`.
+        ('Autoparka vadītājs', 'manager'),
         # infosec vs security guard
         ('Informācijas drošības speciālists', 'it-security'),
         ('IT drošības inženieris', 'it-security'),
@@ -2408,6 +2413,7 @@ class ProfessionClassifierTests(TestCase):
         ('Tehnoloģiju arhitekts', 'it-architect'),
         ('Solution architect', 'it-architect'),
         ('Data architect', 'it-architect'),
+        ('Cloud arhitekts', 'it-architect'),
         ('Arhitekts', 'other'),
         # qa
         ('QA engineer', 'qa-engineer'),
@@ -2512,6 +2518,8 @@ class ProfessionClassifierTests(TestCase):
         ('Īpašnieks', 'executive'),
         ('Valdes loceklis', 'executive'),
         ('Direktors', 'executive'),
+        ('Izpilddirektors', 'executive'),
+        ('Komersdirektors', 'executive'),
         ('Sales director', 'executive'),
         # generic dev — after every specific role
         ('Programmētājs', 'software-developer'),
@@ -2521,6 +2529,8 @@ class ProfessionClassifierTests(TestCase):
         ('Software engineer', 'software-developer'),
         ('Python developer', 'software-developer'),
         ('Web developer', 'software-developer'),
+        ('Sistēmu inženieris', 'software-developer'),
+        ('Programmatūras inženieris', 'software-developer'),
         # generic manager — incl. the non-IT tail
         ('Vadītājs', 'manager'),
         ('Pārdošanas vadītājs', 'manager'),
@@ -2614,6 +2624,23 @@ class ProfessionStagingTests(TestCase):
         )
         self._scrape(vacancy_result(91))
         self.assertEqual(VacancyProfession.objects.count(), 1)
+
+    def test_dry_run_writes_no_profession_rows(self):
+        """A dry run builds the same staged vacancies but the
+        on-demand taxonomy get_or_create must stay read-only."""
+        dry_scraper = make_scraper(API_CONFIG, dry_run=True)
+        vacancy = dry_scraper.initiate_resource(
+            vacancy_result(92, positionTitle='Backend developer')
+        )
+        dry_scraper.create_or_update_resources([vacancy])
+        self.assertFalse(Profession.objects.exists())
+        self.assertFalse(Vacancy.objects.exists())
+        self.assertFalse(VacancyProfession.objects.exists())
+        # The staged link still shows what a real run would write.
+        self.assertEqual(
+            vacancy._pending_professions[0].name,
+            'backend-developer',
+        )
 
 
 class ClassifyVacancyProfessionsTests(TestCase):

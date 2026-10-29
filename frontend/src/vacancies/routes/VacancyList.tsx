@@ -235,78 +235,62 @@ export default function VacancyList() {
             )}
 
             {data && data.professions.length > 0 && (
-              <div className="mb-3">
-                <label className="filter-label d-block mb-2">
-                  Professions
-                </label>
-                <div className="d-flex flex-wrap">
-                  {data.professions.map((profession, i) => (
-                    <div
-                      className="form-check me-4 mb-1"
-                      key={profession}
-                    >
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        id={`prof_${i}`}
-                        checked={draft.includeProfessions.includes(
-                          profession,
-                        )}
-                        onChange={(e) =>
-                          setDraft((d) => ({
-                            ...d,
-                            includeProfessions: toggleValue(
-                              d.includeProfessions,
-                              profession,
-                              e.target.checked,
-                            ),
-                          }))
-                        }
-                      />
-                      <label
-                        className="form-check-label"
-                        htmlFor={`prof_${i}`}
-                      >
+              <div className="mb-3 row">
+                <div className="col-md-6 mb-2">
+                  <label className="filter-label d-block mb-1">
+                    Professions
+                  </label>
+                  <div className="checkbox-scroll-list">
+                    {data.professions.map((profession) => (
+                      <label key={profession}>
+                        <input
+                          type="checkbox"
+                          checked={draft.includeProfessions.includes(
+                            profession,
+                          )}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              includeProfessions: toggleValue(
+                                d.includeProfessions,
+                                profession,
+                                e.target.checked,
+                              ),
+                            }))
+                          }
+                        />{' '}
                         {profession}
                       </label>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-                <label className="filter-label d-block mb-2 mt-2">
-                  Exclude professions
-                </label>
-                <div className="d-flex flex-wrap">
-                  {data.professions.map((profession, i) => (
-                    <div
-                      className="form-check me-4 mb-1"
-                      key={profession}
-                    >
-                      <input
-                        className="form-check-input"
-                        type="checkbox"
-                        id={`prof_ex_${i}`}
-                        checked={draft.excludeProfessions.includes(
-                          profession,
-                        )}
-                        onChange={(e) =>
-                          setDraft((d) => ({
-                            ...d,
-                            excludeProfessions: toggleValue(
-                              d.excludeProfessions,
-                              profession,
-                              e.target.checked,
-                            ),
-                          }))
-                        }
-                      />
-                      <label
-                        className="form-check-label"
-                        htmlFor={`prof_ex_${i}`}
-                      >
+                <div className="col-md-6 mb-2">
+                  <label className="filter-label d-block mb-1">
+                    Exclude professions
+                  </label>
+                  <div className="checkbox-scroll-list">
+                    {data.professions.map((profession) => (
+                      <label key={profession}>
+                        <input
+                          type="checkbox"
+                          checked={draft.excludeProfessions.includes(
+                            profession,
+                          )}
+                          onChange={(e) =>
+                            setDraft((d) => ({
+                              ...d,
+                              excludeProfessions: toggleValue(
+                                d.excludeProfessions,
+                                profession,
+                                e.target.checked,
+                              ),
+                            }))
+                          }
+                        />{' '}
                         {profession}
                       </label>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

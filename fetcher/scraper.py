@@ -468,11 +468,22 @@ class VacancyScrapper(BaseScraper):
     def _profession_named(self, name):
         """Profession row by name — like ``_industry_named`` but
         self-seeding: the classifier's taxonomy is fixed and
-        tiny (~25 names), so rows are created on demand."""
+        tiny (~25 names), so rows are created on demand.
+
+        A dry run must never write taxonomy rows: an existing row
+        is staged when the name is known, otherwise an unsaved
+        instance — ``_pending_professions`` still reflects what a
+        real run would link."""
         if name not in self._profession_cache:
-            self._profession_cache[name] = (
-                Profession.objects.get_or_create(name=name)[0]
-            )
+            if self.dry_run:
+                self._profession_cache[name] = (
+                    Profession.objects.filter(name=name).first()
+                    or Profession(name=name)
+                )
+            else:
+                self._profession_cache[name] = (
+                    Profession.objects.get_or_create(name=name)[0]
+                )
         return self._profession_cache[name]
 
     def initiate_resources(self, search_results) -> List[Vacancy]:
