@@ -38,11 +38,13 @@ staff-only — the schema ships via committed
 ### Requirement: Uniform error body
 
 Non-2xx API responses SHALL use the shape `{error: <slug>,
-detail: <detail>}` with optional `code` (endpoint-set catalog
-key via `ApiHttpError`, defaulting to the status slug) and
-optional `params`. The status→slug map is fixed in
-`_ERROR_SLUGS` (e.g. 401 `unauthenticated`, 404 `not_found`,
-422 `validation_error`, 429 `throttled`, 500 `server_error`).
+detail: <detail>}` — except the 401 handshake body, which
+carries `login_url` instead of `detail` — with optional
+`code` (endpoint-set catalog key via `ApiHttpError`,
+defaulting to the status slug) and optional `params`. The
+status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
+`unauthenticated`, 404 `not_found`, 422 `validation_error`,
+429 `throttled`, 500 `server_error`).
 
 #### Scenario: Endpoint raises ApiHttpError with a code
 
@@ -78,14 +80,16 @@ never point back at an `/api/` path. `SPA_BASES` and
 
 #### Scenario: Dashboard API 401 maps to site root
 
-- **WHEN** `GET /api/dashboard/stats/` returns 401
+- **WHEN** `GET /api/dashboard/` returns 401
 - **THEN** `login_url` is `/admin/login/?next=/` (the
   dashboard SPA mounts at the root)
 
 #### Scenario: Query string is preserved
 
-- **WHEN** `GET /api/vacancies/?page=2` returns 401
-- **THEN** the `next` parameter carries `/vacancies/?page=2`
+- **WHEN** `GET /api/vacancies/filters/?page=2` returns 401
+- **THEN** the `next` parameter carries
+  `/vacancies/?page=2` (`filters` remaps to the vacancy list
+  page via `SPA_SUBPATHS` and the query survives)
 
 ### Requirement: Shared SPA shell
 

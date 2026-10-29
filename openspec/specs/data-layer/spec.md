@@ -63,6 +63,9 @@ implement `get_model()`, `get_scraper_class()`, and
 `get_default_update_fields()`, and inherit the common args:
 `--ids`, `--filter "field__lookup=value"`, `--fields`,
 `--dry-run`, `--limit`, `--batch-size` (default 100).
+Target models MUST expose `ad_id` (`--ids` filters
+`ad_id__in`, and dry-run/error output prints it) and `link`
+(dry-run prints it and `refetch_single` re-downloads it).
 
 #### Scenario: No selector given
 
@@ -92,9 +95,11 @@ implement `get_model()`, `get_scraper_class()`, and
 
 ### Requirement: Model style conventions
 
-Data models SHALL declare explicit `db_table` names and
-`unique_together` where dedup applies; shared field sets live
-on abstract bases (`BaseApartmentAd`, `BaseHouseAd`) backing
+Ad/sighting/property models and all new data models SHALL
+declare explicit `db_table` names and `unique_together`
+where dedup applies (legacy `Project`, `Region`, and
+`Seller` predate the convention); shared field sets live on
+abstract bases (`BaseApartmentAd`, `BaseHouseAd`) backing
 the concrete rent/sale models, so a shared field is added
 once.
 

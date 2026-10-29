@@ -63,7 +63,8 @@ throttling before every request. Subclasses MUST NOT issue raw
 - **WHEN** two requests target the same domain in quick
   succession
 - **THEN** `sleep()` delays the second by the remainder of a
-  random 1s-class interval tracked per domain
+  ~1s interval (`min_seconds=max_seconds=1` by default)
+  tracked per domain
 
 ### Requirement: Pagination and sightings
 
@@ -109,9 +110,20 @@ to `initiate_resources()`.
 #### Scenario: Flags are declared in `__init__`
 
 - **WHEN** a subclass configures its behavior
-- **THEN** it sets `enrich_search_results`, `validate_result`,
-  `ai_analysis`, and `excluded_resources` explicitly in
-  `__init__` rather than overriding `run()`
+- **THEN** it MUST declare `enrich_search_results`,
+  `validate_result`, and `excluded_resources` in `__init__`
+  (no base default — `AttributeError` otherwise);
+  `ai_analysis` and `stop_on_redirect` are base-initialized
+  to `False` and only set when needed
+
+#### Scenario: BlogScraper's sanctioned `run()` override
+
+- **WHEN** a subclass needs pipeline behavior the flags
+  cannot express
+- **THEN** it MAY override `run()` — `BlogScraper` does so
+  to make `MaxAPIRequestsReached` fatal-with-summary and
+  skips `create_or_update_resources` because AI results
+  save inline via `analyse_and_save_resource`
 
 ### Requirement: Refetch support
 
