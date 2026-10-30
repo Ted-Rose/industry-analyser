@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -13,6 +12,10 @@ import {
 } from '../mutations';
 import { errorDetail } from '../../shared/api/errors';
 import { useBootstrap } from '../../shared/hooks/useBootstrap';
+import { pushToast } from '../../shared/toasts';
+import Button from '../../shared/ui/Button';
+import { useConfirm, usePrompt } from '../../shared/ui/Dialog';
+import Select from '../../shared/ui/Select';
 
 /** The URL-applied filter state — what "Save current" persists. */
 interface AppliedFilters {
@@ -30,6 +33,7 @@ interface SavedFiltersBarProps {
   /** The staged (uncommitted) checkbox draft — what the save
    *  buttons persist and apply to the URL. */
   staged: AppliedFilters;
+  className?: string;
 }
 
 /** Mirrors SavedFilterIn.name's max_length on the API. */
@@ -75,27 +79,6 @@ function sameNames(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((v) => b.includes(v));
 }
 
-/** Trimmed prompt value, or null when the entry is unusable —
- *  surfaces the >100-char case inline so the API's 422 path is
- *  unreachable from the UI. */
-function promptName(
-  message: string,
-  initial: string | undefined,
-  setError: (msg: string) => void,
-): string | null {
-  const raw = window.prompt(message, initial);
-  if (raw === null) return null;
-  const name = raw.trim();
-  if (!name) return null;
-  if (name.length > NAME_MAX_LENGTH) {
-    setError(
-      `Filter names are limited to ${NAME_MAX_LENGTH} characters.`,
-    );
-    return null;
-  }
-  return name;
-}
-
 /**
  * Per-user saved vacancy-filter presets, shown only to logged-in
  * users. Choosing a preset rewrites the URL params (the URL stays
@@ -112,6 +95,7 @@ function promptName(
 export default function SavedFiltersBar({
   applied,
   staged,
+  className,
 }: SavedFiltersBarProps) {
   const { user } = useBootstrap();
   const [, setSearchParams] = useSearchParams();
@@ -123,7 +107,8 @@ export default function SavedFiltersBar({
   const createFilter = useCreateSavedFilter();
   const updateFilter = useUpdateSavedFilter();
   const deleteFilter = useDeleteSavedFilter();
-  const [error, setError] = useState('');
+  const { prompt, promptElement } = usePrompt();
+  const { confirm, confirmElement } = useConfirm();
 
   const selected = (filters ?? []).find(
     (f) =>
@@ -141,7 +126,8 @@ export default function SavedFiltersBar({
       f.show_active_only === applied.showActiveOnly &&
       f.company_filter === applied.companyFilter,
   );
-  const mutationError = (err: unknown) => setError(errorDetail(err));
+  const mutationError = (err: unknown) =>
+    pushToast(errorDetail(err), 'danger');
 
   const payloadOf = (f: AppliedFilters) => ({
     include_keywords: f.includeKeywords,
@@ -174,13 +160,34 @@ export default function SavedFiltersBar({
     if (filter) setSearchParams(toSearchParams(filter));
   };
 
-  const saveCurrent = () => {
-    setError('');
-    const name = promptName(
-      'Name for this saved filter:',
-      undefined,
-      setError,
-    );
+  /** Trimmed dialog value, or null when the entry is unusable —
+   *  surfaces the >100-char case as a toast so the API's 422 path
+   *  is unreachable from the UI. */
+  const askName = async (
+    title: string,
+    initial?: string,
+  ): Promise<string | null> => {
+    const raw = await prompt({
+      title,
+      label: 'Name',
+      defaultValue: initial,
+    });
+    if (raw === null) return null;
+    const name = raw.trim();
+    if (!name) return null;
+    if (name.length > NAME_MAX_LENGTH) {
+      pushToast(
+        `Filter names are limited to ${NAME_MAX_LENGTH} ` +
+          'characters.',
+        'danger',
+      );
+      return null;
+    }
+    return name;
+  };
+
+  const saveCurrent = async () => {
+    const name = await askName('Name for this saved filter:');
     if (name === null) return;
     const input = { name, ...payloadOf(staged) };
     applyStaged();
@@ -190,15 +197,14 @@ export default function SavedFiltersBar({
     createFilter.mutate(input, { onError: mutationError });
   };
 
-  const overwriteSelected = () => {
+  const overwriteSelected = async () => {
     if (!selected) return;
-    if (
-      !window.confirm(
-        `Overwrite "${selected.name}" with the current filters?`,
-      )
-    )
-      return;
-    setError('');
+    const ok = await confirm({
+      title: 'Overwrite saved filter?',
+      body: `Overwrite "${selected.name}" with the current filters?`,
+      confirmLabel: 'Overwrite',
+    });
+    if (!ok) return;
     applyStaged();
     updateFilter.mutate(
       {
@@ -209,10 +215,9 @@ export default function SavedFiltersBar({
     );
   };
 
-  const renameSelected = () => {
+  const renameSelected = async () => {
     if (!selected) return;
-    setError('');
-    const name = promptName('New name:', selected.name, setError);
+    const name = await askName('New name:', selected.name);
     if (name === null || name === selected.name) return;
     updateFilter.mutate(
       {
@@ -232,11 +237,15 @@ export default function SavedFiltersBar({
     );
   };
 
-  const deleteSelected = () => {
+  const deleteSelected = async () => {
     if (!selected) return;
-    if (!window.confirm(`Delete saved filter "${selected.name}"?`))
-      return;
-    setError('');
+    const ok = await confirm({
+      title: 'Delete saved filter?',
+      body: `Delete saved filter "${selected.name}"?`,
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (!ok) return;
     deleteFilter.mutate(selected.id, { onError: mutationError });
   };
 
@@ -246,69 +255,62 @@ export default function SavedFiltersBar({
     deleteFilter.isPending;
 
   return (
-    <div className="mb-3">
-      <div className="d-flex flex-wrap align-items-center gap-2">
+    <div className={className}>
+      <div className="flex flex-wrap items-center gap-2">
         <label
-          className="filter-label mb-0"
+          className="text-sm font-medium text-fg"
           htmlFor="saved-filter-select"
         >
           Saved filters
         </label>
-        <select
-          id="saved-filter-select"
-          className="form-select form-select-sm w-auto"
-          value={selected?.id ?? ''}
-          onChange={onSelect}
-        >
-          <option value="">Saved filters…</option>
-          {(filters ?? []).map((f: SavedFilterOut) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="btn btn-sm btn-outline-primary"
-          onClick={saveCurrent}
-          disabled={busy}
-        >
+        <div className="w-full sm:w-64">
+          <Select
+            id="saved-filter-select"
+            value={selected?.id ?? ''}
+            onChange={onSelect}
+          >
+            <option value="">Saved filters…</option>
+            {(filters ?? []).map((f: SavedFilterOut) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <Button size="sm" onClick={saveCurrent} disabled={busy}>
           Save current
-        </button>
+        </Button>
         {selected && (
           <>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-secondary"
+            <Button
+              size="sm"
+              variant="secondary"
               onClick={overwriteSelected}
               disabled={busy}
             >
               Overwrite
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-secondary"
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
               onClick={renameSelected}
               disabled={busy}
             >
               Rename
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-danger"
+            </Button>
+            <Button
+              size="sm"
+              variant="danger"
               onClick={deleteSelected}
               disabled={busy}
             >
               Delete
-            </button>
+            </Button>
           </>
         )}
       </div>
-      {error && (
-        <div className="alert alert-danger py-2 mt-2 mb-0" role="alert">
-          {error}
-        </div>
-      )}
+      {promptElement}
+      {confirmElement}
     </div>
   );
 }

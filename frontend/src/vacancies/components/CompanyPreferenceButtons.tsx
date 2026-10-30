@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import { ThumbsDown, ThumbsUp } from 'lucide-react';
 import { useSetCompanyPreference } from '../mutations';
 import { errorDetail } from '../../shared/api/errors';
+import IconButton from '../../shared/ui/IconButton';
+import { Alert } from '../../shared/ui/ErrorState';
 import type { CompanyPreference } from '../api';
 
 /**
@@ -33,44 +36,29 @@ export default function CompanyPreferenceButtons({
   return (
     <>
       <span
-        className="btn-group btn-group-sm"
+        className="inline-flex items-center gap-1"
         role="group"
         aria-label="Company preference"
       >
-        <button
-          type="button"
-          className={`btn btn-sm ${
-            preference === 'like'
-              ? 'btn-success'
-              : 'btn-outline-success'
-          }`}
+        <IconButton
+          icon={<ThumbsUp />}
+          label="Like"
+          pressed={preference === 'like'}
           disabled={mutation.isPending}
-          aria-pressed={preference === 'like'}
           onClick={() => set('like')}
-        >
-          Like
-        </button>
-        <button
-          type="button"
-          className={`btn btn-sm ${
-            preference === 'dislike'
-              ? 'btn-danger'
-              : 'btn-outline-danger'
-          }`}
+        />
+        <IconButton
+          icon={<ThumbsDown />}
+          label="Dislike"
+          pressed={preference === 'dislike'}
           disabled={mutation.isPending}
-          aria-pressed={preference === 'dislike'}
           onClick={() => set('dislike')}
-        >
-          Dislike
-        </button>
+        />
       </span>
       {error && (
-        <div
-          className="alert alert-danger py-2 mt-2 mb-0"
-          role="alert"
-        >
+        <Alert tone="danger" className="mt-2">
           {error}
-        </div>
+        </Alert>
       )}
     </>
   );

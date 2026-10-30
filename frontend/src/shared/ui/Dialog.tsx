@@ -250,6 +250,10 @@ export function usePrompt() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    // Synthetic submit events bubble — stop the outer form (e.g.
+    // a FilterBar the dialog is mounted inside) from also
+    // applying on prompt save.
+    event.stopPropagation();
     close(value);
   };
 

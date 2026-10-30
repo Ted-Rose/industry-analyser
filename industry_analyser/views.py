@@ -74,7 +74,6 @@ SPA_ENTRY_RE = re.compile(r'[a-z0-9_]+')
 # its second migration PR). spa_shell.html wraps both CDN
 # <link>s in {% if legacy_bootstrap %}.
 LEGACY_BOOTSTRAP_ENTRIES = {
-    'vacancies',
     'classified_ads',
 }
 
