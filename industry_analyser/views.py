@@ -77,7 +77,6 @@ LEGACY_BOOTSTRAP_ENTRIES = {
     'vacancies',
     'tv',
     'classified_ads',
-    'dashboard',
     'receipts',
 }
 
