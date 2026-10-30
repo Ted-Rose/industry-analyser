@@ -111,6 +111,20 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        backfill_only = [
+            name
+            for name in ('since', 'until', 'max_minutes')
+            if options[name] is not None
+        ]
+        if backfill_only and not options['backfill']:
+            flags = ', '.join(
+                '--' + name.replace('_', '-')
+                for name in backfill_only
+            )
+            raise CommandError(
+                f'{flags} only work with --backfill'
+            )
+
         start_time = timezone.now()
         self.stdout.write(f"Starting news scraping at {start_time}")
 

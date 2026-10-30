@@ -2285,6 +2285,58 @@ class PartitionEnumerationTests(TestCase):
                 scraper, self.source, date(2026, 10, 30)
             )
 
+    def test_sitemap_listing_dead_fetch_raises(self):
+        """make_request returning None (retries exhausted —
+        429/5xx or a connection failure) is a transient
+        outage, not an empty listing: iter_article_urls
+        raises so the partition item fails and retries next
+        run instead of burning to DONE."""
+        scraper = SimpleNamespace(
+            make_request=Mock(return_value=None)
+        )
+        strategy = BACKFILL_STRATEGIES['lsm']
+        partition = Partition(key='k', label='l', url='u')
+        with self.assertRaises(RuntimeError):
+            strategy.iter_article_urls(scraper, partition)
+
+    def test_lvportals_dead_first_page_raises(self):
+        """A dead fetch on the FIRST archive page raises —
+        'no links found' (a real but empty page) would return
+        [] and end the walk, but None means the fetch died."""
+        scraper = SimpleNamespace(
+            make_request=Mock(return_value=None)
+        )
+        strategy = ArchiveMonthStrategy(earliest=date(2008, 1, 1))
+        partition = Partition(
+            key='2020-01', label='l', url='u',
+            meta={'first': date(2020, 1, 1),
+                  'last': date(2020, 1, 31)},
+        )
+        with self.assertRaises(RuntimeError):
+            strategy.iter_article_urls(scraper, partition)
+
+    def test_lvportals_dead_midwalk_page_raises(self):
+        """A None response mid-walk (page 2 of N) fails the
+        partition rather than completing on a truncated
+        listing."""
+        page1 = (
+            b'<a href="/dienaskartiba/12345-zina-viena-2020">'
+            b'x</a>'
+        )
+        scraper = SimpleNamespace(
+            make_request=Mock(
+                side_effect=[_response(page1), None]
+            )
+        )
+        strategy = ArchiveMonthStrategy(earliest=date(2008, 1, 1))
+        partition = Partition(
+            key='2020-01', label='l', url='u',
+            meta={'first': date(2020, 1, 1),
+                  'last': date(2020, 1, 31)},
+        )
+        with self.assertRaises(RuntimeError):
+            strategy.iter_article_urls(scraper, partition)
+
     def test_lvportals_walk_stops_on_deadline(self):
         """A --max-minutes deadline cuts the page-walk and
         flags budget_exhausted so the month partition stays
@@ -2703,6 +2755,31 @@ class BackfillRunnerTests(TestCase):
             ).exists()
         )
 
+    def test_dead_listing_fetch_records_failed_not_done(self):
+        """make_request returning None (retries exhausted on
+        the partition's listing) records the item FAILED —
+        the partition retries next run instead of being
+        marked DONE on an outage."""
+
+        def _dead_listing(url, **kwargs):
+            if url.endswith('.xml'):
+                return None
+            return _backfill_request(url)
+
+        with patch.object(
+            NewsBackfillScraper,
+            'make_request',
+            side_effect=_dead_listing,
+        ):
+            self.scraper.run()
+        statuses = {
+            ri.item.key: ri.status
+            for ri in ScrapeJobRunItem.objects.all()
+        }
+        self.assertEqual(
+            statuses.get('lsm:2026-W02'), ScrapeJobRunItem.FAILED
+        )
+
     def test_failed_partition_records_failed_continues(self):
         scraper = NewsBackfillScraper(
             runner=self.runner,
@@ -2791,6 +2868,18 @@ class BackfillCommandTests(TestCase):
                 until='2026-10-01',
             )
 
+    def test_backfill_only_flags_without_backfill_raise(self):
+        """--since/--until/--max-minutes on a plain feed run
+        would be silently ignored — raise instead of hiding
+        a mistyped invocation."""
+        for kwargs in (
+            {'since': '2026-01-01'},
+            {'until': '2026-01-01'},
+            {'max_minutes': 5},
+        ):
+            with self.assertRaises(CommandError):
+                call_command('scrape_news', **kwargs)
+
     def test_tvnet_skip_and_partial(self):
         with (
             self.assertLogs('news', level='INFO') as logs,
@@ -2816,10 +2905,12 @@ class BackfillCommandTests(TestCase):
         )
 
     def test_dead_sitemap_index_fails_run_not_items(self):
-        """A source whose sitemap index yields no children
-        fails the whole run BEFORE sync_items — its existing
-        items keep is_active=True instead of being
-        deactivated by an empty entry set."""
+        """A source whose sitemap index yields no children no
+        longer fails the run before sync_items: its existing
+        items sync as obj=None placeholders — kept active and
+        pending (never done/failed), never deactivated —
+        while healthy sources' items are still processed.
+        The run itself still ends FAILED."""
         job = ensure_job('news.backfill')
         item = ScrapeJobItem.objects.create(
             job=job, key='ir:2020-01', label='ir 2020-01'
@@ -2850,6 +2941,19 @@ class BackfillCommandTests(TestCase):
         self.assertEqual(run.status, ScrapeJobRun.FAILED)
         item.refresh_from_db()
         self.assertTrue(item.is_active)
+        # Pending — the placeholder was skipped at processing
+        # time, never recorded done or failed.
+        self.assertFalse(
+            ScrapeJobRunItem.objects.filter(item=item).exists()
+        )
+        # Healthy sources still did their work — lsm's items
+        # were synced and processed before the run failed.
+        self.assertTrue(
+            ScrapeJobRunItem.objects.filter(
+                item__key__startswith='lsm:',
+                status=ScrapeJobRunItem.DONE,
+            ).exists()
+        )
 
     def test_zero_budget_ends_partial(self):
         with patch.object(

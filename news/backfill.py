@@ -44,6 +44,8 @@ from bs4 import BeautifulSoup
 from django.db.models import Q
 from django.utils import timezone
 
+from scrape_jobs.models import ScrapeJobItem
+
 from .models import NewsArticle
 from .scraper import (
     NewsScraper,
@@ -174,8 +176,18 @@ class BackfillStrategy(ABC):
 
     def iter_article_urls(self, scraper, partition):
         """Fetch the partition's sitemap listing ->
-        ``[{'link', 'news_pubdate'}]``."""
+        ``[{'link', 'news_pubdate'}]``.
+
+        A dead fetch (make_request exhausted its retries and
+        returned None) raises — the partition item fails and is
+        retried next run. A fetched-but-unparseable or empty
+        listing still yields [], completing the partition."""
         response = scraper.make_request(partition.url)
+        if response is None:
+            raise RuntimeError(
+                f'{partition.key}: listing fetch failed '
+                f'({partition.url}) — retries exhausted'
+            )
         entries = scraper.parse_results(response)
         return [
             {'link': e['link'], 'news_pubdate': e['news_pubdate']}
@@ -427,6 +439,15 @@ class ArchiveMonthStrategy(BackfillStrategy):
                 last=last.strftime('%d.%m.%Y'),
             )
             response = scraper.make_request(url)
+            if response is None:
+                # Retries exhausted — NOT an empty page. Fails
+                # the partition item (first page or mid-walk)
+                # so the month retries next run instead of
+                # burning to DONE on a transient outage.
+                raise RuntimeError(
+                    f'{partition.key}: archive page {page} '
+                    'fetch failed — retries exhausted'
+                )
             new = [
                 link for link in self._article_links(response)
                 if link not in seen
@@ -691,9 +712,14 @@ class NewsBackfillScraper(NewsScraper):
         return True
 
     def _planned_sources(self):
-        """(source, strategy, partitions) for every enabled
-        source that has a strategy — never narrowed by
-        --source: sync_items must see the full set."""
+        """(planned, failed) for every enabled source that has
+        a strategy — never narrowed by --source: sync_items
+        must see the full set.
+
+        ``planned`` holds ``(source, strategy, partitions)``;
+        ``partitions`` is None when enumeration failed (a dead
+        sitemap index), and ``failed`` collects the
+        ``(source, exception)`` pairs."""
         sources = self._enabled_sources()
         if self.source_slug and not any(
             s.slug == self.source_slug for s in sources
@@ -703,6 +729,7 @@ class NewsBackfillScraper(NewsScraper):
                 self.source_slug,
             )
         planned = []
+        failed = []
         for source in sources:
             strategy = BACKFILL_STRATEGIES.get(source.slug)
             if strategy is None:
@@ -720,23 +747,63 @@ class NewsBackfillScraper(NewsScraper):
             # out-of-range items (a future --until typo would
             # likewise mint permanently-DONE future partitions);
             # --since/--until narrow processing only, via
-            # _partition_in_range. An enumeration failure (e.g.
-            # a dead sitemap index) propagates and fails the run
-            # rather than syncing an incomplete entry set —
-            # that would deactivate the source's existing
-            # ScrapeJobItem rows just the same.
-            partitions = strategy.enumerate_partitions(
-                self, source, timezone.localdate(),
-            )
+            # _partition_in_range.
+            try:
+                partitions = strategy.enumerate_partitions(
+                    self, source, timezone.localdate(),
+                )
+            except Exception as e:
+                # A dead index must not fail the run before
+                # sync_items — that would block every healthy
+                # source's work. The source's existing item
+                # keys are synced as obj=None placeholders (not
+                # deactivated, skipped at processing time) and
+                # the failure is re-raised at the end of
+                # get_search_urls so the run still ends FAILED.
+                logger.error(
+                    '%s: partition enumeration failed: %s',
+                    source.slug, e,
+                )
+                failed.append((source, e))
+                partitions = None
             planned.append((source, strategy, partitions))
-        return planned
+        return planned, failed
+
+    def _placeholder_entries(self, source):
+        """sync_items entries keeping a dead-index source's
+        existing items active without processing them —
+        obj=None is skipped by the pending loop and stays
+        pending for the next run."""
+        prefix = f'{source.slug}:'
+        items = ScrapeJobItem.objects.filter(
+            job__slug=self.runner.slug,
+            key__startswith=prefix,
+        )
+        return [
+            (item.key, item.label, item.priority, None)
+            for item in items
+        ]
+
+    def _raise_enumeration_failure(self, failed):
+        """Re-raise a collected enumeration error so the run
+        still ends FAILED — placeholder entries only protect
+        the dead source's items, they do not hide the outage."""
+        slugs = ', '.join(source.slug for source, _ in failed)
+        _, exc = failed[0]
+        raise RuntimeError(
+            f'partition enumeration failed for {slugs}: {exc}'
+        ) from exc
 
     def get_search_urls(self):
         runner = self.runner
-        planned = self._planned_sources()
+        planned, failed = self._planned_sources()
 
         if runner is None:
             for source, strategy, partitions in planned:
+                if partitions is None:
+                    # Enumeration failed — nothing to yield;
+                    # raised below after healthy sources.
+                    continue
                 if (
                     self.source_slug
                     and source.slug != self.source_slug
@@ -747,28 +814,45 @@ class NewsBackfillScraper(NewsScraper):
                         continue
                     if self._deadline_passed():
                         self.budget_exhausted = True
+                        if failed:
+                            self._raise_enumeration_failure(
+                                failed
+                            )
                         return
                     self._active_source = source
                     self._active_strategy = strategy
                     self._active_partition = partition
                     yield partition.url
+            if failed:
+                self._raise_enumeration_failure(failed)
             return
 
         # One sync for ALL sources' partitions — entries must
         # enumerate the full range or sync_items deactivates
-        # every item it does not see.
-        entries = [
-            (
-                f'{source.slug}:{partition.key}',
-                partition.label,
-                0,
-                (source, strategy, partition),
+        # every item it does not see. A source whose
+        # enumeration failed contributes its existing item
+        # keys as obj=None placeholders instead.
+        entries = []
+        for source, strategy, partitions in planned:
+            if partitions is None:
+                entries.extend(self._placeholder_entries(source))
+                continue
+            entries.extend(
+                (
+                    f'{source.slug}:{partition.key}',
+                    partition.label,
+                    0,
+                    (source, strategy, partition),
+                )
+                for partition in partitions
             )
-            for source, strategy, partitions in planned
-            for partition in partitions
-        ]
         items = runner.sync_items(entries)
         for item in runner.pending_items(items):
+            if item.obj is None:
+                # Placeholder for a source whose enumeration
+                # failed this pass — stays pending, retried
+                # on the next invocation.
+                continue
             source, strategy, partition = item.obj
             if self.source_slug and source.slug != self.source_slug:
                 # Filtered out by --source: neither done nor
@@ -800,6 +884,11 @@ class NewsBackfillScraper(NewsScraper):
                 # remaining articles retry (deduped) next run.
                 break
             runner.item_done(item)
+        if failed:
+            # A dead index was absorbed above to keep the
+            # source's items active and other sources working —
+            # the run must still report the outage as FAILED.
+            self._raise_enumeration_failure(failed)
 
     def scrape_portal(self, partition_url):
         """Fetch the partition's article-URL list through the
@@ -882,14 +971,17 @@ class NewsBackfillScraper(NewsScraper):
         )
         articles = []
         fetches = 0
-        for result in new_results:
+        skipped = 0
+        for index, result in enumerate(new_results):
             if self._deadline_passed():
                 self.budget_exhausted = True
                 logger.info(
                     'Backfill budget exhausted inside %s — %d '
-                    'URL(s) deferred to the next run',
+                    'URL(s) deferred to the next run, %d '
+                    'skipped so far',
                     getattr(self._active_partition, 'key', '?'),
-                    len(new_results) - len(articles),
+                    len(new_results) - index,
+                    skipped,
                 )
                 break
             try:
@@ -899,6 +991,7 @@ class NewsBackfillScraper(NewsScraper):
                 # rejects synchronously) must not fail the
                 # partition — every retry would re-hit the
                 # same URL and never reach DONE.
+                skipped += 1
                 logger.warning(
                     'Skipping %s: fetch raised %s',
                     result['link'], e,
@@ -910,6 +1003,7 @@ class NewsBackfillScraper(NewsScraper):
             if self.runner is not None and fetches % 25 == 0:
                 self.runner.touch()
             if getattr(response, 'status', None) != 200:
+                skipped += 1
                 logger.info(
                     'Skipping %s: fetch status %s',
                     result['link'],
@@ -928,12 +1022,14 @@ class NewsBackfillScraper(NewsScraper):
                     or meta['published_at']
                 )
             except Exception as e:
+                skipped += 1
                 logger.warning(
                     'Skipping %s: metadata extract raised %s',
                     result['link'], e,
                 )
                 continue
             if published_at is None:
+                skipped += 1
                 logger.info(
                     'Skipping undateable article %s',
                     result['link'],
@@ -941,7 +1037,17 @@ class NewsBackfillScraper(NewsScraper):
                 continue
             result.update(meta)
             result['published_at'] = published_at
-            articles.append(self.initiate_resource(result))
+            try:
+                articles.append(self.initiate_resource(result))
+            except Exception as e:
+                # A classify_topic/NewsArticle failure on one
+                # URL must not fail the whole partition.
+                skipped += 1
+                logger.warning(
+                    'Skipping %s: article init raised %s',
+                    result['link'], e,
+                )
+                continue
         return articles
 
     def _dedup_slice(self, source, results):
@@ -1018,10 +1124,20 @@ class NewsBackfillScraper(NewsScraper):
             self._active_strategy = strategy
             # Same contract as _planned_sources: enumerate the
             # full [earliest, today] range and let
-            # _partition_in_range apply --since/--until.
-            for partition in strategy.enumerate_partitions(
-                self, source, timezone.localdate()
-            ):
+            # _partition_in_range apply --since/--until. A dead
+            # index only degrades this source's output — the
+            # listing continues with the remaining sources.
+            try:
+                partitions = strategy.enumerate_partitions(
+                    self, source, timezone.localdate()
+                )
+            except Exception as e:
+                yield (
+                    f'[dry-run] {source.slug}: enumeration '
+                    f'failed: {e}'
+                )
+                continue
+            for partition in partitions:
                 if not self._partition_in_range(partition):
                     continue
                 if isinstance(strategy, ArchiveMonthStrategy):
@@ -1030,9 +1146,24 @@ class NewsBackfillScraper(NewsScraper):
                         f'{partition.key} ?'
                     )
                     continue
-                count = len(strategy.iter_article_urls(
-                    self, partition
-                ))
+                try:
+                    entries = strategy.iter_article_urls(
+                        self, partition
+                    )
+                except Exception as e:
+                    yield (
+                        f'[dry-run] {source.slug}: '
+                        f'{partition.key} fetch failed: {e}'
+                    )
+                    continue
+                # Mirror scrape_portal's filter — skip_link
+                # locs (diena's /arhivs/ day listings) are
+                # never fetched, so they must not count.
+                count = len([
+                    e for e in entries
+                    if (e.get('link') or '').strip()
+                    and not strategy.skip_link(e['link'].strip())
+                ])
                 yield (
                     f'[dry-run] {source.slug}: '
                     f'{partition.key} {count}'
