@@ -1,0 +1,37 @@
+{% url 'news:story-fragment' pk=story.pk as fragment_url %}
+<article class="story-card">
+  <p class="muted">
+    {{ article.source.name }}
+    {% if article.published_at %}
+      &middot; {{ article.published_at|date:"Y-m-d H:i" }}
+    {% endif %}
+  </p>
+  <h4>{{ article.title }}</h4>
+  {% if article.image_url %}
+    <img src="{{ article.image_url }}" alt="" loading="lazy">
+  {% endif %}
+  {% if article.lead %}
+    <p>{{ article.lead }}</p>
+  {% endif %}
+  <p>
+    <a href="{{ article.link }}" rel="noopener">
+      Lasīt oriģinālu</a>
+  </p>
+  {% if ready_audio %}
+    <audio controls
+           src="{% url 'news:article-audio' pk=article.pk %}">
+    </audio>
+  {% else %}
+    <button type="button" disabled>Klausīties</button>
+  {% endif %}
+  {% if other_articles %}
+    <nav class="story-switcher muted">
+      Arī:
+      {% for other in other_articles %}
+        <a class="story-switch"
+           href="{{ fragment_url }}?source={{ other.source.slug }}">
+          {{ other.source.name }}</a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+</article>

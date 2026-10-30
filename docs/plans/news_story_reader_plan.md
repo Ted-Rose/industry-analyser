@@ -1,5 +1,7 @@
 # News story reader — preference-ordered inline RSS reader
 
+Status: implemented on `feat/news-story-reader`.
+
 Clicking a digest headline on `/news/` expands it inline and
 shows the RSS result (title, lead, image) from the reader's
 favorite covering outlet. Authenticated users rank news

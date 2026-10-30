@@ -1,0 +1,35 @@
+{% extends "news/base.html" %}
+{% block title %}Portālu izvēle{% endblock %}
+{% block content %}
+<h2>Portālu izvēle</h2>
+<p class="muted">
+  Atzīmē mīļākos ziņu portālus un piešķir tiem rangu —
+  mazāks skaitlis nozīmē augstāku prioritāti. Kad vairāki
+  portāli raksta par to pašu notikumu, atverot virsrakstu
+  tiks rādīts tava augstāk novērtētā portāla raksts.
+</p>
+<form method="post">
+  {% csrf_token %}
+  <table class="prefs">
+    {% for row in rows %}
+      <tr>
+        <td>
+          <input type="checkbox"
+                 id="src-{{ row.source.slug }}"
+                 name="include-{{ row.source.slug }}"
+                 {% if row.checked %}checked{% endif %}>
+          <label for="src-{{ row.source.slug }}">
+            {{ row.source.name }}</label>
+        </td>
+        <td>
+          <input type="number" min="1" max="99" size="3"
+                 name="rank-{{ row.source.slug }}"
+                 value="{{ row.rank }}"
+                 aria-label="Rangs">
+        </td>
+      </tr>
+    {% endfor %}
+  </table>
+  <button type="submit">Saglabāt</button>
+</form>
+{% endblock %}

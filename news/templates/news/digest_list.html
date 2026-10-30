@@ -13,7 +13,12 @@
     </h2>
     <ol>
       {% for item in digest.items.all %}
-        <li>{{ item.headline }}</li>
+        <li>
+          <button type="button" class="story-toggle"
+                  data-story="{{ item.story.pk }}">
+            {{ item.headline }}</button>
+          <div class="story-slot" hidden></div>
+        </li>
       {% empty %}
         <li class="muted">Nav ierakstu.</li>
       {% endfor %}

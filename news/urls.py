@@ -8,5 +8,18 @@ app_name = 'news'
 
 urlpatterns = [
     path('', views.digest_list, name='digest-list'),
+    # Single-segment routes must precede '<str:date>/' — 'str'
+    # would otherwise swallow 'preferences' as a date.
+    path('preferences/', views.preferences, name='preferences'),
+    path(
+        'story/<int:pk>/fragment/',
+        views.story_fragment,
+        name='story-fragment',
+    ),
+    path(
+        'article/<int:pk>/audio/',
+        views.article_audio,
+        name='article-audio',
+    ),
     path('<str:date>/', views.digest_detail, name='digest-detail'),
 ]

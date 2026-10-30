@@ -1,5 +1,6 @@
 """News app models — RSS articles, topic classification, story
 clusters and the daily digest (docs/plans/news_digest_plan.md)."""
+from django.conf import settings
 from django.db import models
 
 
@@ -195,3 +196,62 @@ class NewsDigestItem(models.Model):
 
     def __str__(self):
         return f'#{self.rank} {self.headline}'
+
+
+class NewsSourcePreference(models.Model):
+    """A user's ranked favorite news outlets — rank 1 is tried
+    first when picking which member article a story shows."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='news_source_preferences',
+    )
+    source = models.ForeignKey(
+        NewsSource,
+        on_delete=models.CASCADE,
+        related_name='user_preferences',
+    )
+    rank = models.PositiveSmallIntegerField()
+
+    class Meta:
+        db_table = 'news_source_preference'
+        unique_together = (('user', 'source'),)
+        ordering = ('rank',)
+
+    def __str__(self):
+        return f'{self.user}:{self.rank}:{self.source}'
+
+
+class NewsArticleAudio(models.Model):
+    """Audio seam for a future TTS feature — one rendered
+    narration of an article's spoken text per engine+voice.
+    No generator exists yet; the table and endpoint are the
+    contract it will fill."""
+    STATUSES = [
+        ('pending', 'Pending'),
+        ('ready', 'Ready'),
+        ('failed', 'Failed'),
+    ]
+    article = models.ForeignKey(
+        NewsArticle, on_delete=models.CASCADE,
+        related_name='audio',
+    )
+    engine = models.CharField(max_length=32)
+    voice = models.CharField(max_length=64, blank=True)
+    text = models.TextField()
+    text_sha256 = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=8, choices=STATUSES,
+        default='pending', db_index=True,
+    )
+    file_path = models.CharField(max_length=300, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'news_article_audio'
+        unique_together = (('article', 'engine', 'voice'),)
+
+    def __str__(self):
+        return f'{self.article_id}:{self.engine}:{self.status}'
