@@ -23,9 +23,15 @@ export interface BootstrapAppEntry {
  */
 export interface BootstrapPayload {
   user?: string | null;
+  /** The auto-discovered app mounts — the same list the /
+   *  landing page renders. The shell TopNav builds its
+   *  AppSwitcher off this instead of a hardcoded list. */
   apps?: BootstrapAppEntry[];
-  is_staff?: boolean;
+  /** Session flags the shell injects on every render — anonymous
+   *  pages carry false for both. Optional so older shells and
+   *  tests that stub the payload don't have to set them. */
   is_authenticated?: boolean;
+  is_staff?: boolean;
   [key: string]: unknown;
 }
 

@@ -43,8 +43,23 @@
     .story-card h4 { margin-bottom: 0.3rem; }
     .story-switcher a { margin-right: 0.6rem; }
     table.prefs td { padding: 0.2rem 0.6rem 0.2rem 0; }
+    .audio-bar { margin-bottom: 1rem; }
+    .audio-btn {
+      background: none;
+      border: none;
+      padding: 0 0.2rem;
+      font: inherit;
+      color: #0645ad;
+      cursor: pointer;
+    }
+    .audio-btn:hover { text-decoration: underline; }
+    .audio-btn[data-state="loading"]::after { content: '⏳'; }
+    .audio-btn[data-state="error"] { color: #999; }
+    .audio-btn[data-state="error"]::after { content: '⚠'; }
+    .audio-stop { font: inherit; cursor: pointer; }
   </style>
   <script src="{% static 'news/story.js' %}" defer></script>
+  <script src="{% static 'news/audio.js' %}" defer></script>
 </head>
 <body>
   <header>
