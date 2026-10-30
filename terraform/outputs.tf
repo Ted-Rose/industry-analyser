@@ -17,7 +17,7 @@ output "cloud_run_job_names" {
   value = [
     google_cloud_run_v2_job.all_jobs.name,
   ]
-  description = "Cloud Run jobs managed by Terraform (run-migrations is CI-ad-hoc)"
+  description = "Managed Cloud Run jobs (run-migrations is CI-ad-hoc)"
 }
 
 output "cloud_scheduler_job_names" {
@@ -29,22 +29,35 @@ output "cloud_scheduler_job_names" {
 
 output "job_image_uri" {
   value       = local.job_image
-  description = "Image URI in Terraform (default public sample job image until overridden; CI sets AR path with commit SHA)"
+  description = "Image URI in Terraform (CI sets the AR path per SHA)"
 }
 
 output "artifact_registry_image_uri" {
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${local.ar_repo_id}/${var.dockerhub_image}:${var.image_tag}"
-  description = "Docker Hub pull-through URL (optional; CI uses industry-analyser-app repo)"
+  value = join("", [
+    "${var.region}-docker.pkg.dev/${var.project_id}/",
+    "${local.ar_repo_id}/${var.dockerhub_image}:",
+    "${var.image_tag}",
+  ])
+  description = "Docker Hub pull-through URL (CI uses app repo)"
 }
 
 output "ci_container_image_prefix" {
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.app_images.repository_id}/industry-analyser"
-  description = "Image path for CI docker push and gcloud run jobs update (tag with commit SHA)"
+  value = format(
+    "%s-docker.pkg.dev/%s/%s/industry-analyser",
+    var.region,
+    var.project_id,
+    google_artifact_registry_repository.app_images.repository_id,
+  )
+  description = "CI docker push + run jobs update image path (SHA tag)"
 }
 
 output "notification_channel_email" {
-  value       = length(google_monitoring_notification_channel.email) > 0 ? google_monitoring_notification_channel.email[0].name : "Not configured (create secret: industry-analyser-alert-email)"
-  description = "Email notification channel for Cloud Run job failure alerts"
+  value = (
+    length(google_monitoring_notification_channel.email) > 0
+    ? google_monitoring_notification_channel.email[0].name
+    : "Not configured (create secret: industry-analyser-alert-email)"
+  )
+  description = "Email notification channel for Cloud Run job alerts"
 }
 
 output "alert_policies" {
@@ -53,4 +66,9 @@ output "alert_policies" {
     google_monitoring_alert_policy.scrape_item_failure[0].name,
   ] : []
   description = "Alert policies managed by Terraform"
+}
+
+output "audio_bucket_name" {
+  value       = google_storage_bucket.audio_recordings.name
+  description = "GCS bucket for news digest audio clips"
 }

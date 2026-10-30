@@ -71,18 +71,22 @@ status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
 ### Requirement: 401 login-redirect handshake
 
 Authentication failures SHALL return `{error:
-'unauthenticated', login_url: '/admin/login/?next=<spa_url>'}`
+'unauthenticated', login_url: '/accounts/login/?next=<spa_url>'}`
 where `spa_url_for()` rewrites the `/api/<app>/<sub>` request
 path to the SPA page that issued it — `login_url`/`next` MUST
 never point back at an `/api/` path. `SPA_BASES` and
 `SPA_SUBPATHS` map APIs whose owning page lives elsewhere
 (e.g. `dashboard` → `/dashboard/`, `vacancies/companies` →
-`/companies/`).
+`/companies/`). The public `/accounts/login/` SPA route is the
+single login_url target; the Django admin login at
+`/admin/login/` remains reachable for staff but is no longer
+emitted by the API. Credential failures on the login endpoint
+itself are 401s WITHOUT `login_url` (see the user-auth spec).
 
 #### Scenario: Dashboard API 401 maps to the SPA mount
 
 - **WHEN** `GET /api/dashboard/` returns 401
-- **THEN** `login_url` is `/admin/login/?next=/dashboard/`
+- **THEN** `login_url` is `/accounts/login/?next=/dashboard/`
   (the dashboard SPA mounts at /dashboard/; `/` is the public
   landing page)
 
@@ -93,15 +97,28 @@ never point back at an `/api/` path. `SPA_BASES` and
   (`filters` remaps to the vacancy list page via `SPA_SUBPATHS`;
   GET /filters/ itself is public — `auth=None`)
 
+#### Scenario: Authenticated non-staff gets 403, not a bounce
+
+- **WHEN** an authenticated non-staff request reaches a
+  staff-only endpoint (e.g. `GET /api/receipts/`)
+- **THEN** the response is 403 `{error: 'forbidden'}` — no
+  `login_url`, since logging in again cannot help
+
 ### Requirement: Shared SPA shell
 
-Every SPA mount SHALL serve `react_app` (login-required) or
+Every SPA mount SHALL serve `react_app` (staff-required) or
 `react_app_public`: GET/HEAD renders `spa_shell.html` with
 `vite_entry = src/<entry>/main.tsx`; any other method 404s.
 `entry` must match `[a-z0-9_]+` and maps to a
 `frontend/src/<entry>/` folder and manifest key. The shell
-injects a `bootstrap` JSON carrying `user` and
-`sentry.{dsn,environment,release}` — no VITE_* build vars.
+injects a `bootstrap` JSON carrying `user`, `is_authenticated`,
+`is_staff` and `sentry.{dsn,environment,release}` — no VITE_*
+build vars. `react_app` redirects anonymous AND authenticated
+non-staff visitors to the admin login (the mounts that bind it
+— dashboard, receipts — are staff-only pages); per-user
+login-required surfaces outside the SPA shell use ordinary
+`login_required`, which redirects to `LOGIN_URL`
+(`/accounts/login/`).
 
 #### Scenario: Client-side route loads the shell
 
@@ -131,6 +148,21 @@ injects a `bootstrap` JSON carrying `user` and
   terminal catch-all (which renders the public landing page)
   is always the last url pattern
 
+#### Scenario: Non-staff visitor hits a staff SPA mount
+
+- **WHEN** an authenticated non-staff GET hits `/dashboard/` or
+  `/receipts/`
+- **THEN** the shell view redirects to the admin login instead
+  of serving a bundle whose API calls would all 403
+
+#### Scenario: Auth flags ride the bootstrap payload
+
+- **WHEN** any SPA shell renders for an authenticated staff
+  user
+- **THEN** `bootstrap.is_authenticated` is true and
+  `bootstrap.is_staff` is true; anonymous renders carry false
+  for both
+
 ### Requirement: Frontend client honors the contract
 
 `shared/api/client.ts` `apiFetch()` SHALL send cookies
@@ -139,7 +171,7 @@ from the `csrftoken` cookie on unsafe methods, and throw
 `ApiError` (status + parsed body) for other non-2xx. On 401
 with `login_url`/`authorization_url` it navigates there and
 returns a never-resolving promise; opaque redirects/status 0
-navigate to `/admin/login/?next=<current path>`.
+navigate to `/accounts/login/?next=<current path>`.
 
 #### Scenario: 401 with login_url
 
