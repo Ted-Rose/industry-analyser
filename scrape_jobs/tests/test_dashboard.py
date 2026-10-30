@@ -1,4 +1,4 @@
-"""Dashboard SPA cutover tests — the login-required /dashboard/
+"""Dashboard SPA cutover tests — the staff-required /dashboard/
 mount and the /api/dashboard/ auth contract."""
 
 import datetime
@@ -31,12 +31,12 @@ def make_run(job, status=ScrapeJobRun.SUCCESS, **kwargs):
 
 class DashboardShellTests(TestCase):
     """The dashboard SPA mounts at /dashboard/; the shell is
-    login-required (react_app). The site root is now the public
-    landing page."""
+    staff-required (react_app → staff_member_required). The site
+    root is now the public landing page."""
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
-            username='alice', password='pw'
+            username='alice', password='pw', is_staff=True
         )
 
     def test_dashboard_anonymous_redirects_to_login(self):
@@ -66,6 +66,18 @@ class DashboardShellTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/admin/login/', resp['Location'])
 
+    def test_non_staff_redirects_to_admin_login(self):
+        """staff_member_required bounces authenticated non-staff
+        visitors to the admin login just like anonymous ones —
+        the public /accounts/login/ cannot grant staff rights."""
+        registered = get_user_model().objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(registered)
+        resp = self.client.get('/dashboard/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/admin/login/', resp['Location'])
+
     def test_non_get_root_404s(self):
         """react_app answers GET/HEAD only — the method check fires
         before login_required inside the view. The test client is
@@ -86,27 +98,42 @@ class DashboardShellTests(TestCase):
 
 
 class DashboardApiTests(TestCase):
-    """GET /api/dashboard/ — session-authed (the page it replaced
-    was @login_required)."""
+    """GET /api/dashboard/ — staff-authed (the page it replaced
+    was @login_required; the data is global scrape state)."""
 
     API = '/api/dashboard'
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
-            username='alice', password='pw'
+            username='alice', password='pw', is_staff=True
         )
 
     def test_anonymous_401_json_login_url_dashboard(self):
         """Session auth fails as JSON, never a redirect; SPA_BASES
         maps /api/dashboard/* back to '/dashboard/', so login_url's
-        `next` is the SPA page, not the JSON endpoint."""
+        `next` is the SPA page, not the JSON endpoint. The public
+        accounts SPA is the single login_url target."""
         resp = self.client.get(f'{self.API}/')
         self.assertEqual(resp.status_code, 401)
         body = resp.json()
         self.assertEqual(body['error'], 'unauthenticated')
         self.assertEqual(
-            body['login_url'], '/admin/login/?next=%2Fdashboard%2F'
+            body['login_url'],
+            '/accounts/login/?next=%2Fdashboard%2F',
         )
+
+    def test_non_staff_403_no_login_url(self):
+        """Authenticated non-staff callers get a 403 — no
+        login_url, since re-authenticating cannot help."""
+        registered = get_user_model().objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(registered)
+        resp = self.client.get(f'{self.API}/')
+        self.assertEqual(resp.status_code, 403)
+        body = resp.json()
+        self.assertEqual(body['error'], 'forbidden')
+        self.assertNotIn('login_url', body)
 
     def test_dashboard_payload(self):
         self.client.force_login(self.user)

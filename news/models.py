@@ -133,6 +133,9 @@ class NewsArticle(models.Model):
         db_index=True,
     )
     feed_categories = models.JSONField(default=list, blank=True)
+    # True when the row came from a sitemap/archive backfill,
+    # not the RSS feed (external_id is a link hash, not a guid).
+    is_backfill = models.BooleanField(default=False)
     topic = models.ForeignKey(
         NewsTopic,
         null=True,

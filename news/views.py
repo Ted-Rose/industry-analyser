@@ -1,13 +1,17 @@
 """Digest pages — plain Django templates (MVP UI; the React SPA
 and ninja API are out of scope for this feature)."""
+import logging
 import os
+import re
 from datetime import datetime
 
 from django.contrib.auth.decorators import login_required
 from django.db.models import Prefetch
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_GET
 
+from .audio import AudioGenerationError, text_to_audio
 from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsArticle,
@@ -20,13 +24,24 @@ from .models import (
 )
 from .preferences import ordered_story_articles
 
+logger = logging.getLogger('news')
+
+_LANG_RE = re.compile(r'^[a-z]{2}(-[a-zA-Z]{2})?$')
+
 
 def digest_list(request):
     digests = (
         NewsDigest.objects.order_by('-date')
         .prefetch_related(Prefetch(
             'items',
-            queryset=NewsDigestItem.objects.order_by('rank'),
+            # select_related('story') makes each item's
+            # representative_lead (the audio description clip)
+            # cost zero extra queries.
+            queryset=(
+                NewsDigestItem.objects
+                .select_related('story')
+                .order_by('rank')
+            ),
         ))
     )
     return render(
@@ -127,6 +142,37 @@ def article_audio(request, pk):
     if audio is None or not os.path.isfile(audio.file_path):
         raise Http404('No ready audio for this article')
     return FileResponse(open(audio.file_path, 'rb'))
+
+
+@require_GET
+def audio(request):
+    """Public gTTS->GCS clip generator for the digest page's
+    audio buttons. /news/ itself is public and the pre-warm
+    fan-out must work for anonymous readers, so this endpoint
+    stays unauthenticated — abuse is bounded by
+    content-addressed dedup, the text length cap and ~1s gTTS
+    latency per genuinely new text."""
+    text = request.GET.get('text', '')
+    lang = request.GET.get('lang') or None
+    filename = request.GET.get('filename') or None
+    if not text or len(text) > 6000:
+        return JsonResponse({'error': 'invalid text'}, status=400)
+    if lang is not None and (
+        len(lang) > 10 or not _LANG_RE.match(lang)
+    ):
+        return JsonResponse({'error': 'invalid lang'}, status=400)
+    if filename is not None and len(filename) > 200:
+        return JsonResponse(
+            {'error': 'invalid filename'}, status=400
+        )
+    try:
+        url = text_to_audio(text, lang=lang, filename=filename)
+    except ValueError as exc:
+        return JsonResponse({'error': str(exc)}, status=400)
+    except AudioGenerationError as exc:
+        logger.warning('audio generation failed: %s', exc)
+        return JsonResponse({'error': str(exc)}, status=502)
+    return JsonResponse({'audio_url': url})
 
 
 @login_required

@@ -876,7 +876,8 @@ class ReceiptsApiTests(TestCase):
     payload plus the /receipts/ SPA-shell cutover (the retired
     DashboardViewTests asserted on rendered HTML/context; the SPA
     now consumes this one fat GET). Page and payload are both
-    login-required — receipts are private spending data."""
+    staff-required — receipts are one admin's private spending
+    data."""
 
     API = '/api/receipts/'
 
@@ -928,10 +929,10 @@ class ReceiptsApiTests(TestCase):
 
     def test_api_no_admin_user_reports_empty(self):
         self.user.delete()   # cascades to the receipt
-        # Session auth requires *a* user — a non-admin login still
-        # gets the graceful owner-missing payload.
+        # Staff auth requires *a* staff user — a non-admin staff
+        # login still gets the graceful owner-missing payload.
         other = get_user_model().objects.create_user(
-            username='other', password='x')
+            username='other', password='x', is_staff=True)
         self.client.force_login(other)
         resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
