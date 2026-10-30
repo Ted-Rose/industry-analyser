@@ -1296,7 +1296,7 @@ export interface components {
          *     node (the ad's own region FK, no parent rollup) x the
          *     group_by dimension: property type (project name for
          *     apartments, house_type for houses), the literal 'All' for
-         *     group_by='region', or a rooms bucket ('1r'–'3r', '4+r')
+         *     group_by='region', or a rooms bucket ('0r'–'3r', '4+r')
          *     for group_by='rooms'.
          *
          *     `months_to_buyout` is the headline metric: median whole-unit
