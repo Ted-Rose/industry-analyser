@@ -44,6 +44,26 @@
     }
   }
 
+  /* Stamp the label without wiping a nested icon: a
+     [data-theme-label] child wins, otherwise the first text
+     node is rewritten (or appended when the button holds only
+     elements). */
+  function labelButton(button, text) {
+    button.setAttribute('aria-label', text);
+    var label = button.querySelector('[data-theme-label]');
+    if (label) {
+      label.textContent = text;
+      return;
+    }
+    for (var i = 0; i < button.childNodes.length; i += 1) {
+      if (button.childNodes[i].nodeType === Node.TEXT_NODE) {
+        button.childNodes[i].nodeValue = text;
+        return;
+      }
+    }
+    button.appendChild(document.createTextNode(text));
+  }
+
   function apply(theme) {
     var dark = isDark(theme);
     var root = document.documentElement;
@@ -52,8 +72,7 @@
     syncMetas(theme, dark);
     var buttons = document.querySelectorAll('[data-theme-toggle]');
     for (var i = 0; i < buttons.length; i += 1) {
-      buttons[i].setAttribute('aria-label', 'Theme: ' + theme);
-      buttons[i].textContent = 'Theme: ' + theme;
+      labelButton(buttons[i], 'Theme: ' + theme);
     }
   }
 

@@ -59,7 +59,7 @@ form is a plain POST to /admin/logout/.
       </form>
       {% else %}
       <a class="text-sm text-accent-text hover:underline"
-         href="/admin/login/?next={{ request.path }}">Log in</a>
+         href="/admin/login/?next={{ request.path|urlencode }}">Log in</a>
       {% endif %}
     </div>
   </div>

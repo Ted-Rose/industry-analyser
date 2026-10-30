@@ -4,7 +4,7 @@
    <html> re-themes every page without a rebuild. Every SPA
    main.tsx imports this file once migrated; site.css re-exports
    it for Django-rendered pages. */
-@import "@fontsource-variable/inter/index.css";
+@import "./inter.css";
 @import "tailwindcss";
 @import "./tokens.css";
 
@@ -19,9 +19,8 @@
 @source "../../../../news/templates";
 
 @theme {
-  /* Inter Variable, self-hosted via @fontsource-variable/inter
-     (latin + latin-ext subsets ride along in index.css; the
-     browser fetches only the woff2 unicode-ranges it needs). */
+  /* Inter Variable, self-hosted via @fontsource-variable/inter —
+     inter.css registers the latin + latin-ext subsets only. */
   --font-sans:
     "Inter Variable", ui-sans-serif, system-ui, -apple-system,
     "Segoe UI", Roboto, sans-serif;

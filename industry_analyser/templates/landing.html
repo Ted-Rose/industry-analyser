@@ -3,14 +3,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  {% include "_theme_head.html" %}
   <meta charset="utf-8">
+  {% include "_theme_head.html" %}
   <meta name="viewport"
         content="width=device-width, initial-scale=1">
   <title>Industry Analyser</title>
   <meta name="description"
-        content="Industry Analyser — web scraping results,
-                 split into mini-applications.">
+        content="Web scraping results in mini-applications.">
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/svg+xml"
         href="{% static 'fetcher/icons/icon.svg' %}">
@@ -21,7 +20,8 @@
 <body>
   {% include "_topbar.html" %}
   <main id="main"
-        class="mx-auto w-full max-w-prose px-4 py-10 sm:px-6">
+        class="mx-auto w-full max-w-(--container-prose) px-4
+              py-10 sm:px-6">
     <header>
       <h1 class="text-3xl font-semibold tracking-tight">
         Industry Analyser</h1>
