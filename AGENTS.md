@@ -37,6 +37,7 @@ doc map but partly stale (see preamble).
 | `classified_ads/` | Rent & sale ads; `/classified-ads/` | ss.com |
 | `blogs/` | Blog pages + AI theme analysis | spoki.lv |
 | `tv_programs/` | TV schedule + movie classif.; `/tv/` | tet.lv |
+| `news/` | RSS news + sitemap backfill; `/news/` digest | see feeds.py |
 | `core_scraper/` | `BaseScraper` + `BaseRefetchCommand` ABCs | — |
 | `accounts/` | Retired stub — `/accounts/` → 301 `/` | — |
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
@@ -337,6 +338,9 @@ python manage.py scrape_apartment_ads --max-pages 10
 python manage.py scrape_housing_ads
 python manage.py scrape_blogs [--theme NAME] [--reanalyze]
 python manage.py scrape_tv_programs [--force] [--dry-run]
+python manage.py scrape_news \
+  [--backfill] [--since YYYY-MM-DD] [--until YYYY-MM-DD] \
+  [--max-minutes N]
 python manage.py backfill_program_shows [--dry-run]
 python manage.py enrich_tv_shows [--status pending] [--limit N]
 python manage.py sync_apartment_regions / sync_housing_regions
@@ -352,7 +356,17 @@ python manage.py run_all_jobs \
 ```
 
 Command detail: `scrape_vacancies` runs all configured portals
-by default. `scrape_blogs --max-api-requests N` caps paid AI
+by default. `scrape_news` polls RSS feeds; `--backfill` instead
+walks each enabled source's historical sitemaps/archives into
+`NewsArticle` rows (job `news.backfill`, constant `backfill`
+cycle so re-invocations resume DONE partitions; `--since`/
+`--until` bound which pending partitions process, never the
+synced set; `--max-minutes` ends the run PARTIAL when the
+wall-clock budget runs out). Backfilled rows carry
+`is_backfill=True` and always have `published_at` (undateable
+articles are skipped — a NULL date would enter today's
+clustering window via `first_seen`).
+`scrape_blogs --max-api-requests N` caps paid AI
 calls. `scrape_tv_programs` also takes `--days-past N`,
 `--days-future N`, `--no-enrich`. `enrich_tv_shows` statuses:
 `pending|not_found|failed`; `--dry-run` available.
