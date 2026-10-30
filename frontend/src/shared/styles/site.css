@@ -1,0 +1,68 @@
+/* Django-page entry — landing and (later) news, linked via the
+   {% ds_head %} template tag. Bundles the full design system
+   (Tailwind + tokens + component classes) plus prose treatment
+   for server-injected HTML. Plain classes here are component-
+   layer shims so they also hold up next to Bootstrap's
+   unlayered rules where the two ever coexist (plan §4.4). */
+@import "./app.css";
+
+@layer components {
+  /* .news-prose / .prose — h1–h4/ul/a/img styling for injected
+     markup (SpokiPage, news bodies) — plan §6 ui/Prose. */
+  .news-prose,
+  .prose {
+    color: var(--ia-fg);
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+
+  .news-prose :where(h1, h2, h3, h4),
+  .prose :where(h1, h2, h3, h4) {
+    color: var(--ia-fg);
+    font-weight: 600;
+    margin: 1.25em 0 0.5em;
+  }
+
+  .news-prose h1,
+  .prose h1 {
+    font-size: 1.375rem;
+    line-height: 1.875rem;
+  }
+
+  .news-prose h2,
+  .prose h2 {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
+
+  .news-prose :where(h3, h4),
+  .prose :where(h3, h4) {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+
+  .news-prose :where(p, ul, ol),
+  .prose :where(p, ul, ol) {
+    margin: 0.75em 0;
+  }
+
+  .news-prose :where(ul, ol),
+  .prose :where(ul, ol) {
+    padding-left: 1.25rem;
+    list-style: revert;
+  }
+
+  .news-prose a,
+  .prose a {
+    color: var(--ia-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .news-prose img,
+  .prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+}

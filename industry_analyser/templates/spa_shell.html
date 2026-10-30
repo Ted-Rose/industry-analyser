@@ -1,24 +1,31 @@
 {% load django_vite %}
+{% load design_system %}
 {% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="lv">
 <head>
+    {% include "_theme_head.html" %}
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
     <title>{{ title }} - Industry Analyser</title>
     <link rel="manifest" href="/manifest.json">
-    <meta name="theme-color" content="#0066cc">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Industry Analyser">
+    <meta name="apple-mobile-web-app-status-bar-style"
+          content="default">
+    <meta name="apple-mobile-web-app-title"
+          content="Industry Analyser">
     <link rel="apple-touch-icon"
           href="{% static 'fetcher/icons/icon.svg' %}">
+    {% if legacy_bootstrap %}
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
       rel="stylesheet">
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
       rel="stylesheet">
+    {% endif %}
+    {% ds_head %}
     {% vite_hmr_client %}
     {% vite_react_refresh %}
     {% if manifest_ready %}
@@ -26,10 +33,25 @@
     {% endif %}
 </head>
 <body>
-    <div id="root">Loading React app&hellip;</div>
+    <div id="root">
+        <div class="ia-boot" role="status">
+            <span class="ia-boot__spinner" aria-hidden="true">
+            </span>
+            <p>Loading React app&hellip;</p>
+            <p class="ia-boot__hint">Taking too long?
+                <a href="">Reload the page</a>.</p>
+        </div>
+    </div>
+    <noscript>
+        <div class="ia-boot">
+            <p>This app needs JavaScript enabled.</p>
+        </div>
+    </noscript>
     {{ bootstrap|json_script:"spa-bootstrap" }}
     {% if not manifest_ready %}
-    <div class="alert alert-warning m-3" role="alert">
+    <div class="m-4 rounded-md border border-warning
+                bg-warning-subtle p-4 text-sm text-warning"
+         role="alert">
         React entry not loaded: <code>frontend_dist/manifest.json</code>
         is missing in this runtime. Build the frontend with
         <code>npm run build --prefix frontend</code>, or check that the

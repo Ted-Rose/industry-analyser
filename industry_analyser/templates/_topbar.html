@@ -1,0 +1,68 @@
+{% load static %}
+{% comment %}
+Server-rendered twin of the SPA TopNav (plan §5): skip link,
+"Industry Analyser" home link, app switcher fed by the
+global_nav context processor (`nav_apps`), theme toggle and
+auth state. Used by landing.html and (later) news/base.html —
+works CSS-less: <details> is a native disclosure and the auth
+form is a plain POST to /admin/logout/.
+{% endcomment %}
+<a class="sr-only focus:not-sr-only focus:absolute focus:left-2
+          focus:top-2 focus:z-50 focus:rounded-md focus:border
+          focus:border-border-strong focus:bg-surface
+          focus:px-3 focus:py-2 focus:text-sm focus:text-fg"
+   href="#main">Skip to content</a>
+<header class="sticky top-0 z-30 border-b border-border
+               bg-surface/80 backdrop-blur">
+  <div class="mx-auto flex h-14 w-full max-w-page items-center
+              gap-3 px-4 sm:gap-4 sm:px-6 lg:px-8">
+    <a class="shrink-0 text-sm font-semibold text-fg"
+       href="/">Industry Analyser</a>
+    <details class="group relative">
+      <summary class="cursor-pointer list-none rounded-md px-2
+                      py-1.5 text-sm text-fg-muted
+                      hover:bg-surface-2 hover:text-fg">
+        Apps</summary>
+      <ul class="absolute left-0 z-40 mt-1 w-56 rounded-lg
+                 border border-border bg-surface p-1 shadow-md">
+        {% for app in nav_apps %}
+        <li>
+          <a class="flex items-baseline justify-between gap-2
+                    rounded-md px-3 py-2 text-sm text-fg
+                    hover:bg-surface-2"
+             href="{{ app.url }}">
+            <span>{{ app.title }}</span>
+            {% if app.login_required %}
+            <span class="text-xs text-fg-subtle">
+              login required</span>
+            {% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    <div class="ms-auto flex items-center gap-3">
+      <button type="button" data-theme-toggle
+              aria-label="Theme: auto"
+              class="rounded-md border border-border-strong px-2
+                     py-1.5 text-xs text-fg-muted
+                     hover:bg-surface-2">Theme: auto</button>
+      {% if user.is_authenticated %}
+      <span class="hidden text-sm text-fg-muted sm:inline">
+        {{ user.get_username }}</span>
+      <form method="post" action="/admin/logout/"
+            class="inline">
+        {% csrf_token %}
+        <button type="submit"
+                class="text-sm text-accent-text
+                       hover:underline">Log out</button>
+      </form>
+      {% else %}
+      <a class="text-sm text-accent-text hover:underline"
+         href="/admin/login/?next={{ request.path }}">Log in</a>
+      {% endif %}
+    </div>
+  </div>
+</header>
+<script src="{% static 'industry_analyser/theme-toggle.js' %}"
+        defer></script>

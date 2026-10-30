@@ -17,6 +17,34 @@
       "_sentry.CSD75Jah.js"
     ]
   },
+  "node_modules/@fontsource-variable/inter/files/inter-cyrillic-ext-wght-normal.woff2": {
+    "file": "inter-cyrillic-ext-wght-normal/inter-cyrillic-ext-wght-normal.BOeWTOD4.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-cyrillic-ext-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/inter/files/inter-cyrillic-wght-normal.woff2": {
+    "file": "inter-cyrillic-wght-normal/inter-cyrillic-wght-normal.DqGufNeO.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-cyrillic-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/inter/files/inter-greek-ext-wght-normal.woff2": {
+    "file": "inter-greek-ext-wght-normal/inter-greek-ext-wght-normal.DlzME5K_.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-greek-ext-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/inter/files/inter-greek-wght-normal.woff2": {
+    "file": "inter-greek-wght-normal/inter-greek-wght-normal.CkhJZR-_.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-greek-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2": {
+    "file": "inter-latin-ext-wght-normal/inter-latin-ext-wght-normal.DO1Apj_S.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2": {
+    "file": "inter-latin-wght-normal/inter-latin-wght-normal.Dx4kXJAl.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"
+  },
+  "node_modules/@fontsource-variable/inter/files/inter-vietnamese-wght-normal.woff2": {
+    "file": "inter-vietnamese-wght-normal/inter-vietnamese-wght-normal.CBcvBZtf.woff2",
+    "src": "node_modules/@fontsource-variable/inter/files/inter-vietnamese-wght-normal.woff2"
+  },
   "src/classified_ads/main.tsx": {
     "file": "classified_ads/classified_ads.Bf-jSMRa.js",
     "name": "classified_ads",
@@ -54,6 +82,16 @@
     "css": [
       "receipts/receipts.C11Dblta.css"
     ]
+  },
+  "src/shared/styles/admin.css": {
+    "file": "admin/admin.DEBGEODs.css",
+    "src": "src/shared/styles/admin.css",
+    "isEntry": true
+  },
+  "src/shared/styles/site.css": {
+    "file": "site/site.C52PDv9F.css",
+    "src": "src/shared/styles/site.css",
+    "isEntry": true
   },
   "src/tv/main.tsx": {
     "file": "tv/tv.BA9_BCxn.js",

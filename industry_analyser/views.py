@@ -68,6 +68,19 @@ def terminal_404(request, subpath=''):
 # map to entry 'classified_ads').
 SPA_ENTRY_RE = re.compile(r'[a-z0-9_]+')
 
+# SPA entries still themed by the Bootstrap CDN links — an app
+# leaves this set only when EVERY route in it has been migrated
+# to the design system (the classified_ads split stays on until
+# its second migration PR). spa_shell.html wraps both CDN
+# <link>s in {% if legacy_bootstrap %}.
+LEGACY_BOOTSTRAP_ENTRIES = {
+    'vacancies',
+    'tv',
+    'classified_ads',
+    'dashboard',
+    'receipts',
+}
+
 
 def _manifest_has_entry(manifest_path, entry_key):
     """True only if manifest.json exists AND still lists `entry_key`.
@@ -107,12 +120,20 @@ def _spa_shell(request, entry, title=''):
     return render(request, 'spa_shell.html', {
         'title': title,
         'vite_entry': vite_entry,
+        'legacy_bootstrap': entry in LEGACY_BOOTSTRAP_ENTRIES,
         'manifest_ready': (
             vite_config.get('dev_mode')
             or _manifest_has_entry(manifest_path, vite_entry)
         ),
         'bootstrap': {
             'user': request.user.get_username() or None,
+            # The auto-discovered app mounts + auth flags — the
+            # SPA TopNav builds its AppSwitcher and login/logout
+            # state off these instead of a hardcoded list (same
+            # contract the / landing page renders).
+            'apps': _landing_entries(),
+            'is_staff': request.user.is_staff,
+            'is_authenticated': request.user.is_authenticated,
             # Web Sentry config ships inside the page — the SPA reads
             # it before createRoot, so no VITE_* build vars are
             # needed. Empty dsn leaves the browser SDK uninitialized.

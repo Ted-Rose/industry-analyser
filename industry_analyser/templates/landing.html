@@ -1,73 +1,76 @@
+{% load design_system %}
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  {% include "_theme_head.html" %}
   <meta charset="utf-8">
   <meta name="viewport"
         content="width=device-width, initial-scale=1">
   <title>Industry Analyser</title>
-  <style>
-    body {
-      font-family: system-ui, -apple-system, sans-serif;
-      max-width: 720px;
-      margin: 0 auto;
-      padding: 1rem;
-      color: #1a1a1a;
-      line-height: 1.5;
-    }
-    header h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
-    .muted { color: #666; font-size: 0.9rem; }
-    .cta { margin: 1.5rem 0; }
-    .cta a {
-      display: inline-block;
-      padding: 0.7rem 1.4rem;
-      background: #0066cc;
-      color: #fff;
-      text-decoration: none;
-      border-radius: 6px;
-      font-weight: 600;
-    }
-    .cta a:hover { background: #0052a3; }
-    .cta .note { margin-left: 0.5rem; }
-    ul.apps { padding-left: 1.2rem; }
-    ul.apps li { margin-bottom: 0.4rem; }
-    .badge {
-      color: #666;
-      font-size: 0.8rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      padding: 0 0.3rem;
-      margin-left: 0.4rem;
-    }
-  </style>
+  <meta name="description"
+        content="Industry Analyser — web scraping results,
+                 split into mini-applications.">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml"
+        href="{% static 'fetcher/icons/icon.svg' %}">
+  <link rel="apple-touch-icon"
+        href="{% static 'fetcher/icons/icon.svg' %}">
+  {% ds_head %}
 </head>
 <body>
-  <header>
-    <h1>Industry Analyser</h1>
-    <p class="muted">Web scraping results, split into
-      mini-applications.</p>
-  </header>
-  <main>
+  {% include "_topbar.html" %}
+  <main id="main"
+        class="mx-auto w-full max-w-prose px-4 py-10 sm:px-6">
+    <header>
+      <h1 class="text-3xl font-semibold tracking-tight">
+        Industry Analyser</h1>
+      <p class="mt-2 text-fg-muted">Web scraping results, split
+        into mini-applications.</p>
+    </header>
     {% if cta_apps %}
-    <section class="cta">
+    <section class="mt-6 flex flex-wrap items-center gap-3"
+             aria-label="Featured">
       {% for app in cta_apps %}
-      <a href="{{ app.url }}">{{ app.title }}</a>
+      <a class="inline-flex items-center rounded-md bg-accent
+                px-4 py-2 text-sm font-medium text-accent-fg
+                shadow-xs hover:bg-accent-hover"
+         href="{{ app.url }}">{{ app.title }}</a>
       {% if app.login_required %}
-      <span class="note muted">login required</span>
+      <span class="rounded-sm border border-border-strong px-1.5
+                   py-0.5 text-xs text-fg-muted">
+        login required</span>
       {% endif %}
       {% endfor %}
     </section>
     {% endif %}
-    <ul class="apps">
+    <ul class="mt-8 grid gap-3 sm:grid-cols-2">
       {% for app in apps %}
-      <li>
-        <a href="{{ app.url }}">{{ app.title }}</a>
-        {% if app.login_required %}<span class="badge">
-          login required</span>{% endif %}
-        {% if app.desc %}<span class="muted">
-          — {{ app.desc }}</span>{% endif %}
+      <li class="list-none">
+        <a class="block h-full rounded-lg border border-border
+                  bg-surface p-4 shadow-xs transition-colors
+                  hover:border-border-strong hover:bg-surface-2"
+           href="{{ app.url }}">
+          <span class="flex items-center gap-2 font-medium
+                       text-fg">
+            <span>{{ app.title }}</span>
+            {% if app.login_required %}
+            <span class="rounded-sm border border-border-strong
+                         px-1.5 py-0.5 text-xs font-normal
+                         text-fg-muted">login required</span>
+            {% endif %}
+          </span>
+          {% if app.desc %}
+          <span class="mt-1 block text-sm text-fg-muted">
+            {{ app.desc }}</span>
+          {% endif %}
+        </a>
       </li>
       {% empty %}
-      <li class="muted">No applications mounted.</li>
+      <li class="list-none">
+        <p class="text-sm text-fg-muted">
+          No applications mounted.</p>
+      </li>
       {% endfor %}
     </ul>
   </main>

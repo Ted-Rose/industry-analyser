@@ -1,0 +1,168 @@
+/* Shared app stylesheet — plan §4.1. Tailwind v4 CSS-first
+   (no tailwind.config.js, no PostCSS config): @theme inline maps
+   the utility vocabulary onto var(--ia-*) so flipping `.dark` on
+   <html> re-themes every page without a rebuild. Every SPA
+   main.tsx imports this file once migrated; site.css re-exports
+   it for Django-rendered pages. */
+@import "@fontsource-variable/inter/index.css";
+@import "tailwindcss";
+@import "./tokens.css";
+
+/* `dark:` utilities apply under the `.dark` class the theme
+   script toggles on <html> (class mode, not media mode — an
+   explicit `light` choice must beat prefers-color-scheme). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tailwind must also see the class names used by the
+   Django-rendered templates (landing, _topbar, news). */
+@source "../../../../industry_analyser/templates";
+@source "../../../../news/templates";
+
+@theme {
+  /* Inter Variable, self-hosted via @fontsource-variable/inter
+     (latin + latin-ext subsets ride along in index.css; the
+     browser fetches only the woff2 unicode-ranges it needs). */
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Page widths — plan §4.2. max-w-* and container-query
+     variants share this namespace. */
+  --container-page: 88rem;
+  --container-narrow: 48rem;
+  --container-prose: 45rem;
+
+  /* Shadows are light-mode only; dark mode separates surfaces
+     with borders (plan §4.2). */
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.16);
+
+  /* Motion — ease-out cubic-bezier(.16,1,.3,1) → `ease-ia`;
+     durations are the native duration-120/180/260 utilities,
+     always paired with motion-safe: (plan §4.2). */
+  --ease-ia: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* `inline` inlines each value into the generated utilities, so
+   bg-surface compiles to `background-color: var(--ia-surface)`
+   and the light/dark flip in tokens.css is all that changes. */
+@theme inline {
+  --color-bg: var(--ia-bg);
+  --color-surface: var(--ia-surface);
+  --color-surface-2: var(--ia-surface-2);
+  --color-surface-3: var(--ia-surface-3);
+  --color-border: var(--ia-border);
+  --color-border-strong: var(--ia-border-strong);
+  --color-fg: var(--ia-fg);
+  --color-fg-muted: var(--ia-fg-muted);
+  --color-fg-subtle: var(--ia-fg-subtle);
+  --color-accent: var(--ia-accent);
+  --color-accent-hover: var(--ia-accent-hover);
+  --color-accent-fg: var(--ia-accent-fg);
+  --color-accent-text: var(--ia-accent-text);
+  --color-accent-subtle: var(--ia-accent-subtle);
+  --color-ring: var(--ia-ring);
+  --color-success: var(--ia-success);
+  --color-success-subtle: var(--ia-success-subtle);
+  --color-warning: var(--ia-warning);
+  --color-warning-subtle: var(--ia-warning-subtle);
+  --color-danger: var(--ia-danger);
+  --color-danger-subtle: var(--ia-danger-subtle);
+  --color-info: var(--ia-info);
+  --color-info-subtle: var(--ia-info-subtle);
+  --color-chart-1: var(--ia-chart-1);
+  --color-chart-2: var(--ia-chart-2);
+  --color-chart-3: var(--ia-chart-3);
+  --color-chart-4: var(--ia-chart-4);
+  --color-chart-5: var(--ia-chart-5);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  html.dark,
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--ia-bg);
+    color: var(--ia-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ia-ring);
+    outline-offset: 2px;
+  }
+
+  /* Numeric alignment contract: tabular figures wherever a cell
+     carries a number (plan §4.2). */
+  .num,
+  td.num,
+  th.num {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* The #root boot block rendered by spa_shell.html before React
+   mounts — `ia-` prefixed so it survives next to Bootstrap's
+   unlayered rules on legacy SPAs (plan §4.4). */
+@keyframes ia-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@layer components {
+  .ia-boot {
+    display: flex;
+    min-height: 45vh;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+    padding: 2rem 1rem;
+    color: var(--ia-fg-muted);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    text-align: center;
+  }
+
+  .ia-boot p {
+    margin: 0;
+  }
+
+  .ia-boot__spinner {
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 2px solid var(--ia-surface-3);
+    border-top-color: var(--ia-accent);
+    border-radius: 9999px;
+    animation: ia-spin 0.7s linear infinite;
+  }
+
+  .ia-boot__hint {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    color: var(--ia-fg-subtle);
+  }
+
+  .ia-boot__hint a {
+    color: var(--ia-accent-text);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ia-boot__spinner {
+      animation: none;
+    }
+  }
+}
