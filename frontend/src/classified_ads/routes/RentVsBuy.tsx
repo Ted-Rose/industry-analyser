@@ -97,7 +97,7 @@ function StripLink({
   return (
     <Link
       to={to}
-      aria-current={active ? 'true' : undefined}
+      aria-current={active ? 'page' : undefined}
       className={cx(
         'inline-flex items-center gap-1.5 rounded-sm px-3 py-1 ' +
           'text-sm font-medium transition-colors ' +
@@ -154,8 +154,11 @@ export default function RentVsBuy() {
         // 'type' is the API default — only non-default modes
         // ride the query string (additive param).
         if (d.group !== 'type') next.set('group', d.group);
-        next.set('days', d.days);
-        next.set('min_ads', d.minAds);
+        // Cleared inputs drop the param — the input and the
+        // query then fall back to the kind-aware default
+        // (an empty `days=` would bypass it).
+        if (d.days) next.set('days', d.days);
+        if (d.minAds) next.set('min_ads', d.minAds);
         if (d.residual) next.set('residual', '1');
         return next;
       },
@@ -227,7 +230,10 @@ export default function RentVsBuy() {
           'ranked.'
         }
         actions={
-          <>
+          // PageHeader's actions row is nowrap — the strips
+          // (~490px combined) overflow at 360px, so they get
+          // their own wrapping row inside it.
+          <div className="flex flex-wrap items-center gap-2">
             <LinkStrip label="Kind">
               {KINDS.map((k) => (
                 <StripLink
@@ -250,7 +256,7 @@ export default function RentVsBuy() {
                 </StripLink>
               ))}
             </LinkStrip>
-          </>
+          </div>
         }
       />
 

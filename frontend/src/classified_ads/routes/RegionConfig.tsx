@@ -264,7 +264,10 @@ export default function RegionConfig({ kind }: { kind: Kind }) {
             ) : data && data.regions_tree.length === 0 ? (
               <EmptyState
                 title={`No ${copy.label} regions in database yet.`}
-                description={`Run the ${copy.syncJob} Cloud Run job to populate.`}
+                description={
+                  `Run the ${copy.syncJob} Cloud Run ` +
+                  'job to populate.'
+                }
               />
             ) : (
               data?.regions_tree.map((region) => (

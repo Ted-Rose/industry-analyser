@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import RentVsBuy from './RentVsBuy';
@@ -273,5 +278,24 @@ describe('RentVsBuy', () => {
     // The kind-aware default is sent too — the displayed filter
     // must match the actual data window.
     expect(calledUrls()[0]).toContain('days=90');
+  });
+
+  it('drops a cleared days param so the default returns', async () => {
+    renderPage('/rent-vs-buy?kind=house');
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    const input = screen.getByLabelText('Window (days)');
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await waitFor(() =>
+      expect(mockedApiGet.mock.calls.length).toBeGreaterThan(1),
+    );
+    // No `days=` in the URL — the kind-aware 90-day default
+    // kicks back in, and the re-synced input shows it too.
+    expect(calledUrls().at(-1)).toContain('days=90');
+    expect(input).toHaveValue(90);
+    // …and it no longer counts as an active filter.
+    expect(
+      screen.getByRole('button', { name: 'Filters (1)' }),
+    ).toBeInTheDocument();
   });
 });
