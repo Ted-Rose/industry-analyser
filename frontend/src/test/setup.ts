@@ -47,6 +47,45 @@ if (
   }
 }
 
+// jsdom ships <dialog> without showModal()/show()/close(), so a
+// rendered dialog never gets the `open` attribute and its
+// children stay `display: none` — invisible to role queries.
+// Stub the show/hide contract so Dialog tests exercise the real
+// code path.
+if (
+  typeof HTMLDialogElement !== 'undefined' &&
+  typeof HTMLDialogElement.prototype.showModal !== 'function'
+) {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.show = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
+}
+
+// jsdom has no matchMedia — theme.ts (initTheme) and anything
+// rendering ThemeToggle/AppShell needs a light-mode stub.
+if (
+  typeof window !== 'undefined' &&
+  typeof window.matchMedia !== 'function'
+) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList;
+}
+
 // jsdom never implemented Element.prototype.scrollIntoView — stub
 // it so components that scroll the active nav tab into view on
 // mount don't crash under tests.

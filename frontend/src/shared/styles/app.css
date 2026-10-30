@@ -165,3 +165,10 @@
     }
   }
 }
+
+/* The ia-toasts/ia-toast/ia-fallback/ia-btn rules used by
+   components/Toasts.tsx and components/ErrorBoundary.tsx moved to
+   shared/styles/ia-components.css, which those components import
+   directly — vite then co-bundles them into every entry that
+   mounts the components (per-app bundles never imported app.css,
+   so copies here left toasts and the error fallback unstyled). */

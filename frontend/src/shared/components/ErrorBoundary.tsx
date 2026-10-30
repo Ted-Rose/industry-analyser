@@ -1,6 +1,8 @@
 import { Component, ErrorInfo, ReactNode } from 'react';
 import * as Sentry from '@sentry/react';
+import { AlertTriangle } from 'lucide-react';
 import { reportError } from '../errorReporter';
+import '../styles/ia-components.css';
 
 interface Props {
   children: ReactNode;
@@ -31,9 +33,12 @@ function buildErrorDetails(error: Error, context?: string): string {
 
 /**
  * Catches render errors anywhere below it, reports them (toast +
- * Sentry), and shows a Bootstrap-styled fallback with a
- * copy-details button for bug reports. Mounted around <App/> in
- * every main.tsx entry.
+ * Sentry), and shows a design-system fallback — the ErrorState +
+ * Button pairing from plan §6, rendered with `ia-` classes from
+ * styles/ia-components.css (imported above so vite co-bundles the
+ * rules into every entry) so it holds up while Bootstrap is
+ * still loaded on legacy entries (plan §4.4). Mounted around
+ * <App/> in every main.tsx entry.
  */
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -62,24 +67,21 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div
-          className="d-flex flex-column align-items-center
-            justify-content-center text-center p-4"
-          style={{ minHeight: '60vh' }}
-        >
-          <i
-            className="bi bi-exclamation-triangle text-danger
-              display-4 mb-3"
-          />
-          <h2>Something went wrong</h2>
-          <p className="text-muted">
+        <div className="ia-fallback" role="alert">
+          <span className="ia-fallback__icon" aria-hidden="true">
+            <AlertTriangle size={40} />
+          </span>
+          <h2 className="ia-fallback__title">
+            Something went wrong
+          </h2>
+          <p className="ia-fallback__message">
             {this.state.error?.message ||
               'An unexpected error occurred. Please try again.'}
           </p>
-          <div className="d-flex gap-2">
+          <div className="ia-fallback__actions">
             <button
               type="button"
-              className="btn btn-primary"
+              className="ia-btn ia-btn--primary"
               onClick={() => {
                 this.setState({ hasError: false, error: null });
                 window.location.href = '/';
@@ -89,7 +91,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </button>
             <button
               type="button"
-              className="btn btn-outline-secondary"
+              className="ia-btn ia-btn--secondary"
               onClick={() => {
                 if (!this.state.error) return;
                 navigator.clipboard
@@ -108,7 +110,7 @@ export class ErrorBoundary extends Component<Props, State> {
               {this.state.copied ? 'Copied!' : 'Copy error details'}
             </button>
           </div>
-          <p className="text-muted small mt-3">
+          <p className="ia-fallback__hint">
             Please report this bug by pasting the details into a
             GitHub issue.
           </p>
