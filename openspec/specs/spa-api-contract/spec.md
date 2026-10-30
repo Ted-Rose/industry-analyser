@@ -76,20 +76,22 @@ where `spa_url_for()` rewrites the `/api/<app>/<sub>` request
 path to the SPA page that issued it — `login_url`/`next` MUST
 never point back at an `/api/` path. `SPA_BASES` and
 `SPA_SUBPATHS` map APIs whose owning page lives elsewhere
-(e.g. `dashboard` → `/`, `vacancies/companies` → `/companies/`).
+(e.g. `dashboard` → `/dashboard/`, `vacancies/companies` →
+`/companies/`).
 
-#### Scenario: Dashboard API 401 maps to site root
+#### Scenario: Dashboard API 401 maps to the SPA mount
 
 - **WHEN** `GET /api/dashboard/` returns 401
-- **THEN** `login_url` is `/admin/login/?next=/` (the
-  dashboard SPA mounts at the root)
+- **THEN** `login_url` is `/admin/login/?next=/dashboard/`
+  (the dashboard SPA mounts at /dashboard/; `/` is the public
+  landing page)
 
 #### Scenario: Query string is preserved
 
-- **WHEN** `GET /api/vacancies/filters/?page=2` returns 401
-- **THEN** the `next` parameter carries
-  `/vacancies/?page=2` (`filters` remaps to the vacancy list
-  page via `SPA_SUBPATHS` and the query survives)
+- **WHEN** `POST /api/vacancies/filters/` returns 401
+- **THEN** the `next` parameter carries `/vacancies/`
+  (`filters` remaps to the vacancy list page via `SPA_SUBPATHS`;
+  GET /filters/ itself is public — `auth=None`)
 
 ### Requirement: Shared SPA shell
 
@@ -125,8 +127,9 @@ injects a `bootstrap` JSON carrying `user` and
 - **WHEN** a request misses under `/api/`, `/admin/`, or
   `/static/` after the real mounts
 - **THEN** a `terminal_404` drain answers 404 (replicating
-  APPEND_SLASH when the slashed variant resolves) — the root
-  catch-all SPA is always the last url pattern
+  APPEND_SLASH when the slashed variant resolves) — the
+  terminal catch-all (which renders the public landing page)
+  is always the last url pattern
 
 ### Requirement: Frontend client honors the contract
 

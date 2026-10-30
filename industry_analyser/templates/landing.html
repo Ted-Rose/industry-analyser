@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
+  <title>Industry Analyser</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 1rem;
+      color: #1a1a1a;
+      line-height: 1.5;
+    }
+    header h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
+    .muted { color: #666; font-size: 0.9rem; }
+    .cta { margin: 1.5rem 0; }
+    .cta a {
+      display: inline-block;
+      padding: 0.7rem 1.4rem;
+      background: #0066cc;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+    }
+    .cta a:hover { background: #0052a3; }
+    .cta .note { margin-left: 0.5rem; }
+    ul.apps { padding-left: 1.2rem; }
+    ul.apps li { margin-bottom: 0.4rem; }
+    .badge {
+      color: #666;
+      font-size: 0.8rem;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      padding: 0 0.3rem;
+      margin-left: 0.4rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Industry Analyser</h1>
+    <p class="muted">Web scraping results, split into
+      mini-applications.</p>
+  </header>
+  <main>
+    {% if cta_apps %}
+    <section class="cta">
+      {% for app in cta_apps %}
+      <a href="{{ app.url }}">{{ app.title }}</a>
+      {% if app.login_required %}
+      <span class="note muted">login required</span>
+      {% endif %}
+      {% endfor %}
+    </section>
+    {% endif %}
+    <ul class="apps">
+      {% for app in apps %}
+      <li>
+        <a href="{{ app.url }}">{{ app.title }}</a>
+        {% if app.login_required %}<span class="badge">
+          login required</span>{% endif %}
+        {% if app.desc %}<span class="muted">
+          — {{ app.desc }}</span>{% endif %}
+      </li>
+      {% empty %}
+      <li class="muted">No applications mounted.</li>
+      {% endfor %}
+    </ul>
+  </main>
+</body>
+</html>

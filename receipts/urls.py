@@ -5,17 +5,21 @@ cutover: every GET/HEAD path under /receipts/ serves the shared
 SPA shell (Vite entry 'receipts') and React Router resolves the
 page client-side; non-GET requests 404. The 'dashboard' name is
 kept so reverse('receipts:dashboard') callers keep resolving.
+
+Unlike the public SPAs the shell mounts `react_app`
+(login-required) — the receipts page IS the data, so anonymous
+visitors bounce to /admin/login/ before the bundle loads.
 """
 from functools import partial
 
 from django.urls import path
 
-from industry_analyser.views import react_app_public
+from industry_analyser.views import react_app
 
 app_name = 'receipts'
 
 react_app_receipts = partial(
-    react_app_public, entry='receipts', title='Receipts')
+    react_app, entry='receipts', title='Receipts')
 
 urlpatterns = [
     path('', react_app_receipts, name='dashboard'),

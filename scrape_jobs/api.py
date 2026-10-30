@@ -1,12 +1,12 @@
 """django-ninja router for the dashboard SPA (mounted at
 /api/dashboard/).
 
-The dashboard is the only non-public SPA — the page it replaces was
+The dashboard is a non-public SPA — the page it replaces was
 @login_required, so the GET op keeps the default django_auth
 (session + CSRF). Anonymous callers get a JSON 401 whose
-`login_url`'s `next` resolves to '/' via SPA_BASES ('dashboard' is
-the documented exception: the API lives under /api/dashboard/ but
-the SPA mounts at the site root).
+`login_url`'s `next` resolves to '/dashboard/' via SPA_BASES —
+the SPA mounts at /dashboard/ since the public landing page took
+over the site root.
 
 Query/aggregate logic mirrors the retired
 scrape_jobs.views.dashboard view: per-job cycle progress plus a

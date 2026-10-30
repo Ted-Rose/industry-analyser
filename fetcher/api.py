@@ -2,11 +2,12 @@
 /api/vacancies/ — the public URL base, not the app name).
 
 GET ops are public (auth=None) — the template pages they replace
-were public. The write and per-user ops keep the default
+were public; that includes GET /filters/, which returns [] to
+anonymous callers. The write and per-user ops keep the default
 django_auth (session + CSRF): POST /keywords/, PUT
-companies/{pk}/preference/ and the /filters/ CRUD — a deliberate
-tightening vs. the retired HARD_CODED_PASSWORD form (README §2
-decision 2). Query logic mirrors the retired views in
+companies/{pk}/preference/ and the /filters/ mutations — a
+deliberate tightening vs. the retired HARD_CODED_PASSWORD form
+(README §2 decision 2). Query logic mirrors the retired views in
 fetcher/views.py — same filters, same ordering, same per-page
 sizes.
 """
@@ -623,9 +624,16 @@ def _duplicate_name_error(name: str) -> ApiHttpError:
     )
 
 
-@router.get('/filters/', response=List[SavedFilterOut])
+@router.get('/filters/', auth=None, response=List[SavedFilterOut])
 def list_saved_filters(request):
-    """The caller's saved filter presets (name-ordered via Meta)."""
+    """The caller's saved filter presets (name-ordered via Meta).
+
+    Public like the other GETs; anonymous callers get an empty
+    list — filter(user=AnonymousUser) would TypeError on the
+    int-prep of the FK, so guard rather than rely on the queryset.
+    """
+    if not request.user.is_authenticated:
+        return []
     return SavedVacancyFilter.objects.filter(user=request.user)
 
 
