@@ -217,6 +217,60 @@ class DsHeadTagTests(SimpleTestCase):
         self.assertIn('assets/site-abc123.css', html)
 
 
+@override_settings(DJANGO_VITE={'default': {'dev_mode': False}})
+class AdminThemingTests(TestCase):
+    """PR-10 admin theming (plan §9.9): the project
+    admin/base_site.html override links the built admin.css vite
+    entry through the guarded {% ds_head 'admin' %} tag and
+    re-brands the header as an "Industry Analyser" link to /.
+    dev_mode is pinned off so an exported VITE_DEV=1 can't flip
+    ds_head onto dev-server URLs."""
+
+    def test_login_page_links_admin_css_and_branding(self):
+        resp = self.client.get('/admin/login/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="site-name"')
+        self.assertContains(
+            resp, '<a href="/">Industry Analyser</a>'
+        )
+        self.assertRegex(
+            resp.content.decode(),
+            r'rel="stylesheet" '
+            r'href="[^"]*admin/admin\.[^"]+\.css"',
+        )
+        # {% comment %} block must not leak into <head> — {# #}
+        # is single-line only, so a multi-line one would render
+        # as stray text at the top of every admin page.
+        self.assertNotContains(resp, 'design-system admin theme')
+        # Title block is re-branded too — no "Django site admin".
+        self.assertContains(resp, 'Log in | Industry Analyser')
+        self.assertNotContains(resp, 'Django site admin')
+
+    def test_staff_index_uses_themed_branding(self):
+        staff = get_user_model().objects.create_user(
+            username='root', password='pw', is_staff=True
+        )
+        self.client.force_login(staff)
+        resp = self.client.get('/admin/')
+        self.assertContains(
+            resp, '<a href="/">Industry Analyser</a>'
+        )
+
+    def test_missing_admin_manifest_entry_degrades(self):
+        """A stale frontend_dist without the admin entry must not
+        500 — the page renders with the default admin CSS."""
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={},
+        ):
+            resp = self.client.get('/admin/login/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotRegex(
+            resp.content.decode(), r'admin/admin\.[^"]+\.css'
+        )
+
+
 class SentryHelpersTests(SimpleTestCase):
     """sentry.py capture helpers are complete no-ops when the SDK
     was never initialized (no SENTRY_DSN — always true in tests)."""
