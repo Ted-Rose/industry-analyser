@@ -1,18 +1,23 @@
 """Tests for the news app — RSS parsing, idempotent upsert,
 keyword topic classification, story clustering, digest build."""
+import contextlib
 import hashlib
 import os
 import tempfile
 from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
+
+from google.oauth2 import service_account
+from langdetect import LangDetectException
+from langdetect.lang_detect_exception import ErrorCode
 
 from scrape_jobs.models import (
     ScrapeJobItem,
@@ -24,6 +29,7 @@ from scrape_jobs.runner import (
     cycle_scrape_exists,
 )
 
+from .audio import AudioGenerationError, text_to_audio
 from .classification import classify_topic
 from .clustering import link_unmatched_articles
 from .digest import build_digest
@@ -31,6 +37,7 @@ from .models import (
     NewsArticle,
     NewsArticleAudio,
     NewsDigest,
+    NewsDigestItem,
     NewsSource,
     NewsSourcePreference,
     NewsStory,
@@ -1630,3 +1637,262 @@ class ArticleAudioViewTests(TestCase):
         self.assertEqual(
             b''.join(response.streaming_content), b'audio-bytes',
         )
+
+
+@override_settings(GCS_AUDIO_BUCKET='test-bucket')
+class TextToAudioTests(TestCase):
+    """news.audio.text_to_audio — validation, sanitization,
+    whitelist lang detection, dedup, upload and signing, all
+    covered without touching GCS (every client is patched)."""
+
+    @contextlib.contextmanager
+    def _pipeline(self, blob_exists=False, creds=None):
+        with (
+            patch('news.audio.storage.Client') as client_cls,
+            patch('news.audio.gTTS') as gtts,
+            patch('news.audio.detect_langs') as detect,
+            patch('news.audio.google.auth.default') as auth,
+            patch('news.audio.Request'),
+        ):
+            blob = (
+                client_cls.return_value
+                .bucket.return_value
+                .blob.return_value
+            )
+            blob.exists.return_value = blob_exists
+            blob.generate_signed_url.return_value = (
+                'https://signed.example/clip.mp3'
+            )
+            auth.return_value = (creds or Mock(), 'project')
+            detect.return_value = [
+                SimpleNamespace(lang='lv', prob=0.99),
+            ]
+            yield SimpleNamespace(
+                client_cls=client_cls, gtts=gtts, detect=detect,
+                auth=auth, blob=blob,
+            )
+
+    def test_invalid_text_never_reaches_pipeline(self):
+        with self._pipeline() as m:
+            for bad in ('', None, 42, 'x' * 5001):
+                with self.assertRaises(ValueError):
+                    text_to_audio(bad)
+            m.client_cls.assert_not_called()
+
+    def test_sanitizes_before_synthesis(self):
+        with self._pipeline() as m:
+            text_to_audio(
+                'Skaties  https://a.lv/x--y  --==~~  lieliski'
+            )
+        spoken = m.gtts.call_args.kwargs['text']
+        self.assertEqual(spoken.count('web link'), 1)
+        self.assertNotRegex(spoken, r'[-_~=*]{2,}')
+        self.assertNotIn('  ', spoken)
+
+    def test_lang_argmax_within_whitelist(self):
+        # 'de' wins globally but is not speakable — 'lv' must
+        # beat 'en' inside the whitelist instead of detect()'s
+        # global winner being used.
+        with self._pipeline() as m:
+            m.detect.return_value = [
+                SimpleNamespace(lang='de', prob=0.99),
+                SimpleNamespace(lang='lv', prob=0.7),
+                SimpleNamespace(lang='en', prob=0.3),
+            ]
+            text_to_audio('Sveiki')
+        self.assertEqual(m.gtts.call_args.kwargs['lang'], 'lv')
+
+    def test_no_whitelist_hit_defaults_lv(self):
+        with self._pipeline() as m:
+            m.detect.return_value = [
+                SimpleNamespace(lang='de', prob=0.99),
+            ]
+            text_to_audio('Sveiki')
+        self.assertEqual(m.gtts.call_args.kwargs['lang'], 'lv')
+
+    def test_detect_exception_defaults_lv(self):
+        with self._pipeline() as m:
+            m.detect.side_effect = LangDetectException(
+                ErrorCode.CantDetectError, 'no features'
+            )
+            text_to_audio('Sveiki')
+        self.assertEqual(m.gtts.call_args.kwargs['lang'], 'lv')
+
+    def test_existing_blob_resigns_without_synthesis(self):
+        with self._pipeline(blob_exists=True) as m:
+            url = text_to_audio('Sveiki')
+        m.gtts.assert_not_called()
+        m.blob.upload_from_filename.assert_not_called()
+        m.blob.generate_signed_url.assert_called_once()
+        self.assertEqual(url, 'https://signed.example/clip.mp3')
+
+    def test_fresh_clip_synthesizes_uploads_signs(self):
+        def fake_save(path):
+            with open(path, 'wb') as f:
+                f.write(b'mp3')
+
+        with self._pipeline() as m:
+            m.gtts.return_value.save.side_effect = fake_save
+            url = text_to_audio('Sveiki')
+            path = m.gtts.return_value.save.call_args.args[0]
+            # The temp file is unlinked in `finally` — nothing
+            # may leak on disk after upload.
+            self.assertFalse(os.path.exists(path))
+        m.gtts.return_value.save.assert_called_once()
+        upload = m.blob.upload_from_filename.call_args.kwargs
+        self.assertEqual(upload['content_type'], 'audio/mpeg')
+        sign = m.blob.generate_signed_url.call_args.kwargs
+        self.assertEqual(sign['version'], 'v4')
+        self.assertEqual(sign['expiration'], timedelta(days=7))
+        self.assertEqual(sign['method'], 'GET')
+        self.assertEqual(url, 'https://signed.example/clip.mp3')
+
+    def test_metadata_creds_sign_via_iam_signblob(self):
+        # Cloud Run metadata creds are not SA credentials —
+        # signing must go through IAM signBlob.
+        creds = Mock()
+        creds.service_account_email = 'run@sa'
+        creds.token = 'tok'
+        with self._pipeline(creds=creds) as m:
+            text_to_audio('Sveiki')
+        sign = m.blob.generate_signed_url.call_args.kwargs
+        self.assertEqual(sign['service_account_email'], 'run@sa')
+        self.assertEqual(sign['access_token'], 'tok')
+
+    def test_sa_creds_sign_without_signblob_kwargs(self):
+        creds = Mock(spec=service_account.Credentials)
+        with self._pipeline(creds=creds) as m:
+            text_to_audio('Sveiki')
+        sign = m.blob.generate_signed_url.call_args.kwargs
+        self.assertNotIn('service_account_email', sign)
+        self.assertNotIn('access_token', sign)
+
+    @override_settings(GCS_AUDIO_BUCKET='')
+    def test_unset_bucket_raises_not_configured(self):
+        with self._pipeline() as m:
+            with self.assertRaises(AudioGenerationError) as ctx:
+                text_to_audio('Sveiki')
+            self.assertEqual(
+                str(ctx.exception), 'GCS storage not configured'
+            )
+            m.client_cls.assert_not_called()
+
+    def test_filename_prefixes_blob_name(self):
+        with self._pipeline() as m:
+            text_to_audio('Sveiki', filename='t-abc:def/ghi')
+        blob_name = (
+            m.client_cls.return_value
+            .bucket.return_value
+            .blob.call_args.args[0]
+        )
+        self.assertTrue(blob_name.startswith('audio/t-abc-def'))
+        digest = hashlib.sha256(b'lv:Sveiki').hexdigest()[:16]
+        self.assertEqual(
+            blob_name, f'audio/t-abc-def-ghi-{digest}.mp3'
+        )
+
+
+class AudioEndpointTests(TestCase):
+    """GET /news/audio/ — the public JSON contract behind the
+    digest page's audio buttons."""
+
+    def test_anonymous_get_returns_audio_url(self):
+        with patch(
+            'news.views.text_to_audio',
+            return_value='https://signed.example/clip.mp3',
+        ):
+            response = self.client.get(
+                '/news/audio/', {'text': 'Sveiki'}
+            )
+        # 200 for an anonymous request — /news/ is public, so
+        # the endpoint must not bounce to the login page.
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {'audio_url': 'https://signed.example/clip.mp3'},
+        )
+
+    def test_missing_oversized_text_and_bad_lang_400(self):
+        self.assertEqual(
+            self.client.get('/news/audio/').status_code, 400
+        )
+        self.assertEqual(
+            self.client.get(
+                '/news/audio/', {'text': 'x' * 6001}
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            self.client.get(
+                '/news/audio/',
+                {'text': 'hi', 'lang': 'english'},
+            ).status_code,
+            400,
+        )
+
+    def test_pipeline_errors_map_to_400_and_502(self):
+        with patch(
+            'news.views.text_to_audio',
+            side_effect=ValueError('bad input'),
+        ):
+            self.assertEqual(
+                self.client.get(
+                    '/news/audio/', {'text': 'x'}
+                ).status_code,
+                400,
+            )
+        with patch(
+            'news.views.text_to_audio',
+            side_effect=AudioGenerationError('down'),
+        ):
+            response = self.client.get(
+                '/news/audio/', {'text': 'x'}
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json(), {'error': 'down'})
+
+    def test_post_is_405(self):
+        self.assertEqual(
+            self.client.post(
+                '/news/audio/', {'text': 'x'}
+            ).status_code,
+            405,
+        )
+
+
+class DigestListAudioRenderTests(TestCase):
+    """GET /news/ renders the audio controls wired to each
+    item's spoken text (headline + representative lead)."""
+
+    def setUp(self):
+        self.today = timezone.localdate()
+        self.digest = NewsDigest.objects.create(date=self.today)
+        for rank, (title, lead) in enumerate((
+            ('Ziņa viens', 'Pirmais apraksts.'),
+            ('Ziņa divi', 'Otrais apraksts.'),
+        ), start=1):
+            story = NewsStory.objects.create(
+                title=title,
+                published_date=self.today,
+                representative_lead=lead,
+            )
+            NewsDigestItem.objects.create(
+                digest=self.digest, story=story, rank=rank,
+                headline=title,
+            )
+
+    def test_audio_controls_render_with_text_attrs(self):
+        response = self.client.get('/news/')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('data-audio-all', content)
+        self.assertIn('data-audio-date', content)
+        self.assertIn('data-audio-newest', content)
+        self.assertIn('news/audio.js', content)
+        self.assertEqual(content.count('data-audio-item'), 2)
+        for item in self.digest.items.order_by('rank'):
+            self.assertIn(f'data-title="{item.headline}"', content)
+            self.assertIn(
+                f'data-desc="{item.story.representative_lead}"',
+                content,
+            )

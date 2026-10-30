@@ -106,6 +106,9 @@ OMDB_KEY = env('OMDB_KEY', default='')
 # Receipts collector Gmail inbox (plan §7); app-password auth.
 RECEIPTS_IMAP_USER = env('RECEIPTS_IMAP_USER', default='')
 RECEIPTS_IMAP_PASSWORD = env('RECEIPTS_IMAP_PASSWORD', default='')
+# GCS bucket for /news/ digest audio clips (gTTS -> signed
+# URL). Empty disables the feature — the endpoint answers 502.
+GCS_AUDIO_BUCKET = env('GCS_AUDIO_BUCKET', default='')
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or
