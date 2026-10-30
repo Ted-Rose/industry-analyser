@@ -44,4 +44,11 @@ describe('safeNext', () => {
     expect(safeNext('?next=/%09/evil.example')).toBe('/');
     expect(safeNext('?next=/%0a/evil.example')).toBe('/');
   });
+
+  it('fails closed on unparsable remainders', () => {
+    // `//` and `/\` leave an empty authority on a special
+    // scheme — `new URL` throws; safeNext must not.
+    expect(safeNext('?next=%2F%2F')).toBe('/');
+    expect(safeNext('?next=%2F%5C')).toBe('/');
+  });
 });

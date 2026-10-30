@@ -14,8 +14,12 @@
 export function safeNext(search: string): string {
   const next = new URLSearchParams(search).get('next');
   if (!next || !next.startsWith('/')) return '/';
-  const parsed = new URL(next, window.location.origin);
-  if (parsed.origin === window.location.origin) return next;
+  try {
+    const parsed = new URL(next, window.location.origin);
+    if (parsed.origin === window.location.origin) return next;
+  } catch {
+    // Unparsable remainder (e.g. `//` or `/`) — fail closed.
+  }
   return '/';
 }
 
