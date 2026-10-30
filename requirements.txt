@@ -26,3 +26,10 @@ pydantic==2.9.2
 pypdf==6.21.1
 # DSN-gated error monitoring — SDK is inert without SENTRY_DSN.
 sentry-sdk==2.73.0
+# News digest audio (/news/audio/): gTTS synthesis -> GCS
+# signed playback URLs.
+gTTS==2.5.4
+langdetect==1.0.9
+google-cloud-storage==3.17.1
+click==8.1.8  # gTTS 2.5.4 pins click<8.2
+six==1.17.0  # langdetect dep
