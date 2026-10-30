@@ -47,7 +47,14 @@ export function CheckboxList({
     const q = query.trim().toLowerCase();
     if (!q) return options;
     return options.filter((option) =>
-      String(option.label).toLowerCase().includes(q),
+      // String(option.label) on a ReactNode yields
+      // "[object Object]" — match node labels by value instead.
+      (typeof option.label === 'string'
+        ? option.label
+        : option.value
+      )
+        .toLowerCase()
+        .includes(q),
     );
   }, [options, query]);
 

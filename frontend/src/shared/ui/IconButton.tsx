@@ -16,7 +16,10 @@ const VARIANTS: Record<IconButtonVariant, string> = {
 };
 
 const SIZES: Record<IconButtonSize, string> = {
-  sm: 'size-8 rounded-md [&_svg]:size-4',
+  // sm keeps a 32px footprint (-m-1) while the 40px box satisfies
+  // the ≥40px touch-target goal — it's the DataTable chevron
+  // control, reachable on mobile under mobile="scroll".
+  sm: 'size-10 -m-1 rounded-md [&_svg]:size-4',
   md: 'size-10 rounded-md [&_svg]:size-5',
 };
 

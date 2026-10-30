@@ -1,4 +1,4 @@
-import{j as e,L as f,c as E,u as oe,T as me,d as he,a as C,b as T,e as xe,f as A,r as k,g as R,h as je,p as O,i as U,k as ue,R as pe,l as _,N as z,m as ge,n as Ne,o as be,Q as fe,q as ye,B as _e,E as ve}from"../shared/sentry.B6v8z_gI.js";import{u as Se}from"../shared/useMutation.B5P3yoNo.js";import{u as ke}from"../shared/useBootstrap.4paBCeNk.js";function Fe(){return e.jsxs("div",{className:"nav-buttons",children:[e.jsx("a",{href:"/",className:"nav-btn",children:"Apps"}),e.jsx(f,{to:"/",className:"nav-btn",children:"Ads"})]})}/**
+import{j as e,L as f,c as E,u as oe,T as me,d as he,a as C,b as T,e as xe,f as A,r as k,g as R,h as je,p as O,i as U,k as ue,R as pe,l as _,N as z,m as ge,n as Ne,o as be,Q as fe,q as ye,B as _e,E as ve}from"../shared/sentry.D0EGOXPW.js";import{u as Se}from"../shared/useMutation.CjTX005a.js";import{u as ke}from"../shared/useBootstrap.Dsr39_XW.js";function Fe(){return e.jsxs("div",{className:"nav-buttons",children:[e.jsx("a",{href:"/",className:"nav-btn",children:"Apps"}),e.jsx(f,{to:"/",className:"nav-btn",children:"Ads"})]})}/**
  * @license lucide-react v1.65.0 - ISC
  *
  * This source code is licensed under the ISC license.

@@ -49,7 +49,6 @@ export function AppSwitcher({ appTitle, className }: AppSwitcherProps) {
     <div ref={rootRef} className={cx('relative', className)}>
       <button
         type="button"
-        aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className="inline-flex items-center gap-1.5 rounded-md
@@ -67,39 +66,41 @@ export function AppSwitcher({ appTitle, className }: AppSwitcherProps) {
         />
       </button>
       {open && (
-        <div
-          role="menu"
+        // Plain disclosure list — no menu/menuitem roles, since
+        // there is no arrow-key menu navigation; ordinary tab
+        // order through the links is the correct semantics.
+        <ul
           className="absolute left-0 top-full z-40 mt-1
-            w-64 overflow-hidden rounded-lg border border-border
-            bg-surface py-1 shadow-md"
+            w-64 list-none overflow-hidden rounded-lg border
+            border-border bg-surface p-0 py-1 shadow-md"
         >
           {apps.map((app) => (
-            <a
-              key={app.url}
-              href={app.url}
-              role="menuitem"
-              className="flex items-center justify-between gap-2
-                px-3 py-2 text-sm text-fg hover:bg-surface-2"
-            >
-              <span className="min-w-0">
-                <span className="block truncate font-medium">
-                  {app.title}
-                </span>
-                {app.desc && (
-                  <span className="block truncate text-xs
-                    text-fg-subtle">
-                    {app.desc}
+            <li key={app.url}>
+              <a
+                href={app.url}
+                className="flex items-center justify-between gap-2
+                  px-3 py-2 text-sm text-fg hover:bg-surface-2"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">
+                    {app.title}
                   </span>
+                  {app.desc && (
+                    <span className="block truncate text-xs
+                      text-fg-subtle">
+                      {app.desc}
+                    </span>
+                  )}
+                </span>
+                {app.login_required && (
+                  <Badge variant="outline" size="sm">
+                    login required
+                  </Badge>
                 )}
-              </span>
-              {app.login_required && (
-                <Badge variant="outline" size="sm">
-                  login required
-                </Badge>
-              )}
-            </a>
+              </a>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

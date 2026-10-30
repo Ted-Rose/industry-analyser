@@ -56,6 +56,39 @@ function PromptHarness() {
 }
 
 describe('useConfirm', () => {
+  it('settles pending promises on replace and unmount', async () => {
+    const results: boolean[] = [];
+    function Host() {
+      const { confirm, confirmElement } = useConfirm();
+      return (
+        <div>
+          <button
+            type="button"
+            onClick={() => {
+              void confirm({ title: 'Sure?' }).then((value) =>
+                results.push(value),
+              );
+            }}
+          >
+            Ask
+          </button>
+          {confirmElement}
+        </div>
+      );
+    }
+    const view = render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await screen.findByText('Sure?');
+    // A second confirm() while open resolves the first as
+    // cancelled instead of orphaning its promise.
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await waitFor(() => expect(results).toEqual([false]));
+    // Unmounting the host with a confirm still open settles the
+    // stored promise rather than leaking it.
+    view.unmount();
+    await waitFor(() => expect(results).toEqual([false, false]));
+  });
+
   it('resolves true on confirm, false on cancel', async () => {
     render(<ConfirmHarness />);
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
@@ -86,6 +119,35 @@ describe('useConfirm', () => {
 });
 
 describe('usePrompt', () => {
+  it('settles pending promises on replace and unmount', async () => {
+    const results: (string | null)[] = [];
+    function Host() {
+      const { prompt, promptElement } = usePrompt();
+      return (
+        <div>
+          <button
+            type="button"
+            onClick={() => {
+              void prompt({ title: 'Name?' }).then((value) =>
+                results.push(value),
+              );
+            }}
+          >
+            Ask
+          </button>
+          {promptElement}
+        </div>
+      );
+    }
+    const view = render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await screen.findByText('Name?');
+    fireEvent.click(screen.getByRole('button', { name: 'Ask' }));
+    await waitFor(() => expect(results).toEqual([null]));
+    view.unmount();
+    await waitFor(() => expect(results).toEqual([null, null]));
+  });
+
   it('resolves the typed value on save, null on cancel', async () => {
     render(<PromptHarness />);
     fireEvent.click(screen.getByRole('button', { name: 'Ask' }));

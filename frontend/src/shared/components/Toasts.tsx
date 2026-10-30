@@ -6,6 +6,7 @@ import {
   X,
 } from 'lucide-react';
 import { dismissToast, useToasts, type ToastKind } from '../toasts';
+import '../styles/ia-components.css';
 
 const ICONS: Record<ToastKind, typeof Info> = {
   success: CheckCircle2,
@@ -19,10 +20,12 @@ const ICONS: Record<ToastKind, typeof Info> = {
  * counterpart of django.contrib.messages. Mounted once per SPA:
  * AppShell renders it, classified_ads still mounts its own until
  * PR-9. The `pushToast` API is unchanged; only the markup was
- * restyled (plan §6). Uses `ia-` classes from app.css's
- * `@layer components` so it looks right even while Bootstrap is
- * still loaded on legacy entries (plan §4.4) — its class names
- * don't collide with any Bootstrap selector.
+ * restyled (plan §6). Uses `ia-` classes from
+ * styles/ia-components.css — imported above so vite co-bundles
+ * the rules into every entry that mounts this component — so it
+ * looks right even while Bootstrap is still loaded on legacy
+ * entries (plan §4.4); its class names don't collide with any
+ * Bootstrap selector.
  */
 export function Toasts() {
   const toasts = useToasts();

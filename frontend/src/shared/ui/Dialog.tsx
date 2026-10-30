@@ -123,10 +123,20 @@ interface ConfirmState extends ConfirmOptions {
  */
 export function useConfirm() {
   const [state, setState] = useState<ConfirmState | null>(null);
+  // Mirrors the resolve stored in `state` so unmount/replace can
+  // settle a promise the dialog will never answer.
+  const pendingRef = useRef<((value: boolean) => void) | null>(
+    null,
+  );
 
   const confirm = useCallback(
     (options: ConfirmOptions) =>
       new Promise<boolean>((resolve) => {
+        // A second confirm() while one is open replaces it —
+        // resolve the orphaned promise so the caller doesn't
+        // hang forever.
+        pendingRef.current?.(false);
+        pendingRef.current = resolve;
         setState({ ...options, resolve });
       }),
     [],
@@ -134,10 +144,21 @@ export function useConfirm() {
 
   const close = useCallback(
     (value: boolean) => {
+      pendingRef.current = null;
       setState((current) => {
         current?.resolve(value);
         return null;
       });
+    },
+    [],
+  );
+
+  // Host unmounted with a confirm still open — settle the
+  // stored promise (cancel) rather than leaking it.
+  useEffect(
+    () => () => {
+      pendingRef.current?.(false);
+      pendingRef.current = null;
     },
     [],
   );
@@ -190,10 +211,19 @@ interface PromptState extends PromptOptions {
 export function usePrompt() {
   const [state, setState] = useState<PromptState | null>(null);
   const [value, setValue] = useState('');
+  // Mirrors the resolve stored in `state` so unmount/replace can
+  // settle a promise the dialog will never answer.
+  const pendingRef = useRef<
+    ((value: string | null) => void) | null
+  >(null);
 
   const prompt = useCallback(
     (options: PromptOptions) =>
       new Promise<string | null>((resolve) => {
+        // See useConfirm: a second prompt() resolves the open
+        // one as cancelled instead of orphaning it.
+        pendingRef.current?.(null);
+        pendingRef.current = resolve;
         setValue(options.defaultValue ?? '');
         setState({ ...options, resolve });
       }),
@@ -201,11 +231,22 @@ export function usePrompt() {
   );
 
   const close = useCallback((result: string | null) => {
+    pendingRef.current = null;
     setState((current) => {
       current?.resolve(result);
       return null;
     });
   }, []);
+
+  // Host unmounted with a prompt still open — settle the stored
+  // promise (cancel) rather than leaking it.
+  useEffect(
+    () => () => {
+      pendingRef.current?.(null);
+      pendingRef.current = null;
+    },
+    [],
+  );
 
   const submit = (event: FormEvent) => {
     event.preventDefault();

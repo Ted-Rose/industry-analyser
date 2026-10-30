@@ -40,9 +40,15 @@ export function FilterChips({
           {chip.label}
           <button
             type="button"
-            aria-label={`Remove filter: ${String(chip.label)}`}
+            aria-label={
+              typeof chip.label === 'string'
+                ? `Remove filter: ${chip.label}`
+                : 'Remove filter'
+            }
             onClick={chip.onRemove}
-            className="inline-flex size-5 items-center
+            // size-10 + -m-2.5: a 40px hit area (plan §4.5)
+            // that still lays out as the old size-5 glyph.
+            className="inline-flex size-10 -m-2.5 items-center
               justify-center rounded-full hover:bg-accent/20"
           >
             <X className="size-3" aria-hidden="true" />
@@ -53,8 +59,11 @@ export function FilterChips({
         <button
           type="button"
           onClick={onClearAll}
-          className="px-1.5 py-0.5 text-xs font-medium
-            text-fg-muted hover:text-fg"
+          // min-h-10 + -my-2.5: 40px vertical hit area without
+          // stretching the chip row.
+          className="inline-flex min-h-10 -my-2.5 items-center
+            px-1.5 text-xs font-medium text-fg-muted
+            hover:text-fg"
         >
           Clear all
         </button>

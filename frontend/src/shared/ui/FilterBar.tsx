@@ -80,7 +80,8 @@ export function FilterBar({
           aria-controls={regionId}
           onClick={() => setOpen((value) => !value)}
           className={cx(
-            'inline-flex items-center gap-2 rounded-md px-2 py-1.5 ' +
+            // py-2.5 → 40px touch target (plan §4.5 ≥40px).
+            'inline-flex items-center gap-2 rounded-md px-2 py-2.5 ' +
               'text-sm font-medium text-fg-muted hover:bg-surface-2 ' +
               'hover:text-fg',
             mobileOnly && 'md:hidden',

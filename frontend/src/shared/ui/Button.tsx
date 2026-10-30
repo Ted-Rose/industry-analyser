@@ -29,7 +29,9 @@ const VARIANTS: Record<ButtonVariant, string> = {
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'h-8 px-3 text-sm gap-1.5 rounded-md',
+  // ≥40px on touch widths (plan §4.5); compacts ≥sm where the
+  // pointer isn't a finger.
+  sm: 'h-10 px-3 text-sm gap-1.5 rounded-md sm:h-8',
   md: 'h-10 px-4 text-sm gap-2 rounded-md',
 };
 

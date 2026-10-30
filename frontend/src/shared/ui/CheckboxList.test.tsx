@@ -57,4 +57,27 @@ describe('CheckboxList', () => {
     fireEvent.change(search, { target: { value: 'zzz' } });
     expect(screen.getByText('No matches.')).toBeInTheDocument();
   });
+
+  it('matches non-string labels by value in search', () => {
+    // ReactNode labels can't be stringified for matching —
+    // search falls back to the option value.
+    render(
+      <CheckboxList
+        options={[
+          { value: 'alpha', label: <span>Fancy</span> },
+          { value: 'beta', label: 'Beta' },
+        ]}
+        value={[]}
+        onChange={() => {}}
+        searchable
+      />,
+    );
+    const search = screen.getByRole('searchbox', {
+      name: 'Search…',
+    });
+    fireEvent.change(search, { target: { value: 'alpha' } });
+    expect(screen.getByLabelText('Fancy')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Beta'))
+      .not.toBeInTheDocument();
+  });
 });

@@ -22,6 +22,11 @@ export const THEME_ORDER: readonly Theme[] = [
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
+/* Same-tab theme-change notification — `storage` events don't
+   fire in the tab that wrote localStorage, so setTheme()
+   dispatches this for subscribers (ThemeToggle's label/icon). */
+const THEME_EVENT = 'ia-theme-change';
+
 /* theme-color metas (emitted by _theme_head.html): #ffffff
    light, #18181b dark (plan §4.2). */
 const THEME_COLORS: Record<'light' | 'dark', string> = {
@@ -90,6 +95,30 @@ export function setTheme(theme: Theme): void {
     /* Storage can be unavailable (private mode) — apply anyway. */
   }
   applyTheme(theme);
+  window.dispatchEvent(new Event(THEME_EVENT));
+}
+
+/**
+ * Subscribe to stored-theme changes from any source — same-tab
+ * setTheme()/cycleTheme() calls (via THEME_EVENT) and cross-tab
+ * writes like the Django admin toggle (via `storage`). Returns
+ * an unsubscribe function; pairs with useSyncExternalStore.
+ */
+export function subscribeTheme(
+  listener: (theme: Theme) => void,
+): () => void {
+  const notify = () => listener(getTheme());
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === THEME_STORAGE_KEY || event.key === null) {
+      notify();
+    }
+  };
+  window.addEventListener(THEME_EVENT, notify);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(THEME_EVENT, notify);
+    window.removeEventListener('storage', onStorage);
+  };
 }
 
 /** Cycle auto → light → dark, the ThemeToggle behaviour. */

@@ -261,6 +261,12 @@ export function DataTable<T>({
   };
   const onRowClick = (row: T) => (event: MouseEvent) => {
     if (!rowHref || isInteractiveClick(event)) return;
+    // ⌘/ctrl+click opens the row in a new tab, matching real
+    // anchor semantics for the link role.
+    if (event.metaKey || event.ctrlKey) {
+      window.open(rowHref(row), '_blank', 'noopener');
+      return;
+    }
     goToRow(row);
   };
   const onRowKeyDown = (row: T) => (event: KeyboardEvent) => {
@@ -305,7 +311,11 @@ export function DataTable<T>({
             'tracking-wide text-fg-muted',
           column.align === 'right' && 'text-right',
           column.hideBelow && HIDE_BELOW[column.hideBelow],
-          stickyHeader && 'sticky top-14 z-10 bg-surface-2',
+          // A left-pinned header cell needs `sticky` and an
+          // opaque bg even when stickyHeader is off.
+          (stickyHeader || (stickyFirstColumn && index === 0)) &&
+            'sticky bg-surface-2',
+          stickyHeader && 'top-14 z-10',
           stickyFirstColumn && index === 0 && 'left-0 z-20',
         )}
       >
@@ -336,6 +346,7 @@ export function DataTable<T>({
     return [
       <tr
         key={key}
+        role={rowHref ? 'link' : undefined}
         onClick={onRowClick(row)}
         onKeyDown={onRowKeyDown(row)}
         tabIndex={rowHref ? 0 : undefined}
@@ -458,7 +469,7 @@ export function DataTable<T>({
               aria-expanded={isOpen}
               onClick={() => toggleExpanded(key)}
               className="inline-flex items-center gap-1 rounded-md
-                px-1 py-0.5 text-sm font-medium text-accent-text
+                px-2 py-2.5 text-sm font-medium text-accent-text
                 hover:bg-accent-subtle"
             >
               <ChevronRight
@@ -502,7 +513,10 @@ export function DataTable<T>({
               className={cx(
                 'w-10 px-2 py-2',
                 stickyHeader && 'sticky top-14 z-10 bg-surface-2',
-                stickyFirstColumn && 'left-0 z-20',
+                // Deliberately not left-sticky: with
+                // stickyFirstColumn the first data column already
+                // pins at left-0 — a second left-0 cell would
+                // overlap it.
               )}
             >
               <span className="sr-only">Expand</span>
@@ -560,6 +574,7 @@ export function DataTable<T>({
             return (
               <li
                 key={key}
+                role={rowHref ? 'link' : undefined}
                 onClick={onRowClick(row)}
                 onKeyDown={onRowKeyDown(row)}
                 tabIndex={rowHref ? 0 : undefined}
