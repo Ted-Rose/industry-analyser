@@ -75,7 +75,6 @@ SPA_ENTRY_RE = re.compile(r'[a-z0-9_]+')
 # <link>s in {% if legacy_bootstrap %}.
 LEGACY_BOOTSTRAP_ENTRIES = {
     'vacancies',
-    'tv',
     'classified_ads',
 }
 

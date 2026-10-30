@@ -1,25 +1,40 @@
 {
-  "_Toasts.3R3FySoF.js": {
-    "file": "shared/Toasts.3R3FySoF.js",
-    "name": "Toasts",
+  "_Card.DKUZKXE5.js": {
+    "file": "shared/Card.DKUZKXE5.js",
+    "name": "Card",
     "imports": [
-      "_sentry.CDFiU74B.js"
+      "_sentry.XCtviBDJ.js",
+      "_app.DFtqz2EX.js"
     ]
   },
-  "_app.!~{00c}~.js": {
-    "file": "app/app.tfU3iLpw.css",
-    "src": "_app.!~{00c}~.js"
+  "_DataTable.C9frlqpJ.js": {
+    "file": "shared/DataTable.C9frlqpJ.js",
+    "name": "DataTable",
+    "imports": [
+      "_sentry.XCtviBDJ.js",
+      "_app.DFtqz2EX.js"
+    ]
   },
-  "_app.DzwwGeie.js": {
-    "file": "shared/app.DzwwGeie.js",
+  "_Toasts.X4FfgNKQ.js": {
+    "file": "shared/Toasts.X4FfgNKQ.js",
+    "name": "Toasts",
+    "imports": [
+      "_sentry.XCtviBDJ.js"
+    ]
+  },
+  "_app.!~{00b}~.js": {
+    "file": "app/app.ixkIGOKy.css",
+    "src": "_app.!~{00b}~.js"
+  },
+  "_app.DFtqz2EX.js": {
+    "file": "shared/app.DFtqz2EX.js",
     "name": "app",
     "imports": [
-      "_sentry.CDFiU74B.js",
-      "_Toasts.3R3FySoF.js",
-      "_useBootstrap.DyUtrF8n.js"
+      "_sentry.XCtviBDJ.js",
+      "_Toasts.X4FfgNKQ.js"
     ],
     "css": [
-      "app/app.tfU3iLpw.css"
+      "app/app.ixkIGOKy.css"
     ],
     "assets": [
       "inter-latin-ext-wght-normal/inter-latin-ext-wght-normal.DO1Apj_S.woff2",
@@ -30,25 +45,18 @@
     "file": "sentry/sentry.tKkFjS_j.css",
     "src": "_sentry.!~{008}~.js"
   },
-  "_sentry.CDFiU74B.js": {
-    "file": "shared/sentry.CDFiU74B.js",
+  "_sentry.XCtviBDJ.js": {
+    "file": "shared/sentry.XCtviBDJ.js",
     "name": "sentry",
     "css": [
       "sentry/sentry.tKkFjS_j.css"
     ]
   },
-  "_useBootstrap.DyUtrF8n.js": {
-    "file": "shared/useBootstrap.DyUtrF8n.js",
-    "name": "useBootstrap",
-    "imports": [
-      "_sentry.CDFiU74B.js"
-    ]
-  },
-  "_useMutation.BFFtwY3U.js": {
-    "file": "shared/useMutation.BFFtwY3U.js",
+  "_useMutation.BPuQeKeS.js": {
+    "file": "shared/useMutation.BPuQeKeS.js",
     "name": "useMutation",
     "imports": [
-      "_sentry.CDFiU74B.js"
+      "_sentry.XCtviBDJ.js"
     ]
   },
   "node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2": {
@@ -60,42 +68,42 @@
     "src": "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"
   },
   "src/classified_ads/main.tsx": {
-    "file": "classified_ads/classified_ads.SVFkPl_D.js",
+    "file": "classified_ads/classified_ads.CA4RxRgO.js",
     "name": "classified_ads",
     "src": "src/classified_ads/main.tsx",
     "isEntry": true,
     "imports": [
-      "_sentry.CDFiU74B.js",
-      "_Toasts.3R3FySoF.js",
-      "_useMutation.BFFtwY3U.js",
-      "_useBootstrap.DyUtrF8n.js"
+      "_sentry.XCtviBDJ.js",
+      "_Toasts.X4FfgNKQ.js",
+      "_useMutation.BPuQeKeS.js"
     ],
     "css": [
       "classified_ads/classified_ads.D2dVDX-7.css"
     ]
   },
   "src/dashboard/main.tsx": {
-    "file": "dashboard/dashboard.Y-q5ZWO5.js",
+    "file": "dashboard/dashboard.DpRWaNNm.js",
     "name": "dashboard",
     "src": "src/dashboard/main.tsx",
     "isEntry": true,
     "imports": [
-      "_sentry.CDFiU74B.js",
-      "_app.DzwwGeie.js",
-      "_Toasts.3R3FySoF.js",
-      "_useBootstrap.DyUtrF8n.js"
+      "_sentry.XCtviBDJ.js",
+      "_app.DFtqz2EX.js",
+      "_DataTable.C9frlqpJ.js",
+      "_Toasts.X4FfgNKQ.js"
     ]
   },
   "src/receipts/main.tsx": {
-    "file": "receipts/receipts.CwSSgpw8.js",
+    "file": "receipts/receipts.B7jfrm_V.js",
     "name": "receipts",
     "src": "src/receipts/main.tsx",
     "isEntry": true,
     "imports": [
-      "_sentry.CDFiU74B.js",
-      "_app.DzwwGeie.js",
-      "_Toasts.3R3FySoF.js",
-      "_useBootstrap.DyUtrF8n.js"
+      "_sentry.XCtviBDJ.js",
+      "_app.DFtqz2EX.js",
+      "_Card.DKUZKXE5.js",
+      "_DataTable.C9frlqpJ.js",
+      "_Toasts.X4FfgNKQ.js"
     ]
   },
   "src/shared/styles/admin.css": {
@@ -104,32 +112,31 @@
     "isEntry": true
   },
   "src/shared/styles/site.css": {
-    "file": "site/site.DQfaPwH7.css",
+    "file": "site/site.CgYlk34h.css",
     "src": "src/shared/styles/site.css",
     "isEntry": true
   },
   "src/tv/main.tsx": {
-    "file": "tv/tv.By7UeJCk.js",
+    "file": "tv/tv.CkOeVYNk.js",
     "name": "tv",
     "src": "src/tv/main.tsx",
     "isEntry": true,
     "imports": [
-      "_sentry.CDFiU74B.js",
-      "_useMutation.BFFtwY3U.js"
-    ],
-    "css": [
-      "tv/tv.YqnPDMHD.css"
+      "_sentry.XCtviBDJ.js",
+      "_app.DFtqz2EX.js",
+      "_useMutation.BPuQeKeS.js",
+      "_Card.DKUZKXE5.js",
+      "_Toasts.X4FfgNKQ.js"
     ]
   },
   "src/vacancies/main.tsx": {
-    "file": "vacancies/vacancies.nghDpSbb.js",
+    "file": "vacancies/vacancies.uTZZkqu0.js",
     "name": "vacancies",
     "src": "src/vacancies/main.tsx",
     "isEntry": true,
     "imports": [
-      "_sentry.CDFiU74B.js",
-      "_useMutation.BFFtwY3U.js",
-      "_useBootstrap.DyUtrF8n.js"
+      "_sentry.XCtviBDJ.js",
+      "_useMutation.BPuQeKeS.js"
     ],
     "css": [
       "vacancies/vacancies.Jn48WkaF.css"
