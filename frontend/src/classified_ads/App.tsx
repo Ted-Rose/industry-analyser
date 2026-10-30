@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import NavButtons from './components/NavButtons';
-import Toasts from '../shared/components/Toasts';
+import AppShell from '../shared/layout/AppShell';
 import Index from './routes/Index';
 import AdsTable from './routes/AdsTable';
 import RegionConfig from './routes/RegionConfig';
@@ -17,13 +16,26 @@ import PropertyDetail from './routes/PropertyDetail';
  * Client routes mirror the pre-cutover URL names one-to-one, so
  * existing bookmarks and {% url 'classified_ads:…' %} reversals keep
  * working. /apartments and /houses were redirects to the rent tables —
- * kept as client-side Navigate. Unknown paths land back on the index.
+ * kept as client-side Navigate (plus /properties for the tab). Unknown
+ * paths land back on the index.
+ *
+ * AppShell owns the global chrome — TopNav with the NavTabs sections
+ * below and the Toasts mount. Bootstrap is still loaded for this app
+ * (LEGACY_BOOTSTRAP_ENTRIES), so the unmigrated Index/RentVsBuy/
+ * RegionConfig routes keep their old markup inside the shell until
+ * PR-9.
  */
 export default function App() {
   return (
-    <>
-      <NavButtons />
-      <Toasts />
+    <AppShell
+      appTitle="Classified Ads"
+      navItems={[
+        { to: '/apartments', label: 'Apartments' },
+        { to: '/houses', label: 'Houses' },
+        { to: '/properties', label: 'Properties' },
+        { to: '/daily-sightings', label: 'Reports' },
+      ]}
+    >
       <Routes>
         <Route path="/" element={<Index />} />
         <Route
@@ -85,6 +97,10 @@ export default function App() {
         <Route path="/daily-sightings" element={<DailySightings />} />
         <Route path="/rent-vs-buy" element={<RentVsBuy />} />
         <Route
+          path="/properties"
+          element={<Navigate to="/properties/apartments" replace />}
+        />
+        <Route
           path="/properties/apartments"
           element={<PropertyList kind="apartment" />}
         />
@@ -102,6 +118,6 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+    </AppShell>
   );
 }

@@ -1,15 +1,26 @@
-import { useEffect, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   fetchRegionStatsChildren,
   type Kind,
-  type RegionStatsRowOut,
 } from '../api';
 import { errorDetail } from '../../shared/api/errors';
-import StatsResultsTable from '../components/StatsResultsTable';
-import { NoDealTypeNote } from './RegionStats';
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters';
 import { kindUrls } from '../urls';
+import PageContainer, {
+  PageHeader,
+} from '../../shared/layout/PageContainer';
+import Card from '../../shared/ui/Card';
+import DataTable from '../../shared/ui/DataTable';
+import EmptyState from '../../shared/ui/EmptyState';
+import ErrorState from '../../shared/ui/ErrorState';
+import Field from '../../shared/ui/Field';
+import FilterBar from '../../shared/ui/FilterBar';
+import Input from '../../shared/ui/Input';
+import Select from '../../shared/ui/Select';
+import { LoadingState } from '../../shared/ui/Skeleton';
+import { NoDealTypeNote, statsColumns } from './RegionStats';
+import useErrorToast from '../useErrorToast';
 
 interface Draft {
   dateFrom: string;
@@ -25,14 +36,28 @@ interface Draft {
  */
 export default function RegionStatsChildren({ kind }: { kind: Kind }) {
   const { regionId } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const { draft, setDraft, apply, reset, searchParams } =
+    useUrlFilters<Draft>({
+      fromParams: (p) => ({
+        dateFrom: p.get('date_from') ?? '',
+        dateTo: p.get('date_to') ?? '',
+        dealType: p.get('deal_type') ?? '',
+      }),
+      toParams: (d) => {
+        const next = new URLSearchParams();
+        if (d.dateFrom) next.set('date_from', d.dateFrom);
+        if (d.dateTo) next.set('date_to', d.dateTo);
+        if (d.dealType) next.set('deal_type', d.dealType);
+        return next;
+      },
+    });
   const params = {
     dateFrom: searchParams.get('date_from'),
     dateTo: searchParams.get('date_to'),
     dealType: searchParams.get('deal_type'),
   };
 
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: [
       'classified_ads',
       'region-stats-children',
@@ -44,138 +69,107 @@ export default function RegionStatsChildren({ kind }: { kind: Kind }) {
       fetchRegionStatsChildren(kind, regionId ?? '', params),
     enabled: !!regionId,
   });
-
-  const paramsKey = searchParams.toString();
-  const [draft, setDraft] = useState<Draft>({
-    dateFrom: params.dateFrom ?? '',
-    dateTo: params.dateTo ?? '',
-    dealType: params.dealType ?? '',
-  });
-  useEffect(() => {
-    const p = new URLSearchParams(paramsKey);
-    setDraft({
-      dateFrom: p.get('date_from') ?? '',
-      dateTo: p.get('date_to') ?? '',
-      dealType: p.get('deal_type') ?? '',
-    });
-  }, [paramsKey]);
-
-  const applyFilters = (e: React.FormEvent) => {
-    e.preventDefault();
-    const next = new URLSearchParams();
-    if (draft.dateFrom) next.set('date_from', draft.dateFrom);
-    if (draft.dateTo) next.set('date_to', draft.dateTo);
-    if (draft.dealType) next.set('deal_type', draft.dealType);
-    setSearchParams(next);
-  };
+  useErrorToast(isError, error, 'Failed to load stats');
 
   const urls = kindUrls(kind);
   const parent = data?.parent_region;
+  const activeCount =
+    (params.dateFrom ? 1 : 0) +
+    (params.dateTo ? 1 : 0) +
+    (params.dealType ? 1 : 0);
 
   return (
-    <div className="container-fluid py-4">
-      {parent && data && (
-        <Link
-          to={`${urls.stats}?date_from=${data.date_from}&date_to=${data.date_to}&deal_type=${data.deal_type}&regions=${parent.id}`}
-          className="back-link"
-        >
-          ← Back to parent regions
-        </Link>
-      )}
-      <h2 className="mb-4">
-        {parent ? `${parent.name} — Sub-regions` : 'Sub-regions'}
-      </h2>
+    <PageContainer width="page">
+      <PageHeader
+        back={
+          parent && data
+            ? {
+                to: `${urls.stats}?date_from=${data.date_from}&date_to=${data.date_to}&deal_type=${data.deal_type}&regions=${parent.id}`,
+                label: 'Back to parent regions',
+              }
+            : undefined
+        }
+        title={
+          parent ? `${parent.name} — Sub-regions` : 'Sub-regions'
+        }
+      />
 
-      {/* Filters */}
-      <div className="card filter-card mb-4">
-        <div className="card-body">
-          <form onSubmit={applyFilters}>
-            <div className="row align-items-end">
-              <div className="col-md-2 mb-2">
-                <label className="filter-label" htmlFor="id_date_from">
-                  From
-                </label>
-                <input
-                  type="date"
-                  id="id_date_from"
-                  className="form-control form-control-sm"
-                  value={draft.dateFrom}
-                  onChange={(e) =>
-                    setDraft((d) => ({
-                      ...d,
-                      dateFrom: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="col-md-2 mb-2">
-                <label className="filter-label" htmlFor="id_date_to">
-                  To
-                </label>
-                <input
-                  type="date"
-                  id="id_date_to"
-                  className="form-control form-control-sm"
-                  value={draft.dateTo}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, dateTo: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="col-md-2 mb-2">
-                <label className="filter-label" htmlFor="id_deal_type">
-                  Deal type
-                </label>
-                <select
-                  id="id_deal_type"
-                  className="form-control form-control-sm"
-                  value={draft.dealType}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, dealType: e.target.value }))
-                  }
-                >
-                  <option value="">All</option>
-                  <option value="RENT">Rent</option>
-                  <option value="SELL">Sell</option>
-                </select>
-              </div>
-              <div className="col-md-1 mb-2 d-flex align-items-end">
-                <button
-                  type="submit"
-                  className="btn btn-primary btn-sm w-100"
-                >
-                  Fetch
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      {isError && (
-        <div className="alert alert-danger" role="alert">
-          Failed to load stats — {errorDetail(error)}
-        </div>
-      )}
-
-      {data && (
-        <>
-          <StatsResultsTable
-            results={data.results}
-            renderName={(row: RegionStatsRowOut) => (
-              <Link
-                to={`${urls.regionAds(row.region.id)}?date_from=${data.date_from}&date_to=${data.date_to}&deal_type=${data.deal_type}`}
-                className="region-link"
-              >
-                {row.region.name}
-              </Link>
-            )}
-            emptyText="No sub-regions found."
+      <FilterBar
+        onSubmit={apply}
+        onReset={reset}
+        activeCount={activeCount}
+        collapsible="mobile"
+        submitLabel="Fetch"
+        className="mb-4"
+      >
+        <Field label="From" htmlFor="id_date_from">
+          <Input
+            type="date"
+            id="id_date_from"
+            value={draft.dateFrom}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, dateFrom: e.target.value }))
+            }
           />
-          {!data.deal_type && <NoDealTypeNote />}
-        </>
+        </Field>
+        <Field label="To" htmlFor="id_date_to">
+          <Input
+            type="date"
+            id="id_date_to"
+            value={draft.dateTo}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, dateTo: e.target.value }))
+            }
+          />
+        </Field>
+        <Field label="Deal type" htmlFor="id_deal_type">
+          <Select
+            id="id_deal_type"
+            value={draft.dealType}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, dealType: e.target.value }))
+            }
+          >
+            <option value="">All</option>
+            <option value="RENT">Rent</option>
+            <option value="SELL">Sell</option>
+          </Select>
+        </Field>
+      </FilterBar>
+
+      {isError && !data ? (
+        <ErrorState
+          title="Failed to load stats"
+          error={errorDetail(error)}
+          onRetry={() => void refetch()}
+        />
+      ) : isPending ? (
+        <LoadingState variant="table" />
+      ) : (
+        data && (
+          <>
+            <Card padding="none" className="overflow-hidden">
+              <DataTable
+                columns={statsColumns((row) => (
+                  <Link
+                    to={`${urls.regionAds(row.region.id)}?date_from=${data.date_from}&date_to=${data.date_to}&deal_type=${data.deal_type}`}
+                    className="font-medium text-fg
+                      hover:text-accent-text"
+                  >
+                    {row.region.name}
+                  </Link>
+                ))}
+                rows={data.results}
+                getRowKey={(row) => row.region.id}
+                empty={<EmptyState title="No sub-regions found." />}
+                caption="Sub-region statistics"
+                mobile="scroll"
+              />
+            </Card>
+            {!data.deal_type && <NoDealTypeNote />}
+          </>
+        )
       )}
-      {isPending && <p className="text-muted">Loading…</p>}
-    </div>
+    </PageContainer>
   );
 }
