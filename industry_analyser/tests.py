@@ -10,7 +10,12 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test import (
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 
 from industry_analyser import api as api_module
 from industry_analyser.sentry import (
@@ -175,11 +180,13 @@ class SpaShellContractTests(TestCase):
         self.assertIn('/vacancies/', urls)
 
 
+@override_settings(DJANGO_VITE={'default': {'dev_mode': False}})
 class DsHeadTagTests(SimpleTestCase):
     """{% ds_head %} degrades to an empty string when the vite
     manifest can't supply the entry — landing and news keep
     working unstyled on a stale frontend_dist instead of 500ing
-    (plan §11.2)."""
+    (plan §11.2). dev_mode is pinned off so an exported
+    VITE_DEV=1 can't flip ds_head onto dev-server URLs."""
 
     def test_missing_manifest_entry_returns_empty(self):
         with patch(
