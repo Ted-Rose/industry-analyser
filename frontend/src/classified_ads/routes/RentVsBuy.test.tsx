@@ -122,7 +122,8 @@ describe('RentVsBuy', () => {
     );
     renderPage();
     const cell = await screen.findByText('Rīga / Ķengarags');
-    expect(cell.closest('tr')).toHaveClass('text-muted');
+    // Flagged rows get the DataTable 'muted' row tone.
+    expect(cell.closest('tr')).toHaveClass('text-fg-subtle');
   });
 
   it('renders residual rows only when returned', async () => {
@@ -138,7 +139,7 @@ describe('RentVsBuy', () => {
       }),
     );
     renderPage('/rent-vs-buy?residual=1');
-    await screen.findByText(/Residual regions/);
+    await screen.findByRole('heading', { name: /Residual regions/ });
     expect(screen.getByText('Rīga')).toBeInTheDocument();
   });
 
@@ -259,7 +260,7 @@ describe('RentVsBuy', () => {
       }),
     );
     renderPage('/rent-vs-buy?residual=1');
-    await screen.findByText(/Residual regions/);
+    await screen.findByRole('heading', { name: /Residual regions/ });
     expect(
       screen.queryByText(/more cells pass the gate/),
     ).toBeNull();

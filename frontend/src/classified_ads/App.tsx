@@ -20,10 +20,7 @@ import PropertyDetail from './routes/PropertyDetail';
  * paths land back on the index.
  *
  * AppShell owns the global chrome — TopNav with the NavTabs sections
- * below and the Toasts mount. Bootstrap is still loaded for this app
- * (LEGACY_BOOTSTRAP_ENTRIES), so the unmigrated Index/RentVsBuy/
- * RegionConfig routes keep their old markup inside the shell until
- * PR-9.
+ * below and the Toasts mount.
  */
 export default function App() {
   return (
@@ -33,7 +30,12 @@ export default function App() {
         { to: '/apartments', label: 'Apartments' },
         { to: '/houses', label: 'Houses' },
         { to: '/properties', label: 'Properties' },
-        { to: '/daily-sightings', label: 'Reports' },
+        {
+          to: '/daily-sightings',
+          label: 'Reports',
+          // Both report routes live under the one tab.
+          activePaths: ['/rent-vs-buy'],
+        },
       ]}
     >
       <Routes>

@@ -1,5 +1,5 @@
 import { KeyboardEvent, ReactNode, useRef } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { cx } from '../cx';
 
 export interface NavTabItem {
@@ -8,6 +8,12 @@ export interface NavTabItem {
   label: ReactNode;
   /** NavLink `end` — exact-match for index routes. */
   end?: boolean;
+  /**
+   * Extra pathnames that also mark this tab active — a section
+   * tab covering several sibling routes (the Reports tab on
+   * /daily-sightings AND /rent-vs-buy).
+   */
+  activePaths?: string[];
 }
 
 export interface NavTabsProps {
@@ -33,28 +39,36 @@ export function NavTabs({
   ariaLabel = 'Sections',
   className,
 }: NavTabsProps) {
+  const { pathname } = useLocation();
   if (items.length === 0) return null;
   return (
     <nav aria-label={ariaLabel} className={className}>
       <div className="flex gap-1">
-        {items.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className={({ isActive }) =>
-              cx(
-                TAB_LINK,
-                isActive
-                  ? 'border-accent text-fg'
-                  : 'border-transparent text-fg-muted ' +
-                    'hover:border-border-strong hover:text-fg',
-              )
-            }
-          >
-            {item.label}
-          </NavLink>
-        ))}
+        {items.map((item) => {
+          const extraActive = item.activePaths?.some(
+            (path) =>
+              pathname === path ||
+              pathname.startsWith(`${path}/`),
+          );
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) =>
+                cx(
+                  TAB_LINK,
+                  isActive || extraActive
+                    ? 'border-accent text-fg'
+                    : 'border-transparent text-fg-muted ' +
+                      'hover:border-border-strong hover:text-fg',
+                )
+              }
+            >
+              {item.label}
+            </NavLink>
+          );
+        })}
       </div>
     </nav>
   );

@@ -70,12 +70,11 @@ SPA_ENTRY_RE = re.compile(r'[a-z0-9_]+')
 
 # SPA entries still themed by the Bootstrap CDN links — an app
 # leaves this set only when EVERY route in it has been migrated
-# to the design system (the classified_ads split stays on until
-# its second migration PR). spa_shell.html wraps both CDN
-# <link>s in {% if legacy_bootstrap %}.
-LEGACY_BOOTSTRAP_ENTRIES = {
-    'classified_ads',
-}
+# to the design system. Empty since classified_ads' second
+# migration PR; the mechanism stays (a future app could re-enter)
+# until the cleanup PR folds it away. spa_shell.html wraps both
+# CDN <link>s in {% if legacy_bootstrap %}.
+LEGACY_BOOTSTRAP_ENTRIES: set[str] = set()
 
 
 def _manifest_has_entry(manifest_path, entry_key):

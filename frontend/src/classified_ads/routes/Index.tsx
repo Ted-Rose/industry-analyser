@@ -1,88 +1,168 @@
 import { Link } from 'react-router-dom';
+import {
+  Building,
+  CalendarDays,
+  ChartColumn,
+  House,
+  KeyRound,
+  Landmark,
+  MapPinCheck,
+  Scale,
+  Tag,
+  type LucideIcon,
+} from 'lucide-react';
+import PageContainer, {
+  PageHeader,
+} from '../../shared/layout/PageContainer';
+import Card from '../../shared/ui/Card';
+
+interface SectionLink {
+  to: string;
+  label: string;
+  icon: LucideIcon;
+}
+
+interface Section {
+  title: string;
+  links: SectionLink[];
+}
+
+/** Link labels kept verbatim from the retired index.html. */
+const SECTIONS: Section[] = [
+  {
+    title: 'Apartments',
+    links: [
+      {
+        to: '/apartments/rent',
+        label: 'Browse Rental Apartments',
+        icon: KeyRound,
+      },
+      {
+        to: '/apartments/sale',
+        label: 'Browse Apartments for Sale',
+        icon: Tag,
+      },
+      {
+        to: '/apartments/regions/stats',
+        label: 'Apartment Regional Statistics',
+        icon: ChartColumn,
+      },
+      {
+        to: '/properties/apartments',
+        label: 'Apartment Properties (deduplicated)',
+        icon: Landmark,
+      },
+      {
+        to: '/apartments/regions/config',
+        label: 'Apartment Region Configuration',
+        icon: MapPinCheck,
+      },
+    ],
+  },
+  {
+    title: 'Houses',
+    links: [
+      {
+        to: '/houses/rent',
+        label: 'Browse Rental Houses',
+        icon: KeyRound,
+      },
+      {
+        to: '/houses/sale',
+        label: 'Browse Houses for Sale',
+        icon: Tag,
+      },
+      {
+        to: '/houses/regions/stats',
+        label: 'House Regional Statistics',
+        icon: ChartColumn,
+      },
+      {
+        to: '/properties/houses',
+        label: 'House Properties (deduplicated)',
+        icon: Landmark,
+      },
+      {
+        to: '/houses/regions/config',
+        label: 'House Region Configuration',
+        icon: MapPinCheck,
+      },
+    ],
+  },
+  {
+    title: 'Reports',
+    links: [
+      {
+        to: '/daily-sightings',
+        label: 'Daily Sightings Report',
+        icon: CalendarDays,
+      },
+      {
+        to: '/rent-vs-buy',
+        label: 'Rent vs Buy — months of rent to buy out',
+        icon: Scale,
+      },
+    ],
+  },
+];
+
+const SECTION_ICONS: Record<string, LucideIcon> = {
+  Apartments: Building,
+  Houses: House,
+  Reports: ChartColumn,
+};
 
 /**
- * React port of index.html — a static link hub; it had no dynamic
- * context, so there is no API call behind this page.
+ * Static link hub — no API call behind this page. The emoji
+ * link-list becomes a card grid of interactive links (plan §9.8).
  */
 export default function Index() {
   return (
-    <div className="index-page">
-      <div className="container">
-        <h1>Classified Ads</h1>
-        <p className="subtitle">
-          Real estate listings from SS.com Latvia
-        </p>
+    <PageContainer width="narrow">
+      <PageHeader
+        title="Classified Ads"
+        description="Real estate listings from SS.com Latvia"
+      />
 
-        <section className="property-section">
-          <h2 className="section-title">🏢 Apartments</h2>
-          <ul className="nav-list">
-            <li>
-              <Link to="/apartments/rent">Browse Rental Apartments</Link>
-            </li>
-            <li>
-              <Link to="/apartments/sale">
-                Browse Apartments for Sale
-              </Link>
-            </li>
-            <li>
-              <Link to="/apartments/regions/stats">
-                Apartment Regional Statistics
-              </Link>
-            </li>
-            <li>
-              <Link to="/properties/apartments">
-                Apartment Properties (deduplicated)
-              </Link>
-            </li>
-            <li>
-              <Link to="/apartments/regions/config">
-                Apartment Region Configuration
-              </Link>
-            </li>
-          </ul>
-        </section>
-
-        <section className="property-section">
-          <h2 className="section-title">🏡 Houses</h2>
-          <ul className="nav-list">
-            <li>
-              <Link to="/houses/rent">Browse Rental Houses</Link>
-            </li>
-            <li>
-              <Link to="/houses/sale">Browse Houses for Sale</Link>
-            </li>
-            <li>
-              <Link to="/houses/regions/stats">
-                House Regional Statistics
-              </Link>
-            </li>
-            <li>
-              <Link to="/properties/houses">
-                House Properties (deduplicated)
-              </Link>
-            </li>
-            <li>
-              <Link to="/houses/regions/config">
-                House Region Configuration
-              </Link>
-            </li>
-          </ul>
-        </section>
-
-        <section className="property-section">
-          <h2 className="section-title">📊 Reports</h2>
-          <ul className="nav-list">
-            <li>
-              <Link to="/daily-sightings">Daily Sightings Report</Link>
-            </li>
-            <li>
-              <Link to="/rent-vs-buy">
-                Rent vs Buy — months of rent to buy out
-              </Link>
-            </li>
-          </ul>
-        </section>
+      <div className="space-y-6">
+        {SECTIONS.map((section) => {
+          const SectionIcon = SECTION_ICONS[section.title];
+          return (
+            <section key={section.title}>
+              <h2
+                className="mb-3 flex items-center gap-2 text-xl
+                  font-semibold text-fg"
+              >
+                <SectionIcon
+                  className="size-5 text-fg-muted"
+                  aria-hidden="true"
+                />
+                {section.title}
+              </h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {section.links.map((link) => (
+                  <Card
+                    key={link.to}
+                    as={Link}
+                    to={link.to}
+                    interactive
+                    className="flex items-center gap-3 no-underline"
+                  >
+                    <link.icon
+                      className="size-5 shrink-0
+                        text-fg-muted"
+                      aria-hidden="true"
+                    />
+                    <span className="font-medium text-fg">
+                      {link.label}
+                    </span>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
-    </div>
+    </PageContainer>
   );
 }
