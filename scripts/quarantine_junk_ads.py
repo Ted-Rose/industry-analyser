@@ -1,8 +1,7 @@
 """
 One-time data fix: quarantine junk classified-ad rows (is_hidden).
 
-Background: the 2026-10-29 prod audit (docs/plans/
-classified_ads_data_quality_implementation_plan.md, F2) found ~260
+Background: the 2026-10-29 prod audit (item F2) found ~260
 visible rows that are not real housing ads — sheds/garages/land
 scraps listed with a token floor area, zero or absurd
 price-per-m² values, impossible floors, and two apartment-rent

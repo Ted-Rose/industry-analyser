@@ -27,8 +27,7 @@ hiding an ad does not merge property rows (that is tracked in
 docs/property_match_review_2026_10.md).
 
 `--swap-canonical` runs a different fix for the 'frozen' residue the
-dup-link pass left behind (docs/plans/
-classified_ads_data_quality_implementation_plan.md F6): same-link
+dup-link pass left behind (2026-10-29 audit item F6): same-link
 groups where every visible row carries a malformed ad_id while the
 real bare-tr_ row sits hidden — scrapes keep updating the hidden
 row, so the visible row is a dead end. The swap hides the malformed

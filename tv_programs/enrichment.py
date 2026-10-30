@@ -1,7 +1,6 @@
-"""Show enrichment: IMDb (OMDb) re-integration + Cinemeta fallback
-(tv_show_normalization_plan.md §5).
+"""Show enrichment: IMDb (OMDb) re-integration + Cinemeta fallback.
 
-Enrichment runs once per *new* Show. Order per plan §2.7:
+Enrichment runs once per *new* Show. Order:
 
 1. OMDb ``t=`` exact lookup with the Latvian title,
 2. OMDb ``s=`` search, best candidate by SequenceMatcher, ``i=`` fetch,

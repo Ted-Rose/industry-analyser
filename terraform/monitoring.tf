@@ -99,8 +99,8 @@ resource "google_project_iam_member" "deployer_logging_admin" {
   member  = "serviceAccount:industry-analyser-deployer@${var.project_id}.iam.gserviceaccount.com"
 }
 
-# Alert policy for individual scrape-item failures
-# (stateful_scrape_jobs_plan.md section 5.4). ScrapeJobRunner logs a
+# Alert policy for individual scrape-item failures.
+# ScrapeJobRunner logs a
 # SCRAPE_ITEM_FAILED marker at ERROR for each failed item; this
 # log-based policy mails on it via the existing email channel while
 # the run itself continues (run ends PARTIAL, not FAILED).

@@ -226,7 +226,7 @@ class ApartmentAdScraper(BaseScraper):
             # The tr_ row id alone is ss.com's stable, globally-unique
             # ad id. Appending listing-cell text minted a new ad_id on
             # every address/size/language variant, which defeated
-            # unique dedup (see docs/plans/ad_id_dedup_fix_plan.md).
+            # unique dedup.
             ad_id = str(row_id)
 
             results.append({

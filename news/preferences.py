@@ -1,6 +1,5 @@
 """Per-user news source ranking — decides which outlet's
-article a story shows in the inline reader
-(docs/plans/news_story_reader_plan.md)."""
+article a story shows in the inline reader."""
 from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsSource,

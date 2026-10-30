@@ -1,5 +1,4 @@
-"""Backfill ``Program.show`` for legacy airing rows
-(tv_show_normalization_plan.md §7).
+"""Backfill ``Program.show`` for legacy airing rows.
 
 Every ``Program`` row whose ``show`` is null gets mapped onto a
 canonical ``Show`` via the same dedup key the scraper uses

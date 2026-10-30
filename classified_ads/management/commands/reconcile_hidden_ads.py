@@ -3,8 +3,7 @@ Un-hide classified ads that are hidden but still being scraped.
 
 Background: migration 0015 (2026-08-19) hid every ad row with
 first_seen < 2026-08-11. Roughly 3,501 of those rows still get
-sightings (prod audit 2026-10-29 — see
-docs/plans/classified_ads_data_quality_implementation_plan.md F3),
+sightings (prod audit 2026-10-29, item F3),
 i.e. live listings invisible to every `objects`-based stat.
 
 A hidden row is un-hidden only when ALL of these hold:

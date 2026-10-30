@@ -1,4 +1,4 @@
-"""Show deduplication helpers (tv_show_normalization_plan.md §4.1).
+"""Show deduplication helpers.
 
 A ``Show``'s identity is ``sha256(normalized title | normalized
 description | season | episode)``. Normalization strips the rerun

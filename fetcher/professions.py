@@ -1,9 +1,8 @@
 """Rule-based profession tagging for vacancy titles.
 
 Pure, testable module — no ORM, no I/O (mirrors
-``tv_programs/classification.py``). See
-``docs/plans/vacancy_profession_categorization_plan.md`` §1 for
-the measured IT-focused taxonomy and the precedence rules.
+``tv_programs/classification.py``). The taxonomy is IT-focused and
+rule precedence is load-bearing.
 
 ``PROFESSION_RULES`` is an *ordered* list — first match wins. The
 ordering is load-bearing (~91% of titles match ≥2 patterns):

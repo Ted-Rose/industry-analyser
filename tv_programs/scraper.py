@@ -24,8 +24,7 @@ _UNSET = object()
 class TVProgramScraper(BaseScraper):
     """
     Scraper for TV programs from tet.lv: grid parse + Show dedup +
-    OMDb/Cinemeta enrichment for new shows (see
-    docs/plans/tv_show_normalization_plan.md).
+    OMDb/Cinemeta enrichment for new shows.
     """
 
     # Class-level defaults so instances built without __init__ are safe.
