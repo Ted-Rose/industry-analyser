@@ -2,7 +2,7 @@
 
 Ported from django-apps' django_apps/views.py. One shell view renders
 <div id="root"> plus the {% vite_asset %} tags for a given Vite entry;
-`react_app` (login-required) and `react_app_public` wrap it so every
+`react_app` (staff-required) and `react_app_public` wrap it so every
 app mount shares the same GET/HEAD→shell, non-GET→404 contract.
 """
 import json
@@ -11,7 +11,9 @@ import re
 from functools import partial
 
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import (
+    staff_member_required,
+)
 from django.http import (
     Http404,
     HttpResponsePermanentRedirect,
@@ -71,9 +73,12 @@ SPA_ENTRY_RE = re.compile(r'[a-z0-9_]+')
 # SPA entries still themed by the Bootstrap CDN links — an app
 # leaves this set only when EVERY route in it has been migrated
 # to the design system (the classified_ads split stays on until
-# its second migration PR). spa_shell.html wraps both CDN
-# <link>s in {% if legacy_bootstrap %}.
+# its second migration PR; the accounts SPA landed on master
+# with Bootstrap markup and migrates with the cleanup PR).
+# spa_shell.html wraps both CDN <link>s in
+# {% if legacy_bootstrap %}.
 LEGACY_BOOTSTRAP_ENTRIES = {
+    'accounts',
     'vacancies',
     'tv',
     'classified_ads',
@@ -130,8 +135,8 @@ def _spa_shell(request, entry, title=''):
             # state off these instead of a hardcoded list (same
             # contract the / landing page renders).
             'apps': _landing_entries(),
-            'is_staff': request.user.is_staff,
             'is_authenticated': request.user.is_authenticated,
+            'is_staff': getattr(request.user, 'is_staff', False),
             # Web Sentry config ships inside the page — the SPA reads
             # it before createRoot, so no VITE_* build vars are
             # needed. Empty dsn leaves the browser SDK uninitialized.
@@ -144,11 +149,13 @@ def _spa_shell(request, entry, title=''):
     })
 
 
-@login_required
+@staff_member_required
 @ensure_csrf_cookie
 def spa_shell(request, entry, title=''):
-    """Login-required shell — for apps whose pages need auth (e.g.
-    the dashboard and receipts apps)."""
+    """Staff-required shell — for apps whose pages are staff-only
+    (the dashboard and receipts SPAs). staff_member_required
+    bounces anonymous AND authenticated non-staff visitors to the
+    admin login, which explains the missing staff rights."""
     return _spa_shell(request, entry, title=title)
 
 
@@ -160,7 +167,7 @@ def spa_shell_public(request, entry, title=''):
 
 
 def react_app(request, entry, title='', subpath='', **kwargs):
-    """React SPA shell shared by every login-required app mount.
+    """React SPA shell shared by every staff-required app mount.
 
     Mount with functools.partial (or a thin wrapper) binding `entry`
     (the frontend/src/<entry>/ folder and vite input key) and
@@ -184,9 +191,10 @@ def react_app(request, entry, title='', subpath='', **kwargs):
 
 
 def react_app_public(request, entry, title='', subpath='', **kwargs):
-    """Same contract as `react_app` but without login_required — for
-    apps whose pages are public today (vacancies, tv, classified-ads).
-    Mutations still require auth at the /api/ layer.
+    """Same contract as `react_app` but without staff_member_required
+    — for apps whose pages are public today (vacancies, tv,
+    classified-ads, accounts). Mutations still require auth at the
+    /api/ layer.
 
     `subpath` is captured by <path:subpath> catch-alls; `kwargs`
     swallows any named converters (e.g. <uuid:pk> on a named route
@@ -201,10 +209,11 @@ def react_app_public(request, entry, title='', subpath='', **kwargs):
 # --- Landing page ---
 
 # Top-level routes that never become landing entries: infra
-# mounts (the JSON API, admin, the whitenoise pass-through).
+# mounts (the JSON API, admin, the whitenoise pass-through) and
+# the accounts utility SPA (auth pages, not a mini-app).
 # Everything else is discovered — a new app mount needs no edit
 # here.
-_LANDING_SKIP_ROUTES = {'api/', 'admin/', 'static/'}
+_LANDING_SKIP_ROUTES = {'api/', 'admin/', 'static/', 'accounts/'}
 
 
 def _is_spa_partial(callback):
@@ -225,7 +234,7 @@ def _spa_entry_fields(callback):
     and `landing_cta` promotes the entry to the prominent
     call-to-action slot — all swallowed by react_app's **kwargs.
     The auth flag follows from which shell was bound — react_app
-    mounts are login-required."""
+    mounts are staff-required."""
     keywords = callback.keywords
     return {
         'title': (

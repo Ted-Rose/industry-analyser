@@ -1,0 +1,120 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: 401 login-redirect handshake
+
+Authentication failures SHALL return `{error:
+'unauthenticated', login_url: '/accounts/login/?next=<spa_url>'}`
+where `spa_url_for()` rewrites the `/api/<app>/<sub>` request
+path to the SPA page that issued it — `login_url`/`next` MUST
+never point back at an `/api/` path. `SPA_BASES` and
+`SPA_SUBPATHS` map APIs whose owning page lives elsewhere
+(e.g. `dashboard` → `/dashboard/`, `vacancies/companies` →
+`/companies/`). The public `/accounts/login/` SPA route is the
+single login_url target; the Django admin login at
+`/admin/login/` remains reachable for staff but is no longer
+emitted by the API. Credential failures on the login endpoint
+itself are 401s WITHOUT `login_url` (see the user-auth spec).
+
+#### Scenario: Dashboard API 401 maps to the SPA mount
+
+- **WHEN** `GET /api/dashboard/` returns 401
+- **THEN** `login_url` is `/accounts/login/?next=/dashboard/`
+  (the dashboard SPA mounts at /dashboard/; `/` is the public
+  landing page)
+
+#### Scenario: Query string is preserved
+
+- **WHEN** `POST /api/vacancies/filters/` returns 401
+- **THEN** the `next` parameter carries `/vacancies/`
+  (`filters` remaps to the vacancy list page via `SPA_SUBPATHS`;
+  GET /filters/ itself is public — `auth=None`)
+
+#### Scenario: Authenticated non-staff gets 403, not a bounce
+
+- **WHEN** an authenticated non-staff request reaches a
+  staff-only endpoint (e.g. `GET /api/receipts/`)
+- **THEN** the response is 403 `{error: 'forbidden'}` — no
+  `login_url`, since logging in again cannot help
+
+### Requirement: Shared SPA shell
+
+Every SPA mount SHALL serve `react_app` (staff-required) or
+`react_app_public`: GET/HEAD renders `spa_shell.html` with
+`vite_entry = src/<entry>/main.tsx`; any other method 404s.
+`entry` must match `[a-z0-9_]+` and maps to a
+`frontend/src/<entry>/` folder and manifest key. The shell
+injects a `bootstrap` JSON carrying `user`, `is_authenticated`,
+`is_staff` and `sentry.{dsn,environment,release}` — no VITE_*
+build vars. `react_app` redirects anonymous AND authenticated
+non-staff visitors to the admin login (the mounts that bind it
+— dashboard, receipts — are staff-only pages); per-user
+login-required surfaces outside the SPA shell use ordinary
+`login_required`, which redirects to `LOGIN_URL`
+(`/accounts/login/`).
+
+#### Scenario: Client-side route loads the shell
+
+- **WHEN** a GET hits a `<path:subpath>` route under an SPA
+  mount (e.g. `/vacancies/123/`)
+- **THEN** the shell renders and React Router resolves the
+  page client-side
+
+#### Scenario: Non-GET request on an SPA path
+
+- **WHEN** a POST targets an SPA-owned URL
+- **THEN** the view raises Http404 — mutations live under
+  `/api/`
+
+#### Scenario: Missing or stale manifest
+
+- **WHEN** prod mode and `manifest.json` lacks the entry
+- **THEN** `manifest_ready` is false and the template shows a
+  diagnostic instead of crashing on `{% vite_asset %}`
+
+#### Scenario: API misses never serve the shell
+
+- **WHEN** a request misses under `/api/`, `/admin/`, or
+  `/static/` after the real mounts
+- **THEN** a `terminal_404` drain answers 404 (replicating
+  APPEND_SLASH when the slashed variant resolves) — the
+  terminal catch-all (which renders the public landing page)
+  is always the last url pattern
+
+#### Scenario: Non-staff visitor hits a staff SPA mount
+
+- **WHEN** an authenticated non-staff GET hits `/dashboard/` or
+  `/receipts/`
+- **THEN** the shell view redirects to the admin login instead
+  of serving a bundle whose API calls would all 403
+
+#### Scenario: Auth flags ride the bootstrap payload
+
+- **WHEN** any SPA shell renders for an authenticated staff
+  user
+- **THEN** `bootstrap.is_authenticated` is true and
+  `bootstrap.is_staff` is true; anonymous renders carry false
+  for both
+
+### Requirement: Frontend client honors the contract
+
+`shared/api/client.ts` `apiFetch()` SHALL send cookies
+same-origin with `redirect: 'manual'`, attach `X-CSRFToken`
+from the `csrftoken` cookie on unsafe methods, and throw
+`ApiError` (status + parsed body) for other non-2xx. On 401
+with `login_url`/`authorization_url` it navigates there and
+returns a never-resolving promise; opaque redirects/status 0
+navigate to `/accounts/login/?next=<current path>`.
+
+#### Scenario: 401 with login_url
+
+- **WHEN** a response is 401 with `login_url` in the JSON body
+- **THEN** the browser navigates to it and the caller's
+  promise never resolves — the page is leaving
+
+#### Scenario: Plain error surfaces detail
+
+- **WHEN** a response is non-2xx without auth fields
+- **THEN** `errorDetail()` returns the body's `detail` string
+  for user-facing messages
