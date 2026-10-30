@@ -84,6 +84,16 @@ def story_fragment(request, pk):
             (a for a in articles if a.source.slug == slug),
             article,
         )
+    # Mirror article_audio's guards so the template never
+    # renders an <audio> tag whose src would 404: skip empty
+    # file_path rows and require the file on disk.
+    audio = (
+        NewsArticleAudio.objects
+        .filter(article=article, status='ready')
+        .exclude(file_path='')
+        .order_by('-created_at', '-pk')
+        .first()
+    )
     return render(
         request,
         'news/_story_card.html',
@@ -93,9 +103,10 @@ def story_fragment(request, pk):
             'other_articles': [
                 a for a in articles if a.pk != article.pk
             ],
-            'ready_audio': NewsArticleAudio.objects.filter(
-                article=article, status='ready',
-            ).exists(),
+            'ready_audio': (
+                audio is not None
+                and os.path.isfile(audio.file_path)
+            ),
         },
     )
 
@@ -110,7 +121,7 @@ def article_audio(request, pk):
         .filter(article_id=pk, status='ready')
         .exclude(file_path='')
         # Several engines/voices may be ready — newest wins.
-        .order_by('-created_at')
+        .order_by('-created_at', '-pk')
         .first()
     )
     if audio is None or not os.path.isfile(audio.file_path):

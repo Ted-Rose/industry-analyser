@@ -7,6 +7,7 @@ from .models import (
     NewsSourcePreference,
 )
 
+
 def ordered_sources(user):
     """Enabled NewsSource list: the user's preferred sources
     first by rank asc, then the rest by importance_weight desc
