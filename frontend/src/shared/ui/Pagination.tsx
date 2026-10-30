@@ -17,13 +17,15 @@ export interface PaginationProps {
 }
 
 // ≥40px touch targets below sm (the compact ‹ n / m › strip is
-// the mobile control); ≥sm keeps the compact h-8/min-w-8 sizing.
+// the mobile control); ≥sm keeps the compact h-8/min-w-8 sizing
+// only on fine pointers — touch devices keep ≥40px at any width.
 const BTN =
   'inline-flex h-10 min-w-10 items-center justify-center ' +
   'rounded-md border border-border px-2 text-sm tabular-nums ' +
   'transition-colors motion-safe:duration-120 ease-ia ' +
   'disabled:cursor-not-allowed disabled:opacity-40 ' +
-  'enabled:hover:bg-surface-2 sm:h-8 sm:min-w-8';
+  'enabled:hover:bg-surface-2 ' +
+  'sm:pointer-fine:h-8 sm:pointer-fine:min-w-8';
 
 /**
  * The one pagination — plan §6 `ui/Pagination`. ‹ › plus a

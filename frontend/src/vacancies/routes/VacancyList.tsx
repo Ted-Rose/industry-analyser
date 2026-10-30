@@ -1,5 +1,4 @@
 import {
-  ReactNode,
   useEffect,
   useRef,
   useState,
@@ -9,14 +8,15 @@ import {
   keepPreviousData,
   useQuery,
 } from '@tanstack/react-query';
-import { ExternalLink } from 'lucide-react';
+import DeadlineBadge from '../components/DeadlineBadge';
+import ExternalAnchor from '../components/ExternalAnchor';
 import SavedFiltersBar from '../components/SavedFiltersBar';
 import {
   fetchVacancies,
   type CompanyFilter,
   type VacancyOut,
 } from '../api';
-import { deadlineClass, formatDate, formatSalary } from '../format';
+import { formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 import { cx } from '../../shared/cx';
 import { useBootstrap } from '../../shared/hooks/useBootstrap';
@@ -109,52 +109,6 @@ function FilterList({
         legend={label}
       />
     </Field>
-  );
-}
-
-/** The shared external-link treatment — text plus the ExternalLink
- *  glyph, opened in a new tab (plan §9.7's one pattern). */
-function ExternalAnchor({
-  href,
-  className,
-  children,
-}: {
-  href: string;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={className}
-    >
-      {children}
-      <ExternalLink
-        className="ml-0.5 inline size-3"
-        aria-hidden="true"
-      />
-    </a>
-  );
-}
-
-/** Deadline cells — deadline-past red, deadline-active green,
- *  mirroring `{% if vacancy.application_deadline < now %}`. */
-function DeadlineBadge({
-  deadline,
-  now,
-}: {
-  deadline?: string | null;
-  now: Date;
-}) {
-  if (!deadline) return <>—</>;
-  const cls = deadlineClass(deadline, now);
-  if (cls === '') return <>{formatDate(deadline)}</>;
-  return (
-    <Badge tone={cls === 'deadline-past' ? 'danger' : 'success'}>
-      {formatDate(deadline)}
-    </Badge>
   );
 }
 
@@ -657,7 +611,7 @@ export default function VacancyList() {
                   } found`}
             </p>
           )}
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={vacancies}

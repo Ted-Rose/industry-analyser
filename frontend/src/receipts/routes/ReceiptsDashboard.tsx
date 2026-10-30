@@ -220,7 +220,10 @@ function Section({
       <h2 className="mb-3 text-xl font-semibold text-fg">
         {title}
       </h2>
-      <Card padding="none" className="overflow-hidden">
+      {/* overflow-clip (not hidden): it clips to the rounded
+          corners without creating a scroll container, so a
+          wrapped DataTable's stickyHeader still sticks. */}
+      <Card padding="none" className="overflow-clip">
         {children}
       </Card>
     </section>
@@ -533,7 +536,12 @@ export default function ReceiptsDashboard() {
           className="mt-6"
         />
       ) : isPending || !data ? (
-        <LoadingState variant="stats" className="mt-6" />
+        // Three skeleton cards matching the StatGrid trio below.
+        <LoadingState
+          variant="stats"
+          rows={3}
+          className="mt-6"
+        />
       ) : (
         <div
           aria-busy={isFetching}
@@ -609,13 +617,10 @@ export default function ReceiptsDashboard() {
                 rows={categories}
                 getRowKey={(row) => row.name}
                 caption="Spending by category"
-                renderExpanded={(row) =>
-                  row.top_items.length > 0 ? (
-                    <TopItemsTable items={row.top_items} />
-                  ) : (
-                    <EmptyLine text="No items recorded." />
-                  )
-                }
+                renderExpanded={(row) => (
+                  <TopItemsTable items={row.top_items} />
+                )}
+                hasExpanded={(row) => row.top_items.length > 0}
                 className="max-md:p-3"
               />
             )}
@@ -630,13 +635,10 @@ export default function ReceiptsDashboard() {
                 rows={receipts}
                 getRowKey={(row) => row.id}
                 caption="All receipts"
-                renderExpanded={(row) =>
-                  row.item_count > 0 ? (
-                    <ReceiptItemsTable items={row.items} />
-                  ) : (
-                    <EmptyLine text="No items recorded." />
-                  )
-                }
+                renderExpanded={(row) => (
+                  <ReceiptItemsTable items={row.items} />
+                )}
+                hasExpanded={(row) => row.item_count > 0}
                 className="max-md:p-3"
               />
             )}

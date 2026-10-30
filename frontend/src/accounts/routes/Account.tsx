@@ -3,6 +3,10 @@ import { Link } from 'react-router-dom';
 import { fetchMe, logout } from '../api';
 import { navigate } from '../next';
 import { errorDetail } from '../../shared/api/errors';
+import PageContainer from '../../shared/layout/PageContainer';
+import { Alert } from '../../shared/ui/ErrorState';
+import Button from '../../shared/ui/Button';
+import DescriptionList from '../../shared/ui/DescriptionList';
 
 /**
  * The account index — shows the GET /api/accounts/me/ payload:
@@ -13,7 +17,10 @@ import { errorDetail } from '../../shared/api/errors';
  * renders against the ended session.
  */
 export default function Account() {
-  const me = useQuery({ queryKey: ['accounts', 'me'], queryFn: fetchMe });
+  const me = useQuery({
+    queryKey: ['accounts', 'me'],
+    queryFn: fetchMe,
+  });
 
   const signOut = async () => {
     await logout();
@@ -22,59 +29,61 @@ export default function Account() {
 
   if (me.isPending) {
     return (
-      <div className="container py-4 accounts-page">
-        <p className="text-muted">Loading…</p>
-      </div>
+      <PageContainer width="narrow">
+        <p className="text-sm text-fg-muted">Loading…</p>
+      </PageContainer>
     );
   }
 
   if (me.isError) {
     return (
-      <div className="container py-4 accounts-page">
-        <div className="alert alert-danger" role="alert">
-          {errorDetail(me.error)}
-        </div>
-      </div>
+      <PageContainer width="narrow">
+        <Alert tone="danger">{errorDetail(me.error)}</Alert>
+      </PageContainer>
     );
   }
 
   const user = me.data.user;
   return (
-    <div className="container py-4 accounts-page">
-      <h1 className="text-center">Account</h1>
+    <PageContainer width="narrow">
+      <h1 className="mb-4 text-center text-2xl font-semibold">
+        Account
+      </h1>
       {user ? (
-        <>
-          <dl>
-            <dt>Username</dt>
-            <dd>{user.username}</dd>
-            <dt>Email</dt>
-            <dd>{user.email || '—'}</dd>
-          </dl>
-          <div className="d-grid">
-            <button
-              type="button"
-              className="btn btn-outline-danger"
-              onClick={signOut}
-            >
-              Sign out
-            </button>
-          </div>
-        </>
+        <div className="space-y-4">
+          <DescriptionList
+            items={[
+              { term: 'Username', description: user.username },
+              {
+                term: 'Email',
+                description: user.email || '—',
+              },
+            ]}
+          />
+          <Button
+            type="button"
+            variant="danger"
+            className="w-full"
+            onClick={signOut}
+          >
+            Sign out
+          </Button>
+        </div>
       ) : (
-        <>
-          <p className="text-muted text-center">
+        <div className="space-y-4">
+          <p className="text-center text-sm text-fg-muted">
             You are not signed in.
           </p>
-          <div className="d-grid gap-2">
-            <Link to="/login" className="btn btn-primary">
+          <div className="flex flex-col gap-2">
+            <Button as={Link} to="/login">
               Sign in
-            </Link>
-            <Link to="/register" className="btn btn-outline-primary">
+            </Button>
+            <Button as={Link} to="/register" variant="secondary">
               Register
-            </Link>
+            </Button>
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </PageContainer>
   );
 }

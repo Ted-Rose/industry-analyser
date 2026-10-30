@@ -121,7 +121,7 @@ export default function Companies() {
             <a
               href={company.webpage_url}
               target="_blank"
-              rel="noopener noreferrer"
+              rel="noopener"
               title={company.webpage_url}
               className={
                 'ml-2 inline-flex items-center gap-0.5 ' +
@@ -258,7 +258,7 @@ export default function Companies() {
                   }`}
             </p>
           )}
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={companies}

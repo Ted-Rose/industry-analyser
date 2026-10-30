@@ -3,6 +3,11 @@ import { Link, useLocation } from 'react-router-dom';
 import { login } from '../api';
 import { navigate, safeNext } from '../next';
 import { errorDetail } from '../../shared/api/errors';
+import PageContainer from '../../shared/layout/PageContainer';
+import { Alert } from '../../shared/ui/ErrorState';
+import Button from '../../shared/ui/Button';
+import Field from '../../shared/ui/Field';
+import Input from '../../shared/ui/Input';
 
 /**
  * POST /api/accounts/login/ — session login. Success ends in a
@@ -33,61 +38,62 @@ export default function Login() {
   };
 
   return (
-    <div className="container py-4 accounts-page">
-      <Link to="/" className="back-link">
+    <PageContainer width="narrow">
+      <Link
+        to="/"
+        className="mb-4 inline-block text-sm
+          text-accent-text hover:underline"
+      >
         ← Back to Account
       </Link>
-      <h1 className="text-center">Sign in</h1>
+      <h1 className="mb-4 text-center text-2xl font-semibold">
+        Sign in
+      </h1>
       {error && (
-        <div className="alert alert-danger" role="alert">
+        <Alert tone="danger" className="mb-4">
           {error}
-        </div>
+        </Alert>
       )}
-      <form onSubmit={submit}>
-        <div className="mb-3">
-          <label htmlFor="login-username" className="form-label">
-            Username:
-          </label>
-          <input
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Username:" htmlFor="login-username">
+          <Input
             type="text"
             id="login-username"
             name="username"
-            className="form-control"
             autoComplete="username"
             required
             value={username}
             onChange={(e) => setUsername(e.target.value)}
           />
-        </div>
-        <div className="mb-3">
-          <label htmlFor="login-password" className="form-label">
-            Password:
-          </label>
-          <input
+        </Field>
+        <Field label="Password:" htmlFor="login-password">
+          <Input
             type="password"
             id="login-password"
             name="password"
-            className="form-control"
             autoComplete="current-password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-        </div>
-        <div className="d-grid">
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={busy}
-          >
-            {busy ? 'Signing in…' : 'Sign in'}
-          </button>
-        </div>
+        </Field>
+        <Button
+          type="submit"
+          loading={busy}
+          className="w-full"
+        >
+          {busy ? 'Signing in…' : 'Sign in'}
+        </Button>
       </form>
-      <p className="text-muted text-center mt-3">
+      <p className="mt-3 text-center text-sm text-fg-muted">
         No account yet?{' '}
-        <Link to={`/register${search}`}>Register</Link>
+        <Link
+          to={`/register${search}`}
+          className="text-accent-text hover:underline"
+        >
+          Register
+        </Link>
       </p>
-    </div>
+    </PageContainer>
   );
 }

@@ -9,7 +9,6 @@ import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import AnonymousUser
 from django.test import (
     RequestFactory,
     SimpleTestCase,
@@ -24,7 +23,6 @@ from industry_analyser.sentry import (
     sentry_before_send,
 )
 from industry_analyser.templatetags.design_system import ds_head
-from industry_analyser.views import _spa_shell
 
 
 class CatchAllDrainTests(TestCase):
@@ -145,30 +143,26 @@ class LandingPageTests(TestCase):
 
 
 class SpaShellContractTests(TestCase):
-    """PR-1 shell contracts: the Bootstrap CDN links only ship
-    for entries in LEGACY_BOOTSTRAP_ENTRIES, and the
-    spa-bootstrap JSON payload carries the app directory + auth
-    flags the SPA TopNav reads."""
+    """Shell contracts: no SPA page ships the Bootstrap CDN links
+    or the ia-bs coexistence marker (removed in the cleanup PR —
+    the design system is the only styling), and the spa-bootstrap
+    JSON payload carries the app directory + auth flags the SPA
+    TopNav reads."""
 
-    def _shell(self, entry):
-        request = RequestFactory().get(f'/{entry}/')
-        request.user = AnonymousUser()
-        return _spa_shell(request, entry)
-
-    def test_bootstrap_cdn_only_for_legacy_entries(self):
-        """The CDN links + ia-bs body marker only ship for entries
-        in LEGACY_BOOTSTRAP_ENTRIES — 'accounts' is the last
-        member until its own cleanup-PR migration."""
-        resp = self._shell('accounts')
-        self.assertContains(resp, 'cdn.jsdelivr.net/npm/bootstrap')
-        # The body marker scopes ia-components.css's Bootstrap
-        # coexistence re-assertions to Bootstrap pages only.
-        self.assertContains(resp, '<body class="ia-bs">')
-        resp = self._shell('classified_ads')
-        self.assertNotContains(
-            resp, 'cdn.jsdelivr.net/npm/bootstrap'
-        )
-        self.assertNotContains(resp, 'class="ia-bs"')
+    def test_no_spa_page_ships_bootstrap(self):
+        """Every mounted SPA shell renders without the CDN links
+        or the ia-bs body marker the legacy_bootstrap flag used
+        to gate — including the accounts pages migrated in the
+        cleanup PR."""
+        for path in ('/vacancies/', '/accounts/login/'):
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 200, path)
+            self.assertNotContains(
+                resp, 'cdn.jsdelivr.net/npm/bootstrap'
+            )
+            self.assertNotContains(resp, 'bootstrap-icons')
+            self.assertNotContains(resp, 'ia-bs')
+            self.assertContains(resp, '<body>')
 
     def test_bootstrap_payload_carries_apps_and_auth(self):
         resp = self.client.get('/vacancies/')

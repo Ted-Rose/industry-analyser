@@ -84,7 +84,7 @@ function ViewLink({ href }: { href: string }) {
     <a
       href={href}
       target="_blank"
-      rel="noopener noreferrer"
+      rel="noopener"
       className="text-accent-text hover:text-accent-hover"
     >
       View
@@ -333,7 +333,7 @@ export default function AdsTable({
         />
       ) : (
         <>
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={ads}

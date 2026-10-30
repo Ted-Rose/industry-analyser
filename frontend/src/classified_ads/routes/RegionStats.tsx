@@ -209,7 +209,7 @@ export default function RegionStats({ kind }: { kind: Kind }) {
         data &&
         data.results !== null && (
           <>
-            <Card padding="none" className="overflow-hidden">
+            <Card padding="none" className="overflow-clip">
               <DataTable
                 columns={statsColumns((row) => (
                   <Link

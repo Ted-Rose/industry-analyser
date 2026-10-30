@@ -8,7 +8,7 @@ import queryClient from '../shared/queryClient';
 import ErrorBoundary from '../shared/components/ErrorBoundary';
 import { initSentry } from '../shared/sentry';
 import { initGlobalErrorHandlers } from '../shared/errorReporter';
-import './accounts.css';
+import '../shared/styles/app.css';
 
 // DSN-gated — no-ops until the spa-bootstrap payload carries one.
 initSentry();

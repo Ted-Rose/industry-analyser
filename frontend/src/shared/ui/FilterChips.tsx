@@ -46,9 +46,11 @@ export function FilterChips({
                 : 'Remove filter'
             }
             onClick={chip.onRemove}
-            // size-10 + -m-2.5: a 40px hit area (plan §4.5)
-            // that still lays out as the old size-5 glyph.
-            className="inline-flex size-10 -m-2.5 items-center
+            // size-10 + -m-2: a 40px hit area (plan §4.5)
+            // that still lays out near the old size-5 glyph;
+            // the smaller pull keeps the painted circle from
+            // bleeding 4px into the adjacent chip.
+            className="inline-flex size-10 -m-2 items-center
               justify-center rounded-full hover:bg-accent/20"
           >
             <X className="size-3" aria-hidden="true" />

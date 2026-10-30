@@ -5,11 +5,12 @@ import {
   useSearchParams,
 } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ExternalLink } from 'lucide-react';
+import DeadlineBadge from '../components/DeadlineBadge';
+import ExternalAnchor from '../components/ExternalAnchor';
 import IdentityTag from '../components/IdentityTag';
 import CompanyPreferenceButtons from '../components/CompanyPreferenceButtons';
 import { fetchCompany } from '../api';
-import { deadlineClass, formatDate, formatSalary } from '../format';
+import { formatDate, formatSalary } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 import { useBootstrap } from '../../shared/hooks/useBootstrap';
 import PageContainer, {
@@ -25,25 +26,6 @@ import ErrorState from '../../shared/ui/ErrorState';
 import Pagination from '../../shared/ui/Pagination';
 import { LoadingState } from '../../shared/ui/Skeleton';
 import type { CompanyVacancyOut } from '../api';
-
-/** Deadline cells — deadline-past red, deadline-active green,
- *  mirroring `{% if vacancy.application_deadline < now %}`. */
-function DeadlineBadge({
-  deadline,
-  now,
-}: {
-  deadline?: string | null;
-  now: Date;
-}) {
-  if (!deadline) return <>—</>;
-  const cls = deadlineClass(deadline, now);
-  if (cls === '') return <>{formatDate(deadline)}</>;
-  return (
-    <Badge tone={cls === 'deadline-past' ? 'danger' : 'success'}>
-      {formatDate(deadline)}
-    </Badge>
-  );
-}
 
 /**
  * React port of company_detail.html — the company card (identities,
@@ -85,18 +67,12 @@ export default function CompanyDetail() {
       header: 'Title',
       mobile: 'title',
       cell: (vacancy) => (
-        <a
+        <ExternalAnchor
           href={vacancy.url}
-          target="_blank"
-          rel="noopener noreferrer"
           className="font-medium text-fg hover:text-accent-text"
         >
           {vacancy.title || '(no title)'}
-          <ExternalLink
-            className="ml-0.5 inline size-3"
-            aria-hidden="true"
-          />
-        </a>
+        </ExternalAnchor>
       ),
     },
     {
@@ -214,18 +190,12 @@ export default function CompanyDetail() {
                           {
                             term: 'Website',
                             description: (
-                              <a
+                              <ExternalAnchor
                                 href={data.webpage_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
                                 className="break-all text-accent-text hover:underline"
                               >
                                 {data.webpage_url}
-                                <ExternalLink
-                                  className="ml-0.5 inline size-3"
-                                  aria-hidden="true"
-                                />
-                              </a>
+                              </ExternalAnchor>
                             ),
                           },
                         ]
@@ -266,18 +236,12 @@ export default function CompanyDetail() {
                           {
                             term: 'External ATS',
                             description: (
-                              <a
+                              <ExternalAnchor
                                 href={data.applying_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
                                 className="break-all text-accent-text hover:underline"
                               >
                                 {data.applying_url}
-                                <ExternalLink
-                                  className="ml-0.5 inline size-3"
-                                  aria-hidden="true"
-                                />
-                              </a>
+                              </ExternalAnchor>
                             ),
                           },
                         ]
@@ -287,18 +251,12 @@ export default function CompanyDetail() {
                           {
                             term: 'Video',
                             description: (
-                              <a
+                              <ExternalAnchor
                                 href={data.video_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
                                 className="break-all text-accent-text hover:underline"
                               >
                                 {data.video_url}
-                                <ExternalLink
-                                  className="ml-0.5 inline size-3"
-                                  aria-hidden="true"
-                                />
-                              </a>
+                              </ExternalAnchor>
                             ),
                           },
                         ]
@@ -369,7 +327,7 @@ export default function CompanyDetail() {
                 }`}
             </span>
           </div>
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={data.vacancies}

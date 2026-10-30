@@ -230,7 +230,7 @@ export default function DailySightings() {
             </StatGrid>
           )}
 
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={daily}

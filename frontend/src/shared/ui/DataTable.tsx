@@ -96,6 +96,12 @@ export interface DataTableProps<T> {
    * desktop and inside the card below the slots on mobile.
    */
   renderExpanded?: (row: T) => ReactNode;
+  /**
+   * renderExpanded only: rows where this returns false render
+   * an empty chevron cell — no dead toggle on rows with
+   * nothing to expand (e.g. a receipt with zero items).
+   */
+  hasExpanded?: (row: T) => boolean;
   /** Totals rows — rendered inside <tfoot>. */
   footer?: ReactNode;
   rowHref?: (row: T) => string;
@@ -183,6 +189,7 @@ export function DataTable<T>({
   stickyFirstColumn = false,
   renderMobileCard,
   renderExpanded,
+  hasExpanded,
   footer,
   rowHref,
   rowTone,
@@ -269,6 +276,19 @@ export function DataTable<T>({
     }
     goToRow(row);
   };
+  const onRowAuxClick = (row: T) => (event: MouseEvent) => {
+    if (
+      !rowHref ||
+      event.button !== 1 ||
+      isInteractiveClick(event)
+    ) {
+      return;
+    }
+    // Middle-click also opens in a new tab (and suppresses the
+    // default autoscroll).
+    event.preventDefault();
+    window.open(rowHref(row), '_blank', 'noopener');
+  };
   const onRowKeyDown = (row: T) => (event: KeyboardEvent) => {
     if (!rowHref || event.target !== event.currentTarget) return;
     if (event.key === 'Enter') {
@@ -316,7 +336,12 @@ export function DataTable<T>({
           (stickyHeader || (stickyFirstColumn && index === 0)) &&
             'sticky bg-surface-2',
           stickyHeader && 'top-14 z-10',
-          stickyFirstColumn && index === 0 && 'left-0 z-20',
+          stickyFirstColumn &&
+            index === 0 &&
+            // With a leading chevron column (renderExpanded) the
+            // pinned first data column sits at left-10 — the
+            // chevron's w-10 — instead of covering it at left-0.
+            (renderExpanded ? 'left-10 z-20' : 'left-0 z-20'),
         )}
       >
         {column.sortable ? (
@@ -342,12 +367,14 @@ export function DataTable<T>({
   const renderRow = (row: T) => {
     const key = getRowKey(row);
     const isOpen = expanded.has(key);
+    const canExpand = hasExpanded?.(row) ?? true;
     const tone = rowTone?.(row) ?? null;
     return [
       <tr
         key={key}
         role={rowHref ? 'link' : undefined}
         onClick={onRowClick(row)}
+        onAuxClick={onRowAuxClick(row)}
         onKeyDown={onRowKeyDown(row)}
         tabIndex={rowHref ? 0 : undefined}
         className={cx(
@@ -359,22 +386,31 @@ export function DataTable<T>({
         )}
       >
         {renderExpanded && (
-          <td className={cx('w-10 pl-2 pr-0', cellPad)}>
-            <IconButton
-              size="sm"
-              label={isOpen ? 'Collapse row' : 'Expand row'}
-              aria-expanded={isOpen}
-              icon={
-                <ChevronRight
-                  className={cx(
-                    'transition-transform ' +
-                      'motion-safe:duration-180 ease-ia',
-                    isOpen && 'rotate-90',
-                  )}
-                />
-              }
-              onClick={() => toggleExpanded(key)}
-            />
+          <td
+            className={cx(
+              'w-10 pl-2 pr-0',
+              cellPad,
+              stickyFirstColumn &&
+                'sticky left-0 z-[5] bg-surface',
+            )}
+          >
+            {canExpand && (
+              <IconButton
+                size="sm"
+                label={isOpen ? 'Collapse row' : 'Expand row'}
+                aria-expanded={isOpen}
+                icon={
+                  <ChevronRight
+                    className={cx(
+                      'transition-transform ' +
+                        'motion-safe:duration-180 ease-ia',
+                      isOpen && 'rotate-90',
+                    )}
+                  />
+                }
+                onClick={() => toggleExpanded(key)}
+              />
+            )}
           </td>
         )}
         {columns.map((column, index) => (
@@ -384,14 +420,17 @@ export function DataTable<T>({
               cellClass(column),
               stickyFirstColumn &&
                 index === 0 &&
-                'sticky left-0 z-[5] bg-surface',
+                cx(
+                  'sticky z-[5] bg-surface',
+                  renderExpanded ? 'left-10' : 'left-0',
+                ),
             )}
           >
             {column.cell(row)}
           </td>
         ))}
       </tr>,
-      isOpen && renderExpanded ? (
+      isOpen && renderExpanded && canExpand ? (
         <tr key={`${String(key)}-expanded`} className="border-b
           border-border">
           <td colSpan={columnCount} className="bg-surface-2 px-4 py-3">
@@ -416,6 +455,7 @@ export function DataTable<T>({
     );
     const key = getRowKey(row);
     const isOpen = expanded.has(key);
+    const canExpand = hasExpanded?.(row) ?? true;
     return (
       <>
         <div className="flex items-start justify-between gap-2">
@@ -462,7 +502,7 @@ export function DataTable<T>({
             ))}
           </dl>
         )}
-        {renderExpanded && (
+        {renderExpanded && canExpand && (
           <div className="mt-2">
             <button
               type="button"
@@ -512,11 +552,16 @@ export function DataTable<T>({
               scope="col"
               className={cx(
                 'w-10 px-2 py-2',
-                stickyHeader && 'sticky top-14 z-10 bg-surface-2',
-                // Deliberately not left-sticky: with
-                // stickyFirstColumn the first data column already
-                // pins at left-0 — a second left-0 cell would
-                // overlap it.
+                (stickyHeader || stickyFirstColumn) &&
+                  'sticky bg-surface-2',
+                stickyHeader && 'top-14',
+                // With stickyFirstColumn the chevron column pins
+                // at the left edge and the first data column pins
+                // beside it at left-10 — z-30 keeps this header
+                // above that column's z-20 header cell.
+                stickyFirstColumn
+                  ? 'left-0 z-30'
+                  : stickyHeader && 'z-10',
               )}
             >
               <span className="sr-only">Expand</span>
@@ -576,6 +621,7 @@ export function DataTable<T>({
                 key={key}
                 role={rowHref ? 'link' : undefined}
                 onClick={onRowClick(row)}
+                onAuxClick={onRowAuxClick(row)}
                 onKeyDown={onRowKeyDown(row)}
                 tabIndex={rowHref ? 0 : undefined}
                 className={cx(

@@ -10,7 +10,6 @@
   <title>{% block title %}Ziņu kopsavilkums{% endblock %}</title>
   {% ds_head %}
   <script src="{% static 'news/story.js' %}" defer></script>
-  <script src="{% static 'news/audio.js' %}" defer></script>
 </head>
 <body>
   {% include "_topbar.html" %}
@@ -22,7 +21,10 @@
            href="{% url 'news:digest-list' %}">
           Ziņu kopsavilkums</a>
       </h1>
-      <nav class="back">
+      {# site.css gives nav.back a margin-bottom for standalone
+          use; inside this flex header it would push the row
+          down. #}
+      <nav class="back mb-0">
         {% if request.user.is_authenticated %}
           <a href="{% url 'news:preferences' %}">
             Portālu izvēle</a>

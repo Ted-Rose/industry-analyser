@@ -146,9 +146,59 @@ describe('ProgramList', () => {
       expect(mockedApiGet).toHaveBeenCalledTimes(2),
     );
     expect(calledUrls()[1]).toContain('channel=tv3');
-    // The staged 'R' exclusion submits explicitly — clearing the
-    // input would submit '' instead of re-applying the default.
-    expect(calledUrls()[1]).toContain('not_content_rating=R');
+    // The untouched 'R' draft equals the echoed server default —
+    // it is NOT serialized (the server re-applies 'R' itself),
+    // so it can't inflate the "Filters (n)" count.
+    expect(calledUrls()[1]).not.toContain('not_content_rating');
+  });
+
+  it('serializes a user-set not_content_rating on submit',
+    async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.change(screen.getByLabelText('Exclude Rating:'), {
+        target: { value: 'PG' },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('not_content_rating=PG');
+    });
+
+  it('sends an empty not_content_rating when the input is ' +
+    'cleared (disables the R exclusion)', async () => {
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    fireEvent.change(screen.getByLabelText('Exclude Rating:'), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain('not_content_rating=');
+  });
+
+  it('keeps an already-set not_content_rating on a no-op ' +
+    'submit', async () => {
+    mockedApiGet.mockResolvedValue(
+      makePrograms({
+        filters: {
+          ...makePrograms().filters,
+          not_content_rating: 'PG',
+        },
+      }),
+    );
+    renderList('/tv/?not_content_rating=PG');
+    await screen.findByText('Dienas ziņas');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain('not_content_rating=PG');
   });
 
   it('drops non-numeric rating inputs instead of 422ing', async () => {
@@ -210,7 +260,7 @@ describe('ProgramList', () => {
       'https://tet.lv/programme/1',
     );
     expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute('rel', 'noopener');
   });
 
   it('renders a bare IMDb link when the rating is unknown',

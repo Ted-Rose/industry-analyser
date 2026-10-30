@@ -112,8 +112,8 @@
 }
 
 /* The #root boot block rendered by spa_shell.html before React
-   mounts — `ia-` prefixed so it survives next to Bootstrap's
-   unlayered rules on legacy SPAs (plan §4.4). */
+   mounts (`ia-` prefix kept from the Bootstrap-coexistence era,
+   plan §4.4). */
 @keyframes ia-spin {
   to {
     transform: rotate(360deg);

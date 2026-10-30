@@ -322,7 +322,7 @@ export default function RentVsBuy() {
         />
       ) : (
         <div className="space-y-6">
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <RankedTable
               rows={(data?.results ?? []).map((row, i) => ({
                 row,
@@ -349,7 +349,7 @@ export default function RentVsBuy() {
                 Residual regions (ads on parent-level or unset
                 regions — not ranked)
               </h2>
-              <Card padding="none" className="overflow-hidden">
+              <Card padding="none" className="overflow-clip">
                 <RankedTable
                   rows={data.residual.map((row) => ({
                     row,
