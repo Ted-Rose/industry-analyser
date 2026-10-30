@@ -298,17 +298,12 @@ resource "google_storage_bucket" "audio_recordings" {
   }
 }
 
-# objectCreator for uploads; objectViewer powers the
-# blob.exists() content-addressed dedup check.
-resource "google_storage_bucket_iam_member" "audio_creator" {
+# objectAdmin covers uploads, the get/list that powers
+# blob.exists() dedup, and the delete the FIFO cap needs to
+# evict the oldest clip.
+resource "google_storage_bucket_iam_member" "audio_admin" {
   bucket = google_storage_bucket.audio_recordings.name
-  role   = "roles/storage.objectCreator"
-  member = "serviceAccount:${local.web_runtime_sa_email}"
-}
-
-resource "google_storage_bucket_iam_member" "audio_viewer" {
-  bucket = google_storage_bucket.audio_recordings.name
-  role   = "roles/storage.objectViewer"
+  role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${local.web_runtime_sa_email}"
 }
 

@@ -4,7 +4,7 @@ import contextlib
 import hashlib
 import os
 import tempfile
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as dtz
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -1654,11 +1654,9 @@ class TextToAudioTests(TestCase):
             patch('news.audio.google.auth.default') as auth,
             patch('news.audio.Request'),
         ):
-            blob = (
-                client_cls.return_value
-                .bucket.return_value
-                .blob.return_value
-            )
+            bucket = client_cls.return_value.bucket.return_value
+            blob = bucket.blob.return_value
+            bucket.list_blobs.return_value = []
             blob.exists.return_value = blob_exists
             blob.generate_signed_url.return_value = (
                 'https://signed.example/clip.mp3'
@@ -1669,7 +1667,7 @@ class TextToAudioTests(TestCase):
             ]
             yield SimpleNamespace(
                 client_cls=client_cls, gtts=gtts, detect=detect,
-                auth=auth, blob=blob,
+                auth=auth, blob=blob, bucket=bucket,
             )
 
     def test_invalid_text_never_reaches_pipeline(self):
@@ -1790,6 +1788,62 @@ class TextToAudioTests(TestCase):
         self.assertEqual(
             blob_name, f'audio/t-abc-def-ghi-{digest}.mp3'
         )
+
+    def _fake_blobs(self, count):
+        base = datetime(2026, 1, 1, tzinfo=dtz.utc)
+        return [
+            SimpleNamespace(
+                time_created=base + timedelta(days=i),
+                delete=Mock(),
+            )
+            for i in range(count)
+        ]
+
+    def test_evicts_oldest_clip_at_cap(self):
+        # A fresh upload on a full bucket deletes the oldest
+        # clip so the count never exceeds the cap.
+        with self._pipeline() as m:
+            m.bucket.list_blobs.return_value = self._fake_blobs(
+                500
+            )
+            text_to_audio('Sveiki')
+            listed = m.bucket.list_blobs.return_value
+        deleted = [b for b in listed if b.delete.called]
+        self.assertEqual(len(deleted), 1)
+        self.assertIs(deleted[0], listed[0])
+        m.gtts.return_value.save.assert_called_once()
+
+    def test_evicts_as_many_as_needed_over_cap(self):
+        with self._pipeline() as m:
+            m.bucket.list_blobs.return_value = self._fake_blobs(
+                510
+            )
+            text_to_audio('Sveiki')
+            listed = m.bucket.list_blobs.return_value
+        deleted = [b for b in listed if b.delete.called]
+        self.assertEqual(len(deleted), 11)
+        self.assertEqual(deleted, listed[:11])
+
+    def test_no_eviction_below_cap(self):
+        with self._pipeline() as m:
+            m.bucket.list_blobs.return_value = self._fake_blobs(3)
+            text_to_audio('Sveiki')
+            listed = m.bucket.list_blobs.return_value
+        for b in listed:
+            b.delete.assert_not_called()
+
+    def test_dedup_never_lists_bucket(self):
+        with self._pipeline(blob_exists=True) as m:
+            text_to_audio('Sveiki')
+        m.bucket.list_blobs.assert_not_called()
+
+    def test_eviction_failure_still_returns_url(self):
+        with self._pipeline() as m:
+            m.bucket.list_blobs.side_effect = RuntimeError(
+                'denied'
+            )
+            url = text_to_audio('Sveiki')
+        self.assertEqual(url, 'https://signed.example/clip.mp3')
 
 
 class AudioEndpointTests(TestCase):

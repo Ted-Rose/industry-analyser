@@ -5,8 +5,13 @@ URL (docs/plans/news_audio_plan.md).
 Stateless by design: the blob name derives from the spoken
 text, so repeat requests dedup on ``blob.exists()`` and no
 database rows are needed. ``GCS_AUDIO_BUCKET`` unset disables
-the feature (AudioGenerationError -> 502 from the view)."""
+the feature (AudioGenerationError -> 502 from the view).
+
+Abuse bounds: texts are capped at ``_MAX_TEXT_CHARS`` and the
+bucket is FIFO-capped at ``_MAX_OBJECTS`` clips — beyond it,
+each new upload first deletes the oldest clip."""
 import hashlib
+import logging
 import os
 import re
 import tempfile
@@ -26,6 +31,8 @@ from langdetect import (
 
 from django.conf import settings
 
+logger = logging.getLogger('news')
+
 # langdetect is probabilistic — a fixed seed keeps the pick
 # stable across processes and retries.
 DetectorFactory.seed = 0
@@ -36,6 +43,11 @@ _LANGUAGES = {'lv', 'en'}
 _DEFAULT_LANG = 'lv'
 _MAX_TEXT_CHARS = 5000
 _GCS_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_write'
+
+# Hard cap on stored clips — the endpoint is public, so a
+# flood of unique texts must not grow the bucket unbounded.
+# Each new upload first evicts the oldest clip(s).
+_MAX_OBJECTS = 500
 
 
 class AudioGenerationError(Exception):
@@ -77,6 +89,22 @@ def _blob_name(text, lang, filename):
         if safe:
             return f'audio/{safe}-{digest}.mp3'
     return f'audio/{digest}.mp3'
+
+
+def _evict_oldest(bucket, keep=_MAX_OBJECTS):
+    """FIFO eviction so a new upload lands at ``keep`` clips.
+
+    Best-effort: a listing or delete failure only delays
+    eviction, it must not fail the audio response."""
+    try:
+        blobs = sorted(
+            bucket.list_blobs(prefix='audio/'),
+            key=lambda b: b.time_created,
+        )
+        for stale in blobs[:max(len(blobs) - keep + 1, 0)]:
+            stale.delete()
+    except Exception:
+        logger.warning('audio clip eviction failed', exc_info=True)
 
 
 def text_to_audio(text, lang=None, filename=None):
@@ -122,8 +150,10 @@ def text_to_audio(text, lang=None, filename=None):
         credentials, _ = google.auth.default(scopes=[_GCS_SCOPE])
         credentials.refresh(Request())
         client = storage.Client(credentials=credentials)
-        blob = client.bucket(bucket_name).blob(blob_name)
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
         if not blob.exists():
+            _evict_oldest(bucket)
             with tempfile.NamedTemporaryFile(
                 suffix='.mp3', delete=False
             ) as tmp:
