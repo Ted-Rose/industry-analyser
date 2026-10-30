@@ -148,7 +148,7 @@ export default function RegionStatsChildren({ kind }: { kind: Kind }) {
       ) : (
         data && (
           <>
-            <Card padding="none" className="overflow-hidden">
+            <Card padding="none" className="overflow-clip">
               <DataTable
                 columns={statsColumns((row) => (
                   <Link

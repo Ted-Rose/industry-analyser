@@ -164,6 +164,49 @@ describe('ReceiptsDashboard', () => {
       expect(screen.getAllByText('Piens')).toHaveLength(4);
     });
 
+  it('shows no expand chevron on zero-item rows', async () => {
+    mockedFetch.mockResolvedValue(
+      makeDashboard({
+        categories: [
+          ...makeDashboard().categories,
+          {
+            name: 'Empty cat',
+            item_count: 0,
+            total: 0,
+            monthly_avg: 0,
+            top_items: [],
+          },
+        ],
+        receipts: [
+          ...makeDashboard().receipts,
+          {
+            id: 2,
+            purchased_at: null,
+            store_name: null,
+            document_number: '',
+            total: null,
+            currency: 'EUR',
+            parse_status_label: 'Parse error',
+            item_count: 0,
+            items: [],
+          },
+        ],
+      }),
+    );
+    renderDashboard();
+    await screen.findAllByText('Empty cat');
+    // Two expandable rows (the stocked category + receipt);
+    // the zero-item rows render an empty chevron cell instead
+    // of a dead toggle.
+    expect(
+      screen.getAllByRole('button', { name: 'Expand row' }),
+    ).toHaveLength(2);
+    // The mobile cards hide their "Details" toggle the same way.
+    expect(
+      screen.getAllByRole('button', { name: 'Details' }),
+    ).toHaveLength(2);
+  });
+
   it('passes ?date_from=&date_to= through to the API', async () => {
     renderDashboard('/?date_from=2026-01-01&date_to=2026-01-31');
     await waitFor(() =>

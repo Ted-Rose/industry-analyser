@@ -2,8 +2,7 @@
    {% ds_head %} template tag. Bundles the full design system
    (Tailwind + tokens + component classes) plus prose treatment
    for server-injected HTML. Plain classes here are component-
-   layer shims so they also hold up next to Bootstrap's
-   unlayered rules where the two ever coexist (plan §4.4). */
+   layer shims for the server-rendered templates (plan §4.4). */
 @import "./app.css";
 
 @layer components {
@@ -91,6 +90,12 @@
 
   nav.back a {
     color: var(--ia-accent-text);
+  }
+
+  /* The anonymous "Log in to rank portals" link marks itself
+     .muted — nav.back a's accent color would otherwise win. */
+  nav.back a.muted {
+    color: var(--ia-fg-subtle);
   }
 
   .story-toggle {

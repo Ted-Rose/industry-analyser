@@ -17,14 +17,6 @@
           content="Industry Analyser">
     <link rel="apple-touch-icon"
           href="{% static 'fetcher/icons/icon.svg' %}">
-    {% if legacy_bootstrap %}
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
-      rel="stylesheet">
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
-      rel="stylesheet">
-    {% endif %}
     {% ds_head %}
     {% vite_hmr_client %}
     {% vite_react_refresh %}
@@ -32,7 +24,7 @@
         {% vite_asset vite_entry %}
     {% endif %}
 </head>
-<body{% if legacy_bootstrap %} class="ia-bs"{% endif %}>
+<body>
     <div id="root">
         <div class="ia-boot" role="status">
             <span class="ia-boot__spinner" aria-hidden="true">

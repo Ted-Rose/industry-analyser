@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   fireEvent,
   render,
@@ -130,6 +130,84 @@ describe('DataTable', () => {
       .map((el) => el.closest('td'))
       .find((td) => td !== null);
     expect(detailCell).toHaveAttribute('colspan', '3');
+  });
+
+  it('renders no expand affordance on rows hasExpanded ' +
+    'rejects', () => {
+    renderTable(
+      <DataTable
+        columns={COLUMNS}
+        rows={ROWS.slice(0, 2)}
+        getRowKey={(row) => row.id}
+        caption="Fruit"
+        renderExpanded={(row) => `Details for ${row.name}`}
+        hasExpanded={(row) => row.id === 1}
+      />,
+    );
+    // Two rows, one expandable: one desktop chevron + one
+    // mobile "Details" toggle — the rejected row gets an
+    // empty chevron cell and no card toggle.
+    expect(
+      screen.getAllByRole('button', { name: 'Expand row' }),
+    ).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', { name: 'Details' }),
+    ).toHaveLength(1);
+  });
+
+  it('pins the chevron column at left-0 and the first data ' +
+    'column at left-10 with stickyFirstColumn', () => {
+    renderTable(
+      <DataTable
+        columns={COLUMNS}
+        rows={ROWS.slice(0, 1)}
+        getRowKey={(row) => row.id}
+        caption="Fruit"
+        mobile="scroll"
+        stickyFirstColumn
+        renderExpanded={(row) => `Details for ${row.name}`}
+      />,
+    );
+    const headers = screen.getAllByRole('columnheader');
+    // [chevron, Name, Price] — the chevron pins at the edge,
+    // the first data column beside it at the w-10 offset.
+    expect(headers[0]).toHaveClass('sticky', 'left-0', 'z-30');
+    expect(headers[1]).toHaveClass('sticky', 'left-10', 'z-20');
+    const cells = screen.getAllByRole('cell');
+    expect(cells[0]).toHaveClass('sticky', 'left-0');
+    expect(cells[1]).toHaveClass('sticky', 'left-10');
+  });
+
+  it('opens rowHref in a new tab on middle-click', () => {
+    const open = vi
+      .spyOn(window, 'open')
+      .mockImplementation(() => null);
+    renderTable(
+      <DataTable
+        columns={COLUMNS}
+        rows={ROWS.slice(0, 1)}
+        getRowKey={(row) => row.id}
+        caption="Fruit"
+        rowHref={(row) => `/rows/${row.id}`}
+      />,
+    );
+    const row = screen.getAllByRole('link')[0];
+    // No named auxclick in this @testing-library/dom's event
+    // map — dispatch the raw middle-click event instead.
+    fireEvent(
+      row,
+      new MouseEvent('auxclick', {
+        bubbles: true,
+        cancelable: true,
+        button: 1,
+      }),
+    );
+    expect(open).toHaveBeenCalledWith(
+      '/rows/1',
+      '_blank',
+      'noopener',
+    );
+    open.mockRestore();
   });
 
   it('renders mobile cards under mobile="cards"', () => {

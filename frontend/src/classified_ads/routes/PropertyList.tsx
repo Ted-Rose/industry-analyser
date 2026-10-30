@@ -197,7 +197,7 @@ export default function PropertyList({ kind }: { kind: Kind }) {
         />
       ) : (
         <>
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={properties}

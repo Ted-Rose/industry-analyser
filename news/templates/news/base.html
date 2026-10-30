@@ -21,7 +21,10 @@
            href="{% url 'news:digest-list' %}">
           Ziņu kopsavilkums</a>
       </h1>
-      <nav class="back">
+      {# site.css gives nav.back a margin-bottom for standalone
+          use; inside this flex header it would push the row
+          down. #}
+      <nav class="back mb-0">
         {% if request.user.is_authenticated %}
           <a href="{% url 'news:preferences' %}">
             Portālu izvēle</a>

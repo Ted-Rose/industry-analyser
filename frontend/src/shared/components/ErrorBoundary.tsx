@@ -36,9 +36,8 @@ function buildErrorDetails(error: Error, context?: string): string {
  * Sentry), and shows a design-system fallback — the ErrorState +
  * Button pairing from plan §6, rendered with `ia-` classes from
  * styles/ia-components.css (imported above so vite co-bundles the
- * rules into every entry) so it holds up while Bootstrap is
- * still loaded on legacy entries (plan §4.4). Mounted around
- * <App/> in every main.tsx entry.
+ * rules into every entry). Mounted around <App/> in every
+ * main.tsx entry.
  */
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {

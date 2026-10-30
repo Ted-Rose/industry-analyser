@@ -22,10 +22,7 @@ const ICONS: Record<ToastKind, typeof Info> = {
  * PR-9. The `pushToast` API is unchanged; only the markup was
  * restyled (plan §6). Uses `ia-` classes from
  * styles/ia-components.css — imported above so vite co-bundles
- * the rules into every entry that mounts this component — so it
- * looks right even while Bootstrap is still loaded on legacy
- * entries (plan §4.4); its class names don't collide with any
- * Bootstrap selector.
+ * the rules into every entry that mounts this component.
  */
 export function Toasts() {
   const toasts = useToasts();

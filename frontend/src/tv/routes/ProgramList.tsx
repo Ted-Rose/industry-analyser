@@ -201,9 +201,20 @@ export default function ProgramList() {
     if (draft.contentRating) {
       next.set('content_rating', draft.contentRating);
     }
-    // Always send — even '' — so clearing the input disables the
-    // server-side 'R' default (param absent would re-apply it).
-    next.set('not_content_rating', draft.notContentRating);
+    // Skip the param only while the draft equals the echoed
+    // server default ('R' on an untouched submit) — serializing
+    // it would count as a user-set filter. Any real change is
+    // still sent, including '' (disables the 'R' exclusion —
+    // absent would re-apply it), and an already-set param is
+    // always re-serialized so a no-op submit keeps it.
+    const serverRatingDefault =
+      data?.filters.not_content_rating ?? 'R';
+    if (
+      searchParams.has('not_content_rating') ||
+      draft.notContentRating !== serverRatingDefault
+    ) {
+      next.set('not_content_rating', draft.notContentRating);
+    }
     if (draft.ratingValue) next.set('rating_value', draft.ratingValue);
     if (draft.ratio) next.set('ratio', draft.ratio);
     if (draft.startDate) next.set('start_date', draft.startDate);
@@ -488,7 +499,7 @@ function ProgramCard({
         size="sm"
         href={imdbHref}
         target="_blank"
-        rel="noopener noreferrer"
+        rel="noopener"
       >
         IMDb{rating ? ` ${rating}` : ''}
       </Button>,

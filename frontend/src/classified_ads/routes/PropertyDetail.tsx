@@ -53,7 +53,7 @@ export default function PropertyDetail({ kind }: { kind: Kind }) {
         <a
           href={row.link}
           target="_blank"
-          rel="noopener noreferrer"
+          rel="noopener"
           className="font-medium text-fg hover:text-accent-text"
         >
           {/* truncatechars:30 — 29 chars + '…' */}
@@ -200,7 +200,7 @@ export default function PropertyDetail({ kind }: { kind: Kind }) {
             <h2 className="mb-3 text-xl font-semibold">
               Linked ads ({prop.ad_rows.length})
             </h2>
-            <Card padding="none" className="overflow-hidden">
+            <Card padding="none" className="overflow-clip">
               <DataTable
                 columns={columns}
                 rows={prop.ad_rows}

@@ -170,7 +170,7 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
         <a
           href={ad.link}
           target="_blank"
-          rel="noopener noreferrer"
+          rel="noopener"
           className="text-accent-text hover:text-accent-hover"
         >
           View
@@ -219,7 +219,7 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
         />
       ) : (
         <>
-          <Card padding="none" className="overflow-hidden">
+          <Card padding="none" className="overflow-clip">
             <DataTable
               columns={columns}
               rows={data?.ads ?? []}
