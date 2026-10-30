@@ -4,9 +4,11 @@ from django.db import models
 
 from .models import (
     NewsArticle,
+    NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
     NewsSource,
+    NewsSourcePreference,
     NewsStory,
     NewsTopic,
 )
@@ -84,3 +86,18 @@ class NewsDigestItemInline(admin.TabularInline):
 class NewsDigestAdmin(admin.ModelAdmin):
     list_display = ('date', 'created_at')
     inlines = [NewsDigestItemInline]
+
+
+@admin.register(NewsSourcePreference)
+class NewsSourcePreferenceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'rank', 'source')
+    list_filter = ('source',)
+
+
+@admin.register(NewsArticleAudio)
+class NewsArticleAudioAdmin(admin.ModelAdmin):
+    # Machine-written rows — text/error stay read-only, and
+    # file_path too: the public audio endpoint serves whatever
+    # it points at, so an admin edit must not redirect it.
+    list_display = ('article', 'engine', 'status')
+    readonly_fields = ('text', 'error', 'file_path')

@@ -1,11 +1,15 @@
 """Tests for the news app — RSS parsing, idempotent upsert,
 keyword topic classification, story clustering, digest build."""
 import hashlib
+import os
+import tempfile
 from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
@@ -25,11 +29,14 @@ from .clustering import link_unmatched_articles
 from .digest import build_digest
 from .models import (
     NewsArticle,
+    NewsArticleAudio,
     NewsDigest,
     NewsSource,
+    NewsSourcePreference,
     NewsStory,
     NewsTopic,
 )
+from .preferences import ordered_sources, ordered_story_articles
 from .scraper import NewsScraper
 from .topics import TOPICS
 
@@ -1328,3 +1335,298 @@ class SeedSyncTests(TestCase):
         seed = next(t for t in TOPICS if t['slug'] == 'politics')
         self.assertEqual(topic.keywords, seed['keywords'])
         self.assertEqual(topic.weight, seed['weight'])
+
+
+class OrderedSourcesTests(TestCase):
+    """news.preferences.ordered_sources — the reader's outlet
+    ranking: preferred sources first by rank, the rest by
+    importance_weight."""
+
+    def setUp(self):
+        self.a = _source('a', importance_weight=3.0)
+        self.b = _source('b', importance_weight=2.0)
+        self.c = _source('c', importance_weight=1.0)
+        self.user = get_user_model().objects.create_user(
+            username='reader', password='x',
+        )
+
+    def _slugs(self, user):
+        return [s.slug for s in ordered_sources(user)]
+
+    def test_anonymous_gets_weight_order(self):
+        self.assertEqual(
+            self._slugs(AnonymousUser()), ['a', 'b', 'c'],
+        )
+
+    def test_no_prefs_gets_weight_order(self):
+        self.assertEqual(self._slugs(self.user), ['a', 'b', 'c'])
+
+    def test_preferred_first_by_rank_then_weight_order(self):
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.c, rank=1,
+        )
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.a, rank=2,
+        )
+        self.assertEqual(self._slugs(self.user), ['c', 'a', 'b'])
+
+    def test_preferred_but_disabled_source_drops_out(self):
+        self.c.is_enabled = False
+        self.c.save()
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.c, rank=1,
+        )
+        self.assertEqual(self._slugs(self.user), ['a', 'b'])
+
+
+class OrderedStoryArticlesTests(TestCase):
+    """news.preferences.ordered_story_articles — which member
+    article a story shows."""
+
+    def setUp(self):
+        self.a = _source('a', importance_weight=3.0)
+        self.b = _source('b', importance_weight=1.0)
+        self.user = get_user_model().objects.create_user(
+            username='reader', password='x',
+        )
+        self.story = NewsStory.objects.create(
+            title='Stāsts',
+            published_date=timezone.localdate(),
+        )
+        self.art_a = _article(
+            self.a, 'Stāsts A', story=self.story,
+            story_match_status='auto',
+        )
+        self.art_b = _article(
+            self.b, 'Stāsts B', story=self.story,
+            story_match_status='auto',
+        )
+
+    def test_candidate_member_never_wins(self):
+        self.art_a.story_match_status = 'candidate'
+        self.art_a.save()
+        # Even when 'a' is the top-ranked favorite, an
+        # unreviewed candidate link is not published coverage.
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.a, rank=1,
+        )
+        self.assertEqual(
+            ordered_story_articles(self.story, self.user),
+            [self.art_b],
+        )
+
+    def test_favorite_covering_outlet_first(self):
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.b, rank=1,
+        )
+        self.assertEqual(
+            ordered_story_articles(self.story, self.user),
+            [self.art_b, self.art_a],
+        )
+
+    def test_anonymous_falls_back_to_weight_order(self):
+        self.assertEqual(
+            ordered_story_articles(self.story, AnonymousUser()),
+            [self.art_a, self.art_b],
+        )
+
+
+class StoryFragmentViewTests(TestCase):
+    """GET /news/story/<pk>/fragment/ — the inline reader card."""
+
+    def setUp(self):
+        self.a = _source('a', importance_weight=3.0)
+        self.b = _source('b', importance_weight=1.0)
+        self.user = get_user_model().objects.create_user(
+            username='reader', password='x',
+        )
+        self.story = NewsStory.objects.create(
+            title='Stāsts',
+            published_date=timezone.localdate(),
+        )
+        self.art_a = _article(
+            self.a, 'Stāsts A', story=self.story,
+            story_match_status='auto',
+        )
+        self.art_b = _article(
+            self.b, 'Stāsts B', story=self.story,
+            story_match_status='auto',
+        )
+        self.url = f'/news/story/{self.story.pk}/fragment/'
+
+    def test_renders_default_weight_pick(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['article'], self.art_a)
+        self.assertEqual(
+            response.context['other_articles'], [self.art_b],
+        )
+        self.assertIn('Stāsts A', response.content.decode())
+
+    def test_renders_preferred_article_when_logged_in(self):
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.b, rank=1,
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['article'], self.art_b)
+
+    def test_source_override_picks_that_outlet(self):
+        response = self.client.get(self.url, {'source': 'b'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['article'], self.art_b)
+        self.assertEqual(
+            response.context['other_articles'], [self.art_a],
+        )
+
+    def test_unknown_source_slug_falls_back(self):
+        response = self.client.get(self.url, {'source': 'nope'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['article'], self.art_a)
+
+    def test_source_with_only_candidate_member_falls_back(self):
+        # A 'candidate' link is not confirmed coverage, so the
+        # slug matches no member article and the default pick
+        # stands — same as an unknown slug.
+        c = _source('c')
+        _article(
+            c, 'Stāsts C', story=self.story,
+            story_match_status='candidate',
+        )
+        response = self.client.get(self.url, {'source': 'c'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['article'], self.art_a)
+
+    def test_no_confirmed_members_404s(self):
+        NewsArticle.objects.filter(story=self.story).update(
+            story_match_status='candidate',
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+
+class PreferencesViewTests(TestCase):
+    """GET|POST /news/preferences/ — the outlet ranking form."""
+
+    def setUp(self):
+        self.a = _source('a', importance_weight=3.0)
+        self.b = _source('b', importance_weight=2.0)
+        self.c = _source('c', importance_weight=1.0)
+        self.user = get_user_model().objects.create_user(
+            username='reader', password='x',
+        )
+        self.url = '/news/preferences/'
+
+    def test_anonymous_get_redirects_to_login(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertIn('/admin/login/', response['Location'])
+
+    def test_get_prefills_existing_ranks(self):
+        NewsSourcePreference.objects.create(
+            user=self.user, source=self.b, rank=1,
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(self.url)
+        rows = {
+            row['source'].slug: row
+            for row in response.context['rows']
+        }
+        self.assertTrue(rows['b']['checked'])
+        self.assertEqual(rows['b']['rank'], 1)
+        self.assertFalse(rows['a']['checked'])
+
+    def test_post_writes_rows_in_submitted_rank_order(self):
+        self.client.force_login(self.user)
+        response = self.client.post(self.url, {
+            'include-a': 'on', 'rank-a': '5',
+            'include-b': 'on', 'rank-b': '1',
+        })
+        self.assertEqual(response.status_code, 302)
+        prefs = list(
+            NewsSourcePreference.objects
+            .filter(user=self.user)
+            .order_by('rank')
+            .values_list('source__slug', 'rank')
+        )
+        # Submitted ranks (b=1, a=5) decide, not input order.
+        self.assertEqual(prefs, [('b', 1), ('a', 2)])
+
+    def test_second_post_replaces_rows(self):
+        self.client.force_login(self.user)
+        self.client.post(self.url, {
+            'include-a': 'on', 'rank-a': '1',
+            'include-b': 'on', 'rank-b': '2',
+        })
+        self.client.post(self.url, {
+            'include-c': 'on', 'rank-c': '1',
+        })
+        prefs = list(
+            NewsSourcePreference.objects
+            .filter(user=self.user)
+            .values_list('source__slug', 'rank')
+        )
+        self.assertEqual(prefs, [('c', 1)])
+
+    def test_post_ignores_disabled_and_unknown_slugs(self):
+        self.c.is_enabled = False
+        self.c.save()
+        self.client.force_login(self.user)
+        self.client.post(self.url, {
+            'include-a': 'on', 'rank-a': '1',
+            'include-c': 'on', 'rank-c': '2',
+            'include-ghost': 'on', 'rank-ghost': '3',
+        })
+        prefs = list(
+            NewsSourcePreference.objects
+            .filter(user=self.user)
+            .values_list('source__slug', 'rank')
+        )
+        self.assertEqual(prefs, [('a', 1)])
+
+
+class ArticleAudioViewTests(TestCase):
+    """GET /news/article/<pk>/audio/ — the TTS seam endpoint."""
+
+    def setUp(self):
+        self.source = _source('a')
+        self.article = _article(self.source, 'Ziņa')
+        self.url = f'/news/article/{self.article.pk}/audio/'
+
+    def test_404_without_audio_row(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_when_row_not_ready(self):
+        NewsArticleAudio.objects.create(
+            article=self.article, engine='test', text='t',
+            text_sha256='x' * 64, status='pending',
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_404_when_ready_but_file_missing(self):
+        NewsArticleAudio.objects.create(
+            article=self.article, engine='test', text='t',
+            text_sha256='x' * 64, status='ready',
+            file_path='/nonexistent/audio.mp3',
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_200_serves_ready_audio_file(self):
+        with tempfile.NamedTemporaryFile(
+            suffix='.mp3', delete=False,
+        ) as tmp:
+            tmp.write(b'audio-bytes')
+            path = tmp.name
+        self.addCleanup(os.unlink, path)
+        NewsArticleAudio.objects.create(
+            article=self.article, engine='test', text='t',
+            text_sha256='x' * 64, status='ready', file_path=path,
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            b''.join(response.streaming_content), b'audio-bytes',
+        )
