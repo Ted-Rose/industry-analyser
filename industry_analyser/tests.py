@@ -5,9 +5,11 @@ misses under prefixes owned by earlier mounts (/api/, /admin/,
 """
 
 import json
+import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import AnonymousUser
 from django.test import RequestFactory, SimpleTestCase, TestCase
 
 from industry_analyser import api as api_module
@@ -16,6 +18,8 @@ from industry_analyser.sentry import (
     capture_provider_exception,
     sentry_before_send,
 )
+from industry_analyser.templatetags.design_system import ds_head
+from industry_analyser.views import _spa_shell
 
 
 class CatchAllDrainTests(TestCase):
@@ -123,6 +127,80 @@ class LandingPageTests(TestCase):
         self.assertEqual(
             self.client.post('/typo/path').status_code, 404
         )
+
+    def test_nav_apps_in_context(self):
+        """The global_nav context processor feeds _topbar.html's
+        app switcher — nav_apps must reach every plain-template
+        page, not just the landing view's own context."""
+        resp = self.client.get('/')
+        nav_apps = resp.context['nav_apps']
+        urls = {app['url'] for app in nav_apps}
+        self.assertIn('/vacancies/', urls)
+        self.assertIn('/dashboard/', urls)
+
+
+class SpaShellContractTests(TestCase):
+    """PR-1 shell contracts: the Bootstrap CDN links only ship
+    for entries in LEGACY_BOOTSTRAP_ENTRIES, and the
+    spa-bootstrap JSON payload carries the app directory + auth
+    flags the SPA TopNav reads."""
+
+    def _shell(self, entry):
+        request = RequestFactory().get(f'/{entry}/')
+        request.user = AnonymousUser()
+        return _spa_shell(request, entry)
+
+    def test_bootstrap_cdn_only_for_legacy_entries(self):
+        resp = self._shell('accounts')
+        self.assertContains(resp, 'cdn.jsdelivr.net/npm/bootstrap')
+        resp = self._shell('blogs')
+        self.assertNotContains(
+            resp, 'cdn.jsdelivr.net/npm/bootstrap'
+        )
+
+    def test_bootstrap_payload_carries_apps_and_auth(self):
+        resp = self.client.get('/vacancies/')
+        match = re.search(
+            r'id="spa-bootstrap" type="application/json">'
+            r'(.*?)</script>',
+            resp.content.decode(),
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        payload = json.loads(match.group(1))
+        for key in ('apps', 'is_staff', 'is_authenticated'):
+            self.assertIn(key, payload)
+        self.assertFalse(payload['is_authenticated'])
+        urls = {app['url'] for app in payload['apps']}
+        self.assertIn('/vacancies/', urls)
+
+
+class DsHeadTagTests(SimpleTestCase):
+    """{% ds_head %} degrades to an empty string when the vite
+    manifest can't supply the entry — landing and news keep
+    working unstyled on a stale frontend_dist instead of 500ing
+    (plan §11.2)."""
+
+    def test_missing_manifest_entry_returns_empty(self):
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={},
+        ):
+            self.assertEqual(ds_head(), '')
+
+    def test_unknown_entry_returns_empty(self):
+        self.assertEqual(ds_head('no-such-entry'), '')
+
+    def test_manifest_entry_emits_stylesheet_link(self):
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={'file': 'assets/site-abc123.css'},
+        ):
+            html = ds_head()
+        self.assertIn('rel="stylesheet"', html)
+        self.assertIn('assets/site-abc123.css', html)
 
 
 class SentryHelpersTests(SimpleTestCase):

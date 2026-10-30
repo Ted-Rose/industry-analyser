@@ -19,7 +19,8 @@ app_name = 'classified_ads'
 # The public URL base is /classified-ads/ while the vite entry slug is
 # 'classified_ads' (SPA_ENTRY_RE is [a-z0-9_]+ — hyphens illegal).
 react_app_ads = partial(
-    react_app_public, entry='classified_ads', title='Classified Ads'
+    react_app_public, entry='classified_ads', title='Classified Ads',
+    landing_desc='Rent and sale listings scraped from ss.com.',
 )
 
 urlpatterns = [

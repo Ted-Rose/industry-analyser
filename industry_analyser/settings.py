@@ -256,6 +256,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # nav_apps for _topbar.html on every
+                # Django-rendered page (landing, news).
+                'industry_analyser.context_processors.global_nav',
             ],
         },
     },

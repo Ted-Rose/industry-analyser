@@ -47,19 +47,22 @@ api.add_router('/accounts/', accounts_router)
 # 'vacancies'). Every GET/HEAD path renders the shell and React
 # Router resolves the page client-side; non-GET requests 404.
 react_app_vacancies = partial(
-    react_app_public, entry='vacancies', title='Vacancies'
+    react_app_public, entry='vacancies', title='Vacancies',
+    landing_desc='IT job ads scraped from cv.lv.',
 )
 react_app_companies = partial(
-    react_app_public, entry='vacancies', title='Companies'
+    react_app_public, entry='vacancies', title='Companies',
+    landing_desc='Employers behind the scraped vacancies.',
 )
 # Dashboard and receipts are the staff-required SPAs — react_app,
-# not the public variant. `landing_title`/`landing_cta` are
-# display overrides for the / landing page's mount auto-discovery
-# (react_app swallows them via **kwargs) — the CTA slot is the
-# prominent button on /.
+# not the public variant. `landing_title`/`landing_cta`/
+# `landing_desc` are display overrides for the / landing page's
+# mount auto-discovery (react_app swallows them via **kwargs) —
+# the CTA slot is the prominent button on /.
 react_app_dashboard = partial(
     react_app, entry='dashboard', title='Dashboard',
     landing_title='Web scraping results', landing_cta=True,
+    landing_desc='Runs, counts and errors for every scraper.',
 )
 # The accounts SPA is the public login/register UI — react_app_public,
 # and 'accounts/' sits in _LANDING_SKIP_ROUTES so the landing page

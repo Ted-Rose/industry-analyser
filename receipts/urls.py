@@ -20,7 +20,8 @@ from industry_analyser.views import react_app
 app_name = 'receipts'
 
 react_app_receipts = partial(
-    react_app, entry='receipts', title='Receipts')
+    react_app, entry='receipts', title='Receipts',
+    landing_desc='Spending reports from collected receipts.')
 
 urlpatterns = [
     path('', react_app_receipts, name='dashboard'),

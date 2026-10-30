@@ -1,11 +1,15 @@
 import { configDefaults, defineConfig } from 'vitest/config';
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 
 // One entry per Django app. Output goes to repo-root frontend_dist/,
 // which is a STATICFILES_DIRS entry so collectstatic ships it and
 // django-vite resolves entries via manifest.json.
+// `site` and `admin` are CSS-only design-system entries: `site`
+// ships Tailwind + tokens for Django-rendered pages ({% ds_head %}),
+// `admin` the admin theme remap (plan §4.1).
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   base: '/static/',
   build: {
     outDir: '../frontend_dist',
@@ -13,6 +17,8 @@ export default defineConfig({
     manifest: 'manifest.json',
     rollupOptions: {
       input: {
+        site: 'src/shared/styles/site.css',
+        admin: 'src/shared/styles/admin.css',
         vacancies: 'src/vacancies/main.tsx',
         tv: 'src/tv/main.tsx',
         classified_ads: 'src/classified_ads/main.tsx',
