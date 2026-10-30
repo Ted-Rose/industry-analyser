@@ -129,7 +129,7 @@ def _spa_shell(request, entry, title=''):
 @ensure_csrf_cookie
 def spa_shell(request, entry, title=''):
     """Login-required shell — for apps whose pages need auth (e.g.
-    the root dashboard)."""
+    the dashboard and receipts apps)."""
     return _spa_shell(request, entry, title=title)
 
 

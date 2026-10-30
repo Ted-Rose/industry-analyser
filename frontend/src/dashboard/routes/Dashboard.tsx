@@ -57,7 +57,8 @@ export default function Dashboard() {
       <div className="top-nav">
         {/* Cross-app links leave the SPA (plain <a>) — each is a
             Django-routed SPA mount of its own. The retired Accounts
-            stub link is gone; /accounts/ now 301s here. */}
+            stub link is gone; /accounts/ now 301s to the landing
+            page at /. */}
         <a href="/vacancies/">Vacancies</a>
         <a href="/tv/">TV Programs</a>
         <a href="/classified-ads/">Classified Ads</a>

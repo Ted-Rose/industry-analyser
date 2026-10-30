@@ -148,8 +148,12 @@ if settings.DEBUG:
 # root SPA shell, and unslashed hits like /api/dashboard would lose
 # the APPEND_SLASH redirect CommonMiddleware only applies to 404s.
 # Legit routes under those prefixes resolve earlier, so order is safe.
+# The bare slashed form ('api/') needs its own drain — a Resolver404
+# inside the mount has an empty subpath that <path:subpath> can't
+# match, so without it /api/ would serve the landing page with a 200.
 for _prefix in ('api', 'admin', 'static'):
     urlpatterns.append(path(_prefix, project_views.terminal_404))
+    urlpatterns.append(path(f'{_prefix}/', project_views.terminal_404))
     urlpatterns.append(path(
         f'{_prefix}/<path:subpath>',
         project_views.terminal_404,
