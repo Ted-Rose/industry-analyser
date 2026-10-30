@@ -22,7 +22,8 @@
       })
       .catch(function () {
         slot.innerHTML =
-          '<p class="muted">Neizdevās ielādēt stāstu.</p>';
+          '<p class="muted" role="alert">' +
+          'Neizdevās ielādēt stāstu.</p>';
         slot.hidden = false;
       });
   }
@@ -35,15 +36,26 @@
       if (!slot) {
         return;
       }
+      // aria-controls rides in the markup; set it anyway so a
+      // toggle rendered without it still points at its slot.
+      if (slot.id) {
+        toggle.setAttribute('aria-controls', slot.id);
+      }
       if (!slot.hidden) {
         slot.hidden = true; // re-click collapses
-      } else if (slot.dataset.loaded) {
-        slot.hidden = false;
+        toggle.setAttribute('aria-expanded', 'false');
       } else {
-        loadFragment(
-          '/news/story/' + toggle.dataset.story + '/fragment/',
-          slot
-        );
+        // 'true' before the fetch resolves: the slot is the
+        // expanded region either way (story or failure alert).
+        toggle.setAttribute('aria-expanded', 'true');
+        if (slot.dataset.loaded) {
+          slot.hidden = false;
+        } else {
+          loadFragment(
+            '/news/story/' + toggle.dataset.story + '/fragment/',
+            slot
+          );
+        }
       }
       return;
     }
