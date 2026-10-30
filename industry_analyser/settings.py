@@ -237,7 +237,10 @@ ROOT_URLCONF = 'industry_analyser.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Project-level DIRS so templates/admin/base_site.html wins
+        # over the admin's own — industry_analyser is last in
+        # INSTALLED_APPS, after django.contrib.admin (plan §9.9).
+        'DIRS': [BASE_DIR / 'industry_analyser' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [

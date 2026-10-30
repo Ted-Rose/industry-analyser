@@ -9,10 +9,10 @@
    html[data-theme="dark"], and under prefers-color-scheme for
    html[data-theme="auto"] / unset — the same semantics the
    Django 5.2 admin theme toggle writes to
-   localStorage['theme']. The Inter @font-face itself is added
-   in PR-10 alongside base_site.html — until then
-   --font-family-primary degrades to the system stack. */
+   localStorage['theme']. inter.css registers the latin +
+   latin-ext Inter Variable subsets (same as app.css). */
 @import "./tokens.css";
+@import "./inter.css";
 
 :root {
   --primary: var(--ia-accent);
@@ -61,4 +61,12 @@
   --font-family-monospace:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", monospace;
+}
+
+/* tabular-nums on numeric admin tables (plan §9.9): every
+   change-list result cell plus the custom usage/merge tables
+   that opt in with class="tabular-nums". */
+#result_list,
+table.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }

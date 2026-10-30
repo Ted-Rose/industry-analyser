@@ -221,6 +221,50 @@ class DsHeadTagTests(SimpleTestCase):
         self.assertIn('assets/site-abc123.css', html)
 
 
+class AdminThemingTests(TestCase):
+    """PR-10 admin theming (plan §9.9): the project
+    admin/base_site.html override links the built admin.css vite
+    entry through the guarded {% ds_head 'admin' %} tag and
+    re-brands the header as an "Industry Analyser" link to /."""
+
+    def test_login_page_links_admin_css_and_branding(self):
+        resp = self.client.get('/admin/login/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="site-name"')
+        self.assertContains(
+            resp, '<a href="/">Industry Analyser</a>'
+        )
+        self.assertRegex(
+            resp.content.decode(),
+            r'rel="stylesheet" '
+            r'href="[^"]*admin/admin\.[^"]+\.css"',
+        )
+
+    def test_staff_index_uses_themed_branding(self):
+        staff = get_user_model().objects.create_user(
+            username='root', password='pw', is_staff=True
+        )
+        self.client.force_login(staff)
+        resp = self.client.get('/admin/')
+        self.assertContains(
+            resp, '<a href="/">Industry Analyser</a>'
+        )
+
+    def test_missing_admin_manifest_entry_degrades(self):
+        """A stale frontend_dist without the admin entry must not
+        500 — the page renders with the default admin CSS."""
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={},
+        ):
+            resp = self.client.get('/admin/login/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotRegex(
+            resp.content.decode(), r'admin/admin\.[^"]+\.css'
+        )
+
+
 class SentryHelpersTests(SimpleTestCase):
     """sentry.py capture helpers are complete no-ops when the SDK
     was never initialized (no SENTRY_DSN — always true in tests)."""
