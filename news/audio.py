@@ -7,7 +7,6 @@ text, so repeat requests dedup on ``blob.exists()`` and no
 database rows are needed. ``GCS_AUDIO_BUCKET`` unset disables
 the feature (AudioGenerationError -> 502 from the view)."""
 import hashlib
-import logging
 import os
 import re
 import tempfile
@@ -26,8 +25,6 @@ from langdetect import (
 )
 
 from django.conf import settings
-
-logger = logging.getLogger('news')
 
 # langdetect is probabilistic — a fixed seed keeps the pick
 # stable across processes and retries.
@@ -106,14 +103,17 @@ def text_to_audio(text, lang=None, filename=None):
         lang = _detect_lang(clean)
     elif not isinstance(lang, str):
         raise ValueError('lang must be a string')
-    elif lang not in tts_langs():
-        # Region tags like 'lv-LV' are not gTTS keys — a
-        # supported base language speaks with its plain voice.
-        base = lang.split('-')[0]
-        if base in tts_langs():
-            lang = base
-        else:
-            raise ValueError(f'unsupported lang: {lang}')
+    else:
+        supported = tts_langs()
+        if lang not in supported:
+            # Region tags like 'lv-LV' are not gTTS keys — a
+            # supported base language speaks with its plain
+            # voice.
+            base = lang.split('-')[0]
+            if base in supported:
+                lang = base
+            else:
+                raise ValueError(f'unsupported lang: {lang}')
     bucket_name = settings.GCS_AUDIO_BUCKET
     if not bucket_name:
         raise AudioGenerationError('GCS storage not configured')
@@ -159,5 +159,7 @@ def text_to_audio(text, lang=None, filename=None):
             method='GET',
             **sign_kwargs,
         )
+    except AudioGenerationError:
+        raise
     except Exception as exc:
         raise AudioGenerationError(str(exc)) from exc
