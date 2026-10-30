@@ -1525,9 +1525,11 @@ class PreferencesViewTests(TestCase):
         self.url = '/news/preferences/'
 
     def test_anonymous_get_redirects_to_login(self):
+        """Plain login_required follows LOGIN_URL — the public
+        accounts SPA login page (per-user feature, not staff)."""
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 302)
-        self.assertIn('/admin/login/', response['Location'])
+        self.assertIn('/accounts/login/', response['Location'])
 
     def test_get_prefills_existing_ranks(self):
         NewsSourcePreference.objects.create(

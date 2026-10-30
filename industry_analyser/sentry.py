@@ -21,13 +21,16 @@ import sentry_sdk
 
 # Paths whose request bodies can carry credentials: admin login
 # posts passwords under /admin/login/ (covered by the /admin/
-# prefix), and receipts endpoints may touch IMAP/Gmail credentials.
+# prefix), the /api/accounts/ register/login bodies carry
+# passwords, and receipts endpoints may touch IMAP/Gmail
+# credentials.
 # ``sentry_before_send`` strips the parsed body for these paths so
 # secrets can never reach Sentry. Defense in depth on top of
 # ``send_default_pii=False`` and Sentry's server-side scrubbers —
 # URL, method, and headers are kept so the event stays debuggable.
 _SENSITIVE_PATH_PREFIXES = (
     '/admin/',
+    '/api/accounts/',
     '/api/receipts/',
 )
 

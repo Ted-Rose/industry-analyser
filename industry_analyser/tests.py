@@ -169,6 +169,23 @@ class SentryHelpersTests(SimpleTestCase):
         # URL and method survive so the event stays debuggable.
         self.assertEqual(result['request']['method'], 'POST')
 
+    def test_before_send_strips_accounts_request_body(self):
+        """Register/login bodies carry passwords — /api/accounts/
+        is a sensitive prefix like /admin/."""
+        for url in (
+            'https://x.example/api/accounts/register/',
+            'https://x.example/api/accounts/login/',
+        ):
+            event = {
+                'request': {
+                    'url': url,
+                    'method': 'POST',
+                    'data': {'password': 's3cret'},
+                }
+            }
+            result = sentry_before_send(event, {})
+            self.assertNotIn('data', result['request'], url)
+
     def test_before_send_keeps_other_request_bodies(self):
         event = {
             'request': {

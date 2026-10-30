@@ -171,9 +171,17 @@ if SENTRY_DSN:
         traces_sample_rate=0.1,
     )
 
-# Admin is the only login UI; the root dashboard bounces anonymous
-# visitors there via login_required.
-LOGIN_URL = '/admin/login/'
+# The public accounts SPA is the login UI — plain login_required
+# surfaces (news:preferences) bounce there. Staff-only pages use
+# staff_member_required, which short-circuits to the admin login
+# and never consults LOGIN_URL.
+LOGIN_URL = '/accounts/login/'
+
+# Session login resolves usernames case-insensitively (registration
+# enforces iexact uniqueness so the lookup stays deterministic).
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.CaseInsensitiveAuthBackend',
+]
 
 ALLOWED_HOSTS = [
     '127.0.0.1',

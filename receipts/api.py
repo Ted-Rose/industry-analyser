@@ -1,9 +1,9 @@
 """django-ninja router for the receipts SPA (mounted at
 /api/receipts/).
 
-The single GET keeps the default django_auth — receipts are
-private spending data, so the page and its payload both require
-login. The dataset stays hard-coded to the ``admin`` user's
+The single GET uses staff_auth — receipts are one admin's
+private spending data, so the page and its payload are
+staff-only. The dataset stays hard-coded to the ``admin`` user's
 receipts; when that user does not exist
 (e.g. a fresh dev database) the payload reports
 ``owner_exists=False`` with empty sections instead of 500ing.
@@ -26,6 +26,8 @@ from django.db.models import Count, Sum
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from ninja import Router, Schema
+
+from industry_analyser.api import staff_auth
 
 from .models import Receipt, ReceiptItem
 
@@ -215,7 +217,7 @@ def _by_category(items, months):
 # --- Ops ---
 
 
-@router.get('/', response=ReceiptsDashboardOut)
+@router.get('/', auth=staff_auth, response=ReceiptsDashboardOut)
 def receipts_dashboard(
     request,
     date_from: Optional[date] = None,

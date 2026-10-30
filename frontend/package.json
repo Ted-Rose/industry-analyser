@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "gen:types": "for entry in vacancies tv classified_ads dashboard receipts; do openapi-typescript openapi.json -o src/$entry/api-types.ts || exit 1; done",
+    "gen:types": "for entry in vacancies tv classified_ads dashboard receipts accounts; do openapi-typescript openapi.json -o src/$entry/api-types.ts || exit 1; done",
     "preview": "vite preview"
   },
   "dependencies": {

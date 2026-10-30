@@ -8,6 +8,11 @@ import { useMemo } from 'react';
  */
 export interface BootstrapPayload {
   user?: string | null;
+  /** Session flags the shell injects on every render — anonymous
+   *  pages carry false for both. Optional so older shells and
+   *  tests that stub the payload don't have to set them. */
+  is_authenticated?: boolean;
+  is_staff?: boolean;
   [key: string]: unknown;
 }
 

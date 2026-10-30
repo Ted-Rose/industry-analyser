@@ -23,7 +23,7 @@ from django.utils import timezone
 from ninja import Query, Router, Schema
 from pydantic import Field, field_validator
 
-from industry_analyser.api import ApiHttpError
+from industry_analyser.api import ApiHttpError, staff_auth
 
 from .forms import KeywordForm
 from .models import (
@@ -534,11 +534,11 @@ def set_company_preference(
     return CompanyPreferenceOut(preference=obj.preference)
 
 
-@router.post('/keywords/', response=KeywordSavedOut)
+@router.post('/keywords/', auth=staff_auth, response=KeywordSavedOut)
 def add_keyword(request, payload: KeywordIn):
-    """Create a keyword — session-auth replacement for the retired
-    HARD_CODED_PASSWORD form. Validation still goes through
-    KeywordForm so name normalization/uniqueness are unchanged."""
+    """Create a keyword — staff-only (global scrape configuration,
+    not per-user data). Validation still goes through KeywordForm
+    so name normalization/uniqueness are unchanged."""
     form = KeywordForm(
         data={'name': payload.name, 'only_filter': payload.only_filter}
     )
