@@ -408,8 +408,8 @@ describe('VacancyList saved filters', () => {
     expect(
       screen.queryByRole('button', { name: 'Save current' }),
     ).not.toBeInTheDocument();
-    // The only GET fired is the public vacancy list — an authed
-    // /filters/ call would 401 and bounce the page to login.
+    // The only GET fired is the public vacancy list — presets are
+    // per-user so /filters/ isn't called for anonymous visitors.
     for (const url of calledUrls()) {
       expect(url).not.toContain('/api/vacancies/filters/');
     }

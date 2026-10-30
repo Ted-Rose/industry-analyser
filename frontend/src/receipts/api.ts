@@ -32,8 +32,9 @@ function setDate(
 
 /** GET /api/receipts/ — the whole page in one fat call (summary
  *  cards + by-month/by-store/by-category tables + the all-receipts
- *  table). Public: the op is auth=None like the template page it
- *  replaced. */
+ *  table). Session-authed: the op keeps django_auth and the page
+ *  mount is login-required — a 401's login_url sends the browser
+ *  to /admin/login/?next=/receipts/. */
 export function fetchReceiptsDashboard(
   params: ReceiptsDashboardParams = {},
 ): Promise<ReceiptsDashboardOut> {

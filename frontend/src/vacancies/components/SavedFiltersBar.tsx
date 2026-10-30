@@ -105,9 +105,9 @@ function promptName(
  * the placeholder. "Save current" and "Overwrite" snapshot the
  * *staged* checkbox draft — and apply it to the URL like a Search
  * press, so the saved preset is what the user sees checked and
- * what actually filters the list. The `enabled` gate matters: an
- * authed request from an anonymous visitor would 401 and the client
- * would bounce the whole page to /admin/login/.
+ * what actually filters the list. The `enabled` gate matters:
+ * presets are per-user, so there's no bar to show an anonymous
+ * visitor (its GET would just come back empty).
  */
 export default function SavedFiltersBar({
   applied,

@@ -1,5 +1,5 @@
-"""Dashboard SPA cutover tests — the login-required root mount and
-the /api/dashboard/ auth contract."""
+"""Dashboard SPA cutover tests — the login-required /dashboard/
+mount and the /api/dashboard/ auth contract."""
 
 import datetime
 
@@ -30,38 +30,39 @@ def make_run(job, status=ScrapeJobRun.SUCCESS, **kwargs):
 
 
 class DashboardShellTests(TestCase):
-    """The dashboard SPA owns the site root; the shell is
-    login-required (react_app — the only non-public SPA)."""
+    """The dashboard SPA mounts at /dashboard/; the shell is
+    login-required (react_app). The site root is now the public
+    landing page."""
 
     def setUp(self):
         self.user = get_user_model().objects.create_user(
             username='alice', password='pw'
         )
 
-    def test_root_anonymous_redirects_to_login(self):
-        resp = self.client.get('/')
+    def test_dashboard_anonymous_redirects_to_login(self):
+        resp = self.client.get('/dashboard/')
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(
-            resp['Location'], '/admin/login/?next=/'
+            resp['Location'], '/admin/login/?next=/dashboard/'
         )
 
-    def test_root_authed_serves_shell(self):
+    def test_dashboard_authed_serves_shell(self):
         self.client.force_login(self.user)
-        resp = self.client.get('/')
+        resp = self.client.get('/dashboard/')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="root"')
         self.assertContains(resp, 'spa-bootstrap')
 
     def test_deep_link_serves_shell(self):
-        """The root catch-all serves the shell for client routes —
-        anonymous callers are bounced to login first."""
+        """The /dashboard/ catch-all serves the shell for client
+        routes — anonymous callers are bounced to login first."""
         self.client.force_login(self.user)
-        resp = self.client.get('/some/client/route')
+        resp = self.client.get('/dashboard/some/client/route')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'id="root"')
 
     def test_deep_link_anonymous_redirects_to_login(self):
-        resp = self.client.get('/some/client/route')
+        resp = self.client.get('/dashboard/some/client/route')
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/admin/login/', resp['Location'])
 
@@ -74,10 +75,10 @@ class DashboardShellTests(TestCase):
         view-layer contract (no HTML shell, no login redirect from
         the view itself)."""
         for method in ('post', 'put', 'delete'):
-            resp = getattr(self.client, method)('/')
+            resp = getattr(self.client, method)('/dashboard/')
             self.assertEqual(resp.status_code, 404)
         self.client.force_login(self.user)
-        resp = self.client.post('/')
+        resp = self.client.post('/dashboard/')
         self.assertEqual(resp.status_code, 404)
 
     def test_home_still_reverses_to_root(self):
@@ -95,16 +96,16 @@ class DashboardApiTests(TestCase):
             username='alice', password='pw'
         )
 
-    def test_anonymous_401_json_login_url_root(self):
+    def test_anonymous_401_json_login_url_dashboard(self):
         """Session auth fails as JSON, never a redirect; SPA_BASES
-        maps /api/dashboard/* back to '/', so login_url's `next` is
-        the SPA page, not the JSON endpoint."""
+        maps /api/dashboard/* back to '/dashboard/', so login_url's
+        `next` is the SPA page, not the JSON endpoint."""
         resp = self.client.get(f'{self.API}/')
         self.assertEqual(resp.status_code, 401)
         body = resp.json()
         self.assertEqual(body['error'], 'unauthenticated')
         self.assertEqual(
-            body['login_url'], '/admin/login/?next=%2F'
+            body['login_url'], '/admin/login/?next=%2Fdashboard%2F'
         )
 
     def test_dashboard_payload(self):

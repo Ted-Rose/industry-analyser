@@ -1,9 +1,10 @@
 """django-ninja router for the receipts SPA (mounted at
 /api/receipts/).
 
-The single GET is public (auth=None) — the plain-template
-dashboard it replaces had no login. The dataset stays hard-coded
-to the ``admin`` user's receipts; when that user does not exist
+The single GET keeps the default django_auth — receipts are
+private spending data, so the page and its payload both require
+login. The dataset stays hard-coded to the ``admin`` user's
+receipts; when that user does not exist
 (e.g. a fresh dev database) the payload reports
 ``owner_exists=False`` with empty sections instead of 500ing.
 
@@ -214,7 +215,7 @@ def _by_category(items, months):
 # --- Ops ---
 
 
-@router.get('/', auth=None, response=ReceiptsDashboardOut)
+@router.get('/', response=ReceiptsDashboardOut)
 def receipts_dashboard(
     request,
     date_from: Optional[date] = None,

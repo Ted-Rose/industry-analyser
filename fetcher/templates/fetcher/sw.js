@@ -3,9 +3,10 @@
 // PWA_CACHE_VERSION constant in fetcher/views.py.
 const CACHE_NAME = 'industry-analyser-{{ cache_version }}';
 const STATIC_URL = '{% get_static_prefix %}';
-// '/' is login_required — precaching it stored the anonymous login
-// bounce as the offline fallback. A static offline page is the
-// last-resort navigation response instead.
+// '/' was login_required — precaching it stored the anonymous login
+// bounce as the offline fallback (the login-required page is now
+// /dashboard/; the same caching concern applies there). A static
+// offline page is the last-resort navigation response instead.
 const OFFLINE_URL = STATIC_URL + 'fetcher/offline.html';
 const PRECACHE_URLS = [OFFLINE_URL];
 

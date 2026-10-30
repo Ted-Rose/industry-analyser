@@ -53,9 +53,9 @@ function toggleValue(list: string[], value: string, on: boolean) {
  * collapsible (open by default) on all viewport sizes.
  */
 export default function VacancyList() {
-  // Saved filters are session-authed — render the bar (and fire its
-  // query) only for logged-in users, or an anonymous visitor's 401
-  // would bounce the whole page to /admin/login/.
+  // Saved filters are per-user — render the bar (and fire its
+  // query) only for logged-in users; anonymous visitors have no
+  // presets to show (the public GET would just return []).
   const { user } = useBootstrap();
   const [searchParams, setSearchParams] = useSearchParams();
   const params = {

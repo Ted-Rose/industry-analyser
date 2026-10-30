@@ -8,6 +8,7 @@ app mount shares the same GET/HEAD→shell, non-GET→404 contract.
 import json
 import os
 import re
+from functools import partial
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
@@ -17,7 +18,7 @@ from django.http import (
     JsonResponse,
 )
 from django.shortcuts import redirect, render
-from django.urls import is_valid_path
+from django.urls import URLPattern, get_resolver, is_valid_path
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 
@@ -128,7 +129,7 @@ def _spa_shell(request, entry, title=''):
 @ensure_csrf_cookie
 def spa_shell(request, entry, title=''):
     """Login-required shell — for apps whose pages need auth (e.g.
-    the root dashboard)."""
+    the dashboard and receipts apps)."""
     return _spa_shell(request, entry, title=title)
 
 
@@ -176,6 +177,128 @@ def react_app_public(request, entry, title='', subpath='', **kwargs):
     if request.method not in ('GET', 'HEAD'):
         raise Http404
     return spa_shell_public(request, entry=entry, title=title)
+
+
+# --- Landing page ---
+
+# Top-level routes that never become landing entries: infra
+# mounts (the JSON API, admin, the whitenoise pass-through).
+# Everything else is discovered — a new app mount needs no edit
+# here.
+_LANDING_SKIP_ROUTES = {'api/', 'admin/', 'static/'}
+
+
+def _is_spa_partial(callback):
+    """True when `callback` is a functools.partial of one of the
+    shared SPA shells (the way every SPA mount is wired in
+    urlpatterns)."""
+    return (
+        isinstance(callback, partial)
+        and callback.func in (react_app, react_app_public)
+    )
+
+
+def _spa_entry_fields(callback):
+    """Landing entry fields off an SPA shell partial.
+
+    `title` is the page title kwarg every mount already binds;
+    `landing_title`/`landing_desc` are optional display overrides
+    and `landing_cta` promotes the entry to the prominent
+    call-to-action slot — all swallowed by react_app's **kwargs.
+    The auth flag follows from which shell was bound — react_app
+    mounts are login-required."""
+    keywords = callback.keywords
+    return {
+        'title': (
+            keywords.get('landing_title')
+            or keywords.get('title', '')
+        ),
+        'desc': keywords.get('landing_desc', ''),
+        'cta': bool(keywords.get('landing_cta')),
+        'login_required': callback.func is react_app,
+    }
+
+
+def _resolver_entry_fields(resolver, route):
+    """Title/auth/desc for an include() mount.
+
+    The mounted urlconf's first SPA-shell partial supplies them
+    (tv, receipts, classified_ads all bind `title` there); a mount
+    whose urlconf serves plain-template views instead (news) gets
+    a humanized path segment and is public. An empty urlconf is
+    not a page — None skips it.
+    """
+    inner = resolver.url_patterns
+    if not inner:
+        return None
+    for inner_pattern in inner:
+        if isinstance(inner_pattern, URLPattern) and _is_spa_partial(
+            inner_pattern.callback
+        ):
+            return _spa_entry_fields(inner_pattern.callback)
+    return {
+        'title': (
+            route.rstrip('/')
+            .replace('-', ' ')
+            .replace('_', ' ')
+            .title()
+        ),
+        'desc': '',
+        'cta': False,
+        'login_required': False,
+    }
+
+
+def _landing_entries():
+    """Auto-discover the top-level app mounts for the landing page.
+
+    Introspects the root urlconf — per request, never at import
+    time (urls.py imports this module, so touching the resolver at
+    module scope would recurse). Only single-segment literal
+    routes ending in '/' qualify: converters ('companies/<uuid:pk>/'),
+    the root '' itself, the <path:subpath> drains, file routes
+    (manifest.json, sw.js) and the _LANDING_SKIP_ROUTES prefixes
+    are all skipped. A newly added top-level mount — SPA partial
+    or include() — appears on / without touching this view.
+    """
+    entries = []
+    for url_pattern in get_resolver().url_patterns:
+        route = getattr(url_pattern.pattern, '_route', '')
+        if (
+            '<' in route
+            or route in _LANDING_SKIP_ROUTES
+            or not route.endswith('/')
+            or '/' in route[:-1]
+        ):
+            continue
+        if isinstance(url_pattern, URLPattern):
+            if not _is_spa_partial(url_pattern.callback):
+                continue
+            fields = _spa_entry_fields(url_pattern.callback)
+        else:
+            fields = _resolver_entry_fields(url_pattern, route)
+            if fields is None:
+                continue
+        entries.append({'url': f'/{route}', **fields})
+    return entries
+
+
+def landing(request, subpath=''):
+    """Public landing page at / — a directory of the project's
+    mini-apps, auto-discovered via _landing_entries().
+
+    Also serves the terminal <path:subpath> catch-all: unknown
+    paths render the directory instead of a bare 404 (the
+    dashboard SPA the catch-all used to mount has only an index
+    route — no client deep links worth preserving).
+    """
+    if request.method not in ('GET', 'HEAD'):
+        raise Http404
+    entries = _landing_entries()
+    return render(request, 'landing.html', {
+        'apps': [e for e in entries if not e['cta']],
+        'cta_apps': [e for e in entries if e['cta']],
+    })
 
 
 def app_redirect(request, base, subpath=''):

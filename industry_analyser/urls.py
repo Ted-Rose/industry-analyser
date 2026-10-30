@@ -36,8 +36,8 @@ api.add_router('/tv/', tv_router)
 # the router mount follows it so spa_url_for's /api/<x>/ → /<x>/
 # login-next rewrite stays correct.
 api.add_router('/classified-ads/', classified_ads_router)
-# The dashboard SPA mounts at the site root — SPA_BASES maps
-# /api/dashboard/* 401 login_urls back to '/'.
+# The dashboard SPA mounts at /dashboard/ — SPA_BASES maps
+# /api/dashboard/* 401 login_urls back to it.
 api.add_router('/dashboard/', dashboard_router)
 api.add_router('/receipts/', receipts_router)
 
@@ -51,10 +51,14 @@ react_app_vacancies = partial(
 react_app_companies = partial(
     react_app_public, entry='vacancies', title='Companies'
 )
-# The dashboard is the only login-required SPA (the template page it
-# replaces was @login_required) — react_app, not the public variant.
+# Dashboard and receipts are the login-required SPAs — react_app,
+# not the public variant. `landing_title`/`landing_cta` are
+# display overrides for the / landing page's mount auto-discovery
+# (react_app swallows them via **kwargs) — the CTA slot is the
+# prominent button on /.
 react_app_dashboard = partial(
-    react_app, entry='dashboard', title='Dashboard'
+    react_app, entry='dashboard', title='Dashboard',
+    landing_title='Web scraping results', landing_cta=True,
 )
 
 urlpatterns = [
@@ -62,11 +66,22 @@ urlpatterns = [
     path('manifest.json', fetcher.pwa_manifest, name='pwa_manifest'),
     path('sw.js', fetcher.pwa_service_worker, name='pwa_service_worker'),
     # Shared ninja API — mounted before the app routes so /api/* can
-    # never be swallowed by the root catch-all SPA mount.
+    # never be swallowed by the terminal catch-all.
     path('api/', api.urls),
-    # The dashboard SPA owns the site root — the name 'home' is kept
-    # so reverse('home') still resolves to '/'.
-    path('', react_app_dashboard, name='home'),
+    # Public landing page — a directory of the project's app
+    # mounts, auto-discovered off this urlconf (see
+    # views._landing_entries). The name 'home' is kept so
+    # reverse('home') still resolves to '/'.
+    path('', project_views.landing, name='home'),
+    # The dashboard SPA moved off the root to /dashboard/ — still
+    # login-required. It has only an index route, but the
+    # <path:subpath> mount keeps deep links working.
+    path('dashboard/', react_app_dashboard, name='dashboard'),
+    path(
+        'dashboard/<path:subpath>',
+        react_app_dashboard,
+        name='dashboard_subpath',
+    ),
     # Vacancies SPA. Route names stay so reverse()/{% url %} callers
     # keep working ('find_vacancies' reversed to /vacancies/).
     path('vacancies/', react_app_vacancies, name='find_vacancies'),
@@ -91,8 +106,9 @@ urlpatterns = [
         react_app_companies,
         name='companies_subpath',
     ),
-    # The accounts stub page is retired — 301 to the dashboard; the
-    # name is kept so any reverse('accounts') caller still resolves.
+    # The accounts stub page is retired — 301 to the landing page;
+    # the name is kept so any reverse('accounts') caller still
+    # resolves.
     path(
         'accounts/',
         RedirectView.as_view(url='/', permanent=True),
@@ -132,20 +148,25 @@ if settings.DEBUG:
 # root SPA shell, and unslashed hits like /api/dashboard would lose
 # the APPEND_SLASH redirect CommonMiddleware only applies to 404s.
 # Legit routes under those prefixes resolve earlier, so order is safe.
+# The bare slashed form ('api/') needs its own drain — a Resolver404
+# inside the mount has an empty subpath that <path:subpath> can't
+# match, so without it /api/ would serve the landing page with a 200.
 for _prefix in ('api', 'admin', 'static'):
     urlpatterns.append(path(_prefix, project_views.terminal_404))
+    urlpatterns.append(path(f'{_prefix}/', project_views.terminal_404))
     urlpatterns.append(path(
         f'{_prefix}/<path:subpath>',
         project_views.terminal_404,
     ))
 
-# The root dashboard catch-all must be the very LAST pattern — it
-# would shadow anything appended after it (including the DEBUG-only
-# .well-known probe above). No trailing slash on <path:subpath> — it
-# matches 'x' and 'x/', so client routes don't depend on an
-# APPEND_SLASH hop; non-GET/HEAD requests 404 via react_app.
+# The terminal catch-all renders the landing page for unknown
+# paths — typos show the app directory instead of a bare 404. It
+# must be the very LAST pattern — it would shadow anything
+# appended after it (including the DEBUG-only .well-known probe
+# above). No trailing slash on <path:subpath> — it matches 'x' and
+# 'x/', and non-GET/HEAD requests 404 via landing().
 urlpatterns.append(path(
     '<path:subpath>',
-    react_app_dashboard,
-    name='dashboard_subpath',
+    project_views.landing,
+    name='landing_subpath',
 ))

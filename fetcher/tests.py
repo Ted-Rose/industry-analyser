@@ -1761,8 +1761,9 @@ class CompanyPreferenceApiTests(TestCase):
 
 class SavedFiltersApiTests(TestCase):
     """Per-user saved vacancy filters — /api/vacancies/filters/.
-    Every op keeps the default django_auth (they are the caller's
-    own presets)."""
+    GET is public (auth=None) but returns [] to anonymous callers;
+    the mutations keep the default django_auth (they are the
+    caller's own presets)."""
 
     API = '/api/vacancies/filters'
 
@@ -1808,11 +1809,15 @@ class SavedFiltersApiTests(TestCase):
         self.assertEqual(resp.status_code, 201)
         return resp.json()
 
-    def test_unauthenticated_401(self):
+    def test_unauthenticated_get_returns_empty_list(self):
+        """GET /filters/ is public like the other read ops —
+        anonymous callers get [], not a 401 (and not a 500 from
+        filtering a FK on AnonymousUser)."""
+        self.create()
         self.client.logout()
         resp = self.client.get(f'{self.API}/')
-        self.assertEqual(resp.status_code, 401)
-        self.assertEqual(resp.json()['error'], 'unauthenticated')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), [])
 
     def test_unauthenticated_writes_401(self):
         body = self.create()

@@ -64,10 +64,11 @@ def error_slug(status_code):
 
 
 # API mounts whose SPA page lives somewhere other than /<app>/:
-# /api/<app>/<sub> → the mapped path. 'dashboard' mounts at the site
-# root, so /api/dashboard/... 401s must send the user back to '/', not
-# '/dashboard/'.
-SPA_BASES = {'dashboard': '/'}
+# /api/<app>/<sub> → the mapped path. 'dashboard' mounts at
+# /dashboard/ — the mechanical /<app>/<sub> rewrite already lands
+# there, but the explicit mapping keeps the intent pinned if the
+# SPA moves again.
+SPA_BASES = {'dashboard': '/dashboard/'}
 # Sub-path remaps, keyed by (api app, first path segment): authed ops
 # whose mechanical /<app>/<sub>/ rewrite would land on a route the SPA
 # doesn't own. The saved-filters CRUD lives on the vacancy list page,
