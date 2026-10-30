@@ -35,7 +35,8 @@ class Command(BaseCommand):
             '--cycle',
             type=str,
             default=None,
-            help='Resume-cycle key; default today (UTC)',
+            help="Resume-cycle key; default today (UTC), "
+                 "or the constant 'backfill' under --backfill",
         )
         parser.add_argument(
             '--fresh',

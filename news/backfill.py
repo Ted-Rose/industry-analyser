@@ -1109,7 +1109,22 @@ class NewsBackfillScraper(NewsScraper):
         listing URLs; the lvportals page-walk is not exercised
         (months print '?' instead).
         """
-        for source in self._enabled_sources():
+        sources = self._enabled_sources()
+        if self.source_slug and not any(
+            s.slug == self.source_slug for s in sources
+        ):
+            # Mirror _planned_sources' warning — a mistyped
+            # --source would otherwise print nothing.
+            logger.warning(
+                '--source %r matches no enabled source',
+                self.source_slug,
+            )
+            yield (
+                f'[dry-run] --source {self.source_slug!r} '
+                'matches no enabled source'
+            )
+            return
+        for source in sources:
             if self.source_slug and source.slug != self.source_slug:
                 continue
             strategy = BACKFILL_STRATEGIES.get(source.slug)
