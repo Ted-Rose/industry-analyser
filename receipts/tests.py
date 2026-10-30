@@ -875,13 +875,15 @@ class ReceiptsApiTests(TestCase):
     """GET /api/receipts/ — the admin-hardcoded spending dashboard
     payload plus the /receipts/ SPA-shell cutover (the retired
     DashboardViewTests asserted on rendered HTML/context; the SPA
-    now consumes this one fat GET)."""
+    now consumes this one fat GET). Page and payload are both
+    login-required — receipts are private spending data."""
 
     API = '/api/receipts/'
 
     def setUp(self):
         self.user = get_user_model().objects.create_superuser(
             username='admin', password='x', email='a@x.com')
+        self.client.force_login(self.user)
         self.store = Store.objects.create(
             chain='rimi', name='Rimi Akropolis')
         self.receipt = Receipt.objects.create(
@@ -926,6 +928,11 @@ class ReceiptsApiTests(TestCase):
 
     def test_api_no_admin_user_reports_empty(self):
         self.user.delete()   # cascades to the receipt
+        # Session auth requires *a* user — a non-admin login still
+        # gets the graceful owner-missing payload.
+        other = get_user_model().objects.create_user(
+            username='other', password='x')
+        self.client.force_login(other)
         resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -1119,6 +1126,28 @@ class ReceiptsApiTests(TestCase):
         self.assertEqual(top_names, ['Banāni'])
 
     # --- URL cutover / shell ---
+
+    def test_api_anonymous_401(self):
+        self.client.logout()
+        resp = self.client.get(self.API)
+        self.assertEqual(resp.status_code, 401)
+        self.assertEqual(resp.json()['error'], 'unauthenticated')
+        # login_url's next is the SPA page, not the JSON endpoint.
+        self.assertTrue(
+            resp.json()['login_url'].endswith(
+                'next=%2Freceipts%2F'))
+
+    def test_page_anonymous_redirects_to_login(self):
+        self.client.logout()
+        resp = self.client.get('/receipts/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/admin/login/', resp['Location'])
+
+    def test_deep_link_anonymous_redirects_to_login(self):
+        self.client.logout()
+        resp = self.client.get('/receipts/anything/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('/admin/login/', resp['Location'])
 
     def test_page_serves_spa_shell(self):
         resp = self.client.get(reverse('receipts:dashboard'))

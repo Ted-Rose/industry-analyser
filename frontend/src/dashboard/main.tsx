@@ -19,14 +19,14 @@ if (root) {
   createRoot(root).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        {/* The dashboard SPA owns the site root: Django serves the
-            shell on '' plus the '<path:subpath>' catch-all that is
-            appended last in urlpatterns. The shell itself is
-            login-required (react_app, not the public variant) — an
-            anonymous visitor bounces to /admin/login/ before this
-            bundle ever runs. basename '/' — routes are absolute
-            site paths. */}
-        <BrowserRouter basename="/">
+        {/* The dashboard SPA mounts at /dashboard/ (the public
+            landing page owns the site root): Django serves the
+            shell on 'dashboard/' plus 'dashboard/<path:subpath>'.
+            The shell itself is login-required (react_app, not the
+            public variant) — an anonymous visitor bounces to
+            /admin/login/ before this bundle ever runs. basename
+            '/dashboard' — routes are relative to the mount. */}
+        <BrowserRouter basename="/dashboard">
           <ErrorBoundary>
             <App />
           </ErrorBoundary>

@@ -126,6 +126,10 @@ export interface paths {
         /**
          * List Saved Filters
          * @description The caller's saved filter presets (name-ordered via Meta).
+         *
+         *     Public like the other GETs; anonymous callers get an empty
+         *     list — filter(user=AnonymousUser) would TypeError on the
+         *     int-prep of the FK, so guard rather than rely on the queryset.
          */
         get: operations["fetcher_api_list_saved_filters"];
         put?: never;

@@ -1,6 +1,7 @@
-"""Root-urlconf routing tests — the <path:subpath> catch-all at the
-site root must not swallow misses under prefixes owned by earlier
-mounts (/api/, /admin/, /static/).
+"""Root-urlconf routing tests — the terminal <path:subpath>
+catch-all (which renders the public landing page) must not swallow
+misses under prefixes owned by earlier mounts (/api/, /admin/,
+/static/).
 """
 
 import json
@@ -66,19 +67,62 @@ class CatchAllDrainTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/admin/login/', resp['Location'])
 
-    def test_arbitrary_path_still_serves_shell(self):
-        """Client routes still reach the SPA shell via the
-        catch-all (login bounce for anon, shell for authed)."""
+    def test_arbitrary_path_serves_landing(self):
+        """Unknown paths fall through to the terminal catch-all,
+        which renders the public landing page (the app directory)
+        instead of a bare 404 — for anon and authed alike."""
         resp = self.client.get('/some/client/route')
-        self.assertEqual(resp.status_code, 302)
-        self.assertIn('/admin/login/', resp['Location'])
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Industry Analyser')
         user = get_user_model().objects.create_user(
             username='alice', password='pw'
         )
         self.client.force_login(user)
         resp = self.client.get('/some/client/route')
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="root"')
+        self.assertContains(resp, 'Industry Analyser')
+
+
+class LandingPageTests(TestCase):
+    """The public landing page at / auto-discovers the top-level
+    app mounts off the root urlconf (views._landing_entries) — a
+    new mount needs no edit to appear."""
+
+    def test_root_is_public_and_lists_apps(self):
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 200)
+        for url in (
+            '/vacancies/', '/companies/', '/classified-ads/',
+            '/tv/', '/receipts/', '/news/',
+        ):
+            self.assertContains(resp, f'href="{url}"')
+
+    def test_dashboard_cta_is_flagged_login_required(self):
+        resp = self.client.get('/')
+        self.assertContains(resp, 'href="/dashboard/"')
+        self.assertContains(resp, 'Web scraping results')
+        self.assertContains(resp, 'login required')
+
+    def test_infra_mounts_and_self_are_excluded(self):
+        from industry_analyser.views import _landing_entries
+        urls = {e['url'] for e in _landing_entries()}
+        for excluded in (
+            '/api/', '/admin/', '/accounts/', '/add_keyword/',
+        ):
+            self.assertNotIn(excluded, urls)
+        self.assertNotIn('/', urls)  # the page never lists itself
+
+    def test_receipts_mount_is_login_required(self):
+        from industry_analyser.views import _landing_entries
+        entries = {e['url']: e for e in _landing_entries()}
+        self.assertTrue(entries['/receipts/']['login_required'])
+        self.assertFalse(entries['/vacancies/']['login_required'])
+
+    def test_post_to_landing_404s(self):
+        self.assertEqual(self.client.post('/').status_code, 404)
+        self.assertEqual(
+            self.client.post('/typo/path').status_code, 404
+        )
 
 
 class SentryHelpersTests(SimpleTestCase):
