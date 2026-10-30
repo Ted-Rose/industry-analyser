@@ -1,1 +1,0 @@
-import{j as t,i}from"./app.DZV49lyz.js";function b({as:o,padding:r="md",interactive:s=!1,className:e,children:a,...d}){const n=o??"div";return t.jsx(n,{className:i("rounded-lg border border-border bg-surface shadow-xs",r==="md"&&"p-4 sm:p-5",s&&"transition-colors motion-safe:duration-120 ease-ia hover:border-border-strong hover:shadow-md",e),...d,children:a})}export{b as C};

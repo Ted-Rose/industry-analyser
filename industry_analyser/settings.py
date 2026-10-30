@@ -106,6 +106,9 @@ OMDB_KEY = env('OMDB_KEY', default='')
 # Receipts collector Gmail inbox (plan §7); app-password auth.
 RECEIPTS_IMAP_USER = env('RECEIPTS_IMAP_USER', default='')
 RECEIPTS_IMAP_PASSWORD = env('RECEIPTS_IMAP_PASSWORD', default='')
+# GCS bucket for /news/ digest audio clips (gTTS -> signed
+# URL). Empty disables the feature — the endpoint answers 502.
+GCS_AUDIO_BUCKET = env('GCS_AUDIO_BUCKET', default='')
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or
@@ -168,9 +171,17 @@ if SENTRY_DSN:
         traces_sample_rate=0.1,
     )
 
-# Admin is the only login UI; the root dashboard bounces anonymous
-# visitors there via login_required.
-LOGIN_URL = '/admin/login/'
+# The public accounts SPA is the login UI — plain login_required
+# surfaces (news:preferences) bounce there. Staff-only pages use
+# staff_member_required, which short-circuits to the admin login
+# and never consults LOGIN_URL.
+LOGIN_URL = '/accounts/login/'
+
+# Session login resolves usernames case-insensitively (registration
+# enforces iexact uniqueness so the lookup stays deterministic).
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.CaseInsensitiveAuthBackend',
+]
 
 ALLOWED_HOSTS = [
     '127.0.0.1',

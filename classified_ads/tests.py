@@ -42,8 +42,10 @@ class ClassifiedAdsApiTests(TestCase):
     API = '/api/classified-ads'
 
     def setUp(self):
+        # Region-config POSTs are staff-only (global scrape
+        # configuration) — the user they authenticate as is staff.
         self.user = get_user_model().objects.create_user(
-            username='alice', password='pw'
+            username='alice', password='pw', is_staff=True
         )
         self.region = Region.objects.create(
             name='Riga',
@@ -415,8 +417,24 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(
             resp.json()['login_url'],
-            '/admin/login/?next=%2Fclassified-ads%2F',
+            '/accounts/login/?next=%2Fclassified-ads%2F',
         )
+
+    def test_region_config_post_non_staff_403(self):
+        """Global scrape configuration is staff-only — a registered
+        non-staff user gets 403 {error: 'forbidden'}, no login_url."""
+        registered = get_user_model().objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(registered)
+        resp = self.client.post(
+            f'{self.API}/regions/config/',
+            data=json.dumps({'kind': 'apartment', 'regions': []}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()['error'], 'forbidden')
+        self.assertNotIn('login_url', resp.json())
 
     def test_region_config_post_success(self):
         self.child.scrape_enabled = True
