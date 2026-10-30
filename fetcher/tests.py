@@ -1205,8 +1205,10 @@ class VacanciesApiTests(TestCase):
     API = '/api/vacancies'
 
     def setUp(self):
+        # Keyword POSTs are staff-only (global scrape
+        # configuration) — the user they authenticate as is staff.
         self.user = get_user_model().objects.create_user(
-            username='alice', password='pw'
+            username='alice', password='pw', is_staff=True
         )
 
     # --- URL cutover / shell ---
@@ -1450,6 +1452,23 @@ class VacanciesApiTests(TestCase):
         self.assertIn(
             'next=%2Fvacancies%2Fkeywords%2F', body['login_url']
         )
+
+    def test_keywords_post_non_staff_403(self):
+        """Keywords are global scrape configuration — a registered
+        non-staff user gets 403 {error: 'forbidden'}, no
+        login_url."""
+        registered = get_user_model().objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(registered)
+        resp = self.client.post(
+            f'{self.API}/keywords/',
+            data=json.dumps({'name': 'python'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()['error'], 'forbidden')
+        self.assertNotIn('login_url', resp.json())
 
     def test_keywords_post_success(self):
         self.client.force_login(self.user)

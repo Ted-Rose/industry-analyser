@@ -128,10 +128,10 @@ function RegionBranch({
 /**
  * React port of apartment/house_region_config.html — the
  * scrape-enabled checkbox tree. The retired view took an
- * anonymous POST; the mutation is session-authed now (401 →
- * /admin/login/ bounce via the client), so anonymous users see a
- * hint. Parent checkboxes cascade to their sub-regions, like the
- * old inline script.
+ * anonymous POST; the mutation is staff-authed now (401 →
+ * /accounts/login/ bounce via the client, 403 for registered
+ * non-staff), so non-staff users see a hint. Parent checkboxes
+ * cascade to their sub-regions, like the old inline script.
  */
 export default function RegionConfig({ kind }: { kind: Kind }) {
   const { user } = useBootstrap();

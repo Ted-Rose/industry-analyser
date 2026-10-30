@@ -19,7 +19,7 @@ from functools import partial
 from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView
+from accounts.api import router as accounts_router
 from fetcher import views as fetcher
 from fetcher.api import router as vacancies_router
 from tv_programs.api import router as tv_router
@@ -40,6 +40,7 @@ api.add_router('/classified-ads/', classified_ads_router)
 # /api/dashboard/* 401 login_urls back to it.
 api.add_router('/dashboard/', dashboard_router)
 api.add_router('/receipts/', receipts_router)
+api.add_router('/accounts/', accounts_router)
 
 # The vacancies SPA owns both /vacancies/* and /companies/* — the
 # company pages are routes of the same React app (entry
@@ -53,7 +54,7 @@ react_app_companies = partial(
     react_app_public, entry='vacancies', title='Companies',
     landing_desc='Employers behind the scraped vacancies.',
 )
-# Dashboard and receipts are the login-required SPAs — react_app,
+# Dashboard and receipts are the staff-required SPAs — react_app,
 # not the public variant. `landing_title`/`landing_cta`/
 # `landing_desc` are display overrides for the / landing page's
 # mount auto-discovery (react_app swallows them via **kwargs) —
@@ -62,6 +63,12 @@ react_app_dashboard = partial(
     react_app, entry='dashboard', title='Dashboard',
     landing_title='Web scraping results', landing_cta=True,
     landing_desc='Runs, counts and errors for every scraper.',
+)
+# The accounts SPA is the public login/register UI — react_app_public,
+# and 'accounts/' sits in _LANDING_SKIP_ROUTES so the landing page
+# skips it like the other infra mounts.
+react_app_accounts = partial(
+    react_app_public, entry='accounts', title='Sign in'
 )
 
 urlpatterns = [
@@ -77,7 +84,7 @@ urlpatterns = [
     # reverse('home') still resolves to '/'.
     path('', project_views.landing, name='home'),
     # The dashboard SPA moved off the root to /dashboard/ — still
-    # login-required. It has only an index route, but the
+    # staff-required. It has only an index route, but the
     # <path:subpath> mount keeps deep links working.
     path('dashboard/', react_app_dashboard, name='dashboard'),
     path(
@@ -109,13 +116,15 @@ urlpatterns = [
         react_app_companies,
         name='companies_subpath',
     ),
-    # The accounts stub page is retired — 301 to the landing page;
-    # the name is kept so any reverse('accounts') caller still
-    # resolves.
+    # The accounts SPA — public login/register pages plus the
+    # account index. The 'accounts' name is kept so reverse()
+    # callers still resolve; the catch-all serves client routes
+    # (/accounts/login/, /accounts/register/).
+    path('accounts/', react_app_accounts, name='accounts'),
     path(
-        'accounts/',
-        RedirectView.as_view(url='/', permanent=True),
-        name='accounts',
+        'accounts/<path:subpath>',
+        react_app_accounts,
+        name='accounts_subpath',
     ),
     path(
         'add_keyword/',

@@ -151,8 +151,10 @@
   }
 
   /* Button treatment for Saglabāt and the disabled Klausīties
-     button — matches ui/Button primary (h-10, disabled fade). */
-  .news-prose button:not(.story-toggle) {
+     button — matches ui/Button primary (h-10, disabled fade).
+     .audio-btn is exempted — it stays a subtle link-style
+     trigger (see the audio-bar rules below). */
+  .news-prose button:not(.story-toggle):not(.audio-btn) {
     display: inline-flex;
     height: 2.5rem;
     align-items: center;
@@ -167,11 +169,11 @@
     cursor: pointer;
   }
 
-  .news-prose button:not(.story-toggle):hover {
+  .news-prose button:not(.story-toggle):not(.audio-btn):hover {
     background-color: var(--ia-accent-hover);
   }
 
-  .news-prose button:not(.story-toggle):disabled {
+  .news-prose button:not(.story-toggle):not(.audio-btn):disabled {
     cursor: not-allowed;
     opacity: 0.5;
   }
@@ -202,5 +204,41 @@
     .prefs input[type='number'] {
       font-size: 0.875rem;
     }
+  }
+
+  /* Audio bar (news/audio.js) — the per-item ▶ triggers stay
+     subtle link-style buttons so they don't compete with real
+     actions; .audio-stop keeps the .news-prose primary-button
+     treatment. */
+  .audio-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .audio-btn {
+    padding: 0 0.125rem;
+    border: 0;
+    background: none;
+    color: var(--ia-accent-text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .audio-btn:hover {
+    text-decoration: underline;
+  }
+
+  .audio-btn[data-state='loading']::after {
+    content: '⏳';
+  }
+
+  .audio-btn[data-state='error'] {
+    color: var(--ia-fg-subtle);
+  }
+
+  .audio-btn[data-state='error']::after {
+    content: '⚠';
   }
 }

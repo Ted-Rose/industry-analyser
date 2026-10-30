@@ -13,7 +13,7 @@ const PRECACHE_URLS = [OFFLINE_URL];
 // Paths the worker must never serve from cache — auth flows and, most
 // importantly, /api/ JSON (a stale API response would silently corrupt
 // SPA state).
-const BYPASS_PATHS = ['/admin', '/api'];
+const BYPASS_PATHS = ['/admin', '/api', '/accounts'];
 
 self.addEventListener('install', event => {
     // skipWaiting inside waitUntil so installation can't report
