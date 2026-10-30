@@ -50,6 +50,9 @@ export interface BadgeProps {
   size?: BadgeSize;
   /** Renders an <a> (external links — portal, site ↗). */
   href?: string;
+  /** Anchor target/rel — only meaningful with `href`. */
+  target?: string;
+  rel?: string;
   className?: string;
   children: ReactNode;
 }
@@ -64,6 +67,8 @@ export function Badge({
   variant = 'subtle',
   size = 'sm',
   href,
+  target,
+  rel,
   className,
   children,
 }: BadgeProps) {
@@ -71,6 +76,8 @@ export function Badge({
   return (
     <Component
       href={href}
+      target={href ? target : undefined}
+      rel={href ? rel : undefined}
       className={cx(
         'inline-flex items-center gap-1 font-medium ' +
           'whitespace-nowrap',

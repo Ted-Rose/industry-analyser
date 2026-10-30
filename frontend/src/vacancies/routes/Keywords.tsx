@@ -1,8 +1,15 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useAddKeyword } from '../mutations';
 import { errorDetail } from '../../shared/api/errors';
 import { useBootstrap } from '../../shared/hooks/useBootstrap';
+import PageContainer, {
+  PageHeader,
+} from '../../shared/layout/PageContainer';
+import { Alert } from '../../shared/ui/ErrorState';
+import Button from '../../shared/ui/Button';
+import Checkbox from '../../shared/ui/Checkbox';
+import Field from '../../shared/ui/Field';
+import Input from '../../shared/ui/Input';
 
 /**
  * React replacement for the retired /add_keyword/ page (301'd here).
@@ -36,65 +43,45 @@ export default function Keywords() {
   };
 
   return (
-    <div className="container py-4 vacancies-page">
-      <Link to="/vacancies" className="back-link">
-        ← Back to Vacancies
-      </Link>
-      <h1 className="text-center">Add Keyword</h1>
+    <PageContainer width="narrow">
+      <PageHeader
+        back={{ to: '/vacancies', label: 'Back to Vacancies' }}
+        title="Add Keyword"
+      />
       {!user && (
-        <p className="text-muted text-center">
-          Adding a keyword requires an admin login — submitting will
-          send you to the sign-in page.
-        </p>
+        <Alert tone="info" className="mb-4">
+          Adding a keyword requires an admin login — submitting
+          will send you to the sign-in page.
+        </Alert>
       )}
-      <form
-        onSubmit={submit}
-        className="mx-auto"
-        style={{ maxWidth: '480px' }}
-      >
-        <div className="mb-3">
-          <label htmlFor="keyword-name">Name:</label>
-          <input
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Name:" htmlFor="keyword-name">
+          <Input
             type="text"
             id="keyword-name"
             name="name"
-            className="form-control"
             required
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
-        </div>
-        <div className="mb-3">
-          <label htmlFor="only_filter" className="me-2">
-            Only filter:
-          </label>
-          <input
-            type="checkbox"
-            id="only_filter"
-            name="only_filter"
-            className="form-check-input"
-            checked={onlyFilter}
-            onChange={(e) => setOnlyFilter(e.target.checked)}
-          />
-        </div>
-        {message && (
-          <div className="alert alert-success py-2" role="alert">
-            {message}
-          </div>
-        )}
+        </Field>
+        <Checkbox
+          id="only_filter"
+          name="only_filter"
+          label="Only filter:"
+          checked={onlyFilter}
+          onChange={(e) => setOnlyFilter(e.target.checked)}
+        />
+        {message && <Alert tone="success">{message}</Alert>}
         {error && (
-          <div className="alert alert-danger py-2" role="alert">
-            Error: {error}
-          </div>
+          <Alert tone="danger">Error: {error}</Alert>
         )}
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={addKeyword.isPending}
-        >
-          {addKeyword.isPending ? 'Adding…' : 'Add Keyword'}
-        </button>
+        <div className="flex justify-end">
+          <Button type="submit" loading={addKeyword.isPending}>
+            Add Keyword
+          </Button>
+        </div>
       </form>
-    </div>
+    </PageContainer>
   );
 }

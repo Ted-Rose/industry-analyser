@@ -79,7 +79,6 @@ SPA_ENTRY_RE = re.compile(r'[a-z0-9_]+')
 # {% if legacy_bootstrap %}.
 LEGACY_BOOTSTRAP_ENTRIES = {
     'accounts',
-    'vacancies',
     'classified_ads',
 }
 

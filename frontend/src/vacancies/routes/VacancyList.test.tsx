@@ -207,7 +207,7 @@ describe('VacancyList', () => {
   });
 
   it('checks the professions named in the URL and renders the badge', async () => {
-    const { container } = renderList(
+    renderList(
       '/vacancies?include_professions=software-developer',
     );
     await screen.findAllByText('Python developer');
@@ -221,9 +221,9 @@ describe('VacancyList', () => {
     for (const box of screen.getAllByLabelText('qa-engineer')) {
       expect(box).not.toBeChecked();
     }
-    expect(
-      container.querySelector('.profession-tag'),
-    ).toHaveTextContent('software-developer');
+    expect(screen.getByTestId('profession-tags')).toHaveTextContent(
+      'software-developer',
+    );
   });
 
   it('stages profession checkboxes until Search is pressed', async () => {
@@ -281,35 +281,33 @@ describe('VacancyList', () => {
   });
 
   it('renders the mobile card layout alongside the table', async () => {
-    const { container } = renderList('/vacancies');
+    renderList('/vacancies');
     await screen.findAllByText('Python developer');
     expect(
-      container.querySelector('.d-md-none'),
+      screen.getByTestId('vacancy-card'),
     ).toBeInTheDocument();
-    expect(
-      container.querySelector('.d-none.d-md-block table'),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
   });
 
   it('collapses and reopens the filter card', async () => {
-    const { container } = renderList('/vacancies');
+    renderList('/vacancies');
     await screen.findAllByText('Python developer');
     const toggle = screen.getByRole('button', { name: 'Filters' });
-    // Open by default.
+    // Collapsed by default — the mobile-collapsible FilterBar
+    // opens on demand (it stays open ≥md via md:grid).
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    // jsdom ignores the hidden class — assert it leaves the body.
+    const region = document.getElementById(
+      toggle.getAttribute('aria-controls')!,
+    )!;
+    expect(region).not.toHaveClass('hidden');
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    // jsdom ignores d-none — assert the class lands on the body.
-    expect(
-      container.querySelector('.filter-card > .card-body'),
-    ).toHaveClass('d-none');
-
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(
-      container.querySelector('.filter-card > .card-body'),
-    ).not.toHaveClass('d-none');
+    expect(region).toHaveClass('hidden');
   });
 
   it('renders a badge next to liked/disliked company names', async () => {
@@ -465,7 +463,6 @@ describe('VacancyList saved filters', () => {
     setBootstrap({ user: 'alice' });
     mockAuthedGet([makeSavedFilter()]);
     mockedApiDelete.mockResolvedValue(undefined);
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     // Entry params match the preset — derived selection shows it,
     // so the per-preset buttons render.
     renderList(
@@ -476,6 +473,12 @@ describe('VacancyList saved filters', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: 'Delete' }),
     );
+    // The confirm dialog's Delete button is the second one in
+    // DOM order (the bar's stays mounted behind the dialog).
+    const dialogDelete = (
+      await screen.findAllByRole('button', { name: 'Delete' })
+    ).at(-1);
+    fireEvent.click(dialogDelete!);
     await waitFor(() =>
       expect(mockedApiDelete).toHaveBeenCalledWith(
         '/api/vacancies/filters/' +
@@ -502,7 +505,6 @@ describe('VacancyList saved filters', () => {
         include_industries: [],
       }),
     );
-    vi.spyOn(window, 'prompt').mockReturnValue('My filter');
     renderList(
       '/vacancies?include_keywords=python&show_active_only=1&page=3',
     );
@@ -516,6 +518,10 @@ describe('VacancyList saved filters', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Save current' }),
     );
+    fireEvent.change(await screen.findByLabelText('Name'), {
+      target: { value: 'My filter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mockedApiPost).toHaveBeenCalled());
     expect(mockedApiPost).toHaveBeenCalledWith(
@@ -559,7 +565,6 @@ describe('VacancyList saved filters', () => {
         show_active_only: false,
       }),
     );
-    vi.spyOn(window, 'prompt').mockReturnValue('My filter');
     renderList('/vacancies?include_keywords=python&page=3');
     await screen.findAllByText('Python developer');
     const listCalls = () =>
@@ -569,6 +574,10 @@ describe('VacancyList saved filters', () => {
     fireEvent.click(
       screen.getByRole('button', { name: 'Save current' }),
     );
+    fireEvent.change(await screen.findByLabelText('Name'), {
+      target: { value: 'My filter' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(mockedApiPost).toHaveBeenCalled());
     // Nothing staged → no navigation, no refetch, ?page=3 stays.

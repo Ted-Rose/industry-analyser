@@ -158,7 +158,7 @@ class SpaShellContractTests(TestCase):
     def test_bootstrap_cdn_only_for_legacy_entries(self):
         resp = self._shell('accounts')
         self.assertContains(resp, 'cdn.jsdelivr.net/npm/bootstrap')
-        resp = self._shell('blogs')
+        resp = self._shell('vacancies')
         self.assertNotContains(
             resp, 'cdn.jsdelivr.net/npm/bootstrap'
         )
