@@ -85,7 +85,8 @@ export default function Login() {
         </div>
       </form>
       <p className="text-muted text-center mt-3">
-        No account yet? <Link to="/register">Register</Link>
+        No account yet?{' '}
+        <Link to={`/register${search}`}>Register</Link>
       </p>
     </div>
   );

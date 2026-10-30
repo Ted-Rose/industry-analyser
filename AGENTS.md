@@ -38,7 +38,7 @@ doc map but partly stale (see preamble).
 | `blogs/` | Blog pages + AI theme analysis | spoki.lv |
 | `tv_programs/` | TV schedule + movie classif.; `/tv/` | tet.lv |
 | `core_scraper/` | `BaseScraper` + `BaseRefetchCommand` ABCs | — |
-| `accounts/` | Retired stub — `/accounts/` → 301 `/` | — |
+| `accounts/` | `/accounts/` auth SPA + `/api/accounts/` | — |
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
@@ -599,8 +599,12 @@ context.
 - `frontend_dist/` IS committed on purpose (per `.gitignore`:
   Vercel-style deploys ship built assets) — rebuild and recommit
   it when frontend sources change.
-- `accounts/` is a retired stub: `/accounts/` 301-redirects to
-  `/`. `api/` is a one-file stub. Both are intentional.
+- `api/` is a one-file stub — intentional. `accounts/` is the
+  real auth app: public `/accounts/` SPA (login/register/
+  account), the `/api/accounts/` session-auth router,
+  `CaseInsensitiveAuthBackend` for iexact login, and
+  `staff_auth`/`StaffSessionAuth` in
+  `industry_analyser/api.py` gating staff-only ops.
 - `db.sqlite3` exists but is dormant — the default
   `DATABASE_URL` is prod; SQLite is used only via explicit
   override.

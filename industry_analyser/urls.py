@@ -52,7 +52,7 @@ react_app_vacancies = partial(
 react_app_companies = partial(
     react_app_public, entry='vacancies', title='Companies'
 )
-# Dashboard and receipts are the login-required SPAs — react_app,
+# Dashboard and receipts are the staff-required SPAs — react_app,
 # not the public variant. `landing_title`/`landing_cta` are
 # display overrides for the / landing page's mount auto-discovery
 # (react_app swallows them via **kwargs) — the CTA slot is the
@@ -81,7 +81,7 @@ urlpatterns = [
     # reverse('home') still resolves to '/'.
     path('', project_views.landing, name='home'),
     # The dashboard SPA moved off the root to /dashboard/ — still
-    # login-required. It has only an index route, but the
+    # staff-required. It has only an index route, but the
     # <path:subpath> mount keeps deep links working.
     path('dashboard/', react_app_dashboard, name='dashboard'),
     path(

@@ -2,7 +2,7 @@
 
 Ported from django-apps' django_apps/views.py. One shell view renders
 <div id="root"> plus the {% vite_asset %} tags for a given Vite entry;
-`react_app` (login-required) and `react_app_public` wrap it so every
+`react_app` (staff-required) and `react_app_public` wrap it so every
 app mount shares the same GET/HEAD→shell, non-GET→404 contract.
 """
 import json

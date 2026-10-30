@@ -40,7 +40,7 @@ export default function Register() {
 
   return (
     <div className="container py-4 accounts-page">
-      <Link to="/login" className="back-link">
+      <Link to={`/login${search}`} className="back-link">
         ← Back to Sign in
       </Link>
       <h1 className="text-center">Register</h1>
@@ -124,7 +124,8 @@ export default function Register() {
         </div>
       </form>
       <p className="text-muted text-center mt-3">
-        Already registered? <Link to="/login">Sign in</Link>
+        Already registered?{' '}
+        <Link to={`/login${search}`}>Sign in</Link>
       </p>
     </div>
   );

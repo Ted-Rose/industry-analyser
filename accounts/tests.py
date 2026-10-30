@@ -156,6 +156,33 @@ class RegisterTests(TestCase):
         self.assertEqual(resp.json()['code'], 'password_mismatch')
         self.assertFalse(User.objects.exists())
 
+    def test_overlong_fields_4xx_not_500(self):
+        """Schema caps reject over-long input before create_user —
+        an over-150-char username or over-254-char email would
+        otherwise DataError on Postgres and 500."""
+        resp = post(
+            self.client, self.URL,
+            {**REGISTER_PAYLOAD, 'username': 'a' * 151},
+        )
+        self.assertIn(resp.status_code, (400, 422))
+        resp = post(
+            self.client, self.URL,
+            {**REGISTER_PAYLOAD, 'email': 'a' * 250 + '@x.co'},
+        )
+        self.assertIn(resp.status_code, (400, 422))
+        self.assertFalse(User.objects.exists())
+
+    def test_email_is_stripped(self):
+        resp = post(
+            self.client, self.URL,
+            {**REGISTER_PAYLOAD, 'email': '  a@example.com  '},
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(
+            User.objects.get(username='alice').email,
+            'a@example.com',
+        )
+
     def test_csrf_enforced(self):
         csrf_client = Client(enforce_csrf_checks=True)
         resp = post(csrf_client, self.URL, REGISTER_PAYLOAD)
@@ -298,8 +325,9 @@ class AccessMatrixTests(TestCase):
                     resp.json()['error'], 'forbidden', url
                 )
             else:
-                self.assertNotEqual(resp.status_code, 403, url)
-                self.assertNotEqual(resp.status_code, 401, url)
+                # Success ops on these endpoints return 200 —
+                # a hard assert keeps the matrix honest.
+                self.assertEqual(resp.status_code, 200, url)
 
     def test_staff_gets_403_non_staff_and_401_anonymous(self):
         for url in self.STAFF_GETS:

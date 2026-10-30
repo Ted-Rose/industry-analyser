@@ -39,6 +39,7 @@ from django.db import IntegrityError
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.utils import check_csrf
+from pydantic import Field
 
 from industry_analyser.api import ApiHttpError
 
@@ -60,15 +61,19 @@ class UserOut(Schema):
 
 
 class RegisterIn(Schema):
-    username: str
-    password: str
-    password_confirm: str
-    email: str = ''
+    # Length caps mirror the User columns (username 150, email
+    # 254) — without them an over-long value sails past schema
+    # validation and create_user raises a Postgres DataError
+    # (not IntegrityError) → 500.
+    username: str = Field(max_length=150)
+    password: str = Field(max_length=1024)
+    password_confirm: str = Field(max_length=1024)
+    email: str = Field(default='', max_length=254)
 
 
 class LoginIn(Schema):
-    username: str
-    password: str
+    username: str = Field(max_length=150)
+    password: str = Field(max_length=1024)
 
 
 class AuthOut(Schema):
@@ -87,7 +92,13 @@ class SuccessOut(Schema):
 def _enforce_csrf(request):
     """The CSRF enforcement cookie-auth handlers get for free, run
     inline for auth=None ops — same 403 HttpError SessionAuth
-    raises, so the body stays in the uniform error contract."""
+    raises, so the body stays in the uniform error contract.
+
+    Ordering note: ninja parses/validates the request body before
+    the view callable runs, so this check happens after body
+    parsing (SessionAuth would run it during auth, before parse).
+    A bad-CSRF request with a malformed body therefore 422s where
+    a SessionAuth endpoint would 403 — cosmetic only."""
     if check_csrf(request) is not None:
         raise HttpError(403, 'CSRF check Failed')
 
@@ -96,7 +107,7 @@ def _enforce_csrf(request):
 def register(request, payload: RegisterIn):
     _enforce_csrf(request)
     username = payload.username
-    email = payload.email or ''
+    email = (payload.email or '').strip()
     if not _NO_WHITESPACE_RE.fullmatch(username or ''):
         raise ApiHttpError(
             400, 'Username may not contain whitespace.',

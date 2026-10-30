@@ -34,9 +34,12 @@ class CaseInsensitiveAuthBackend(ModelBackend):
             return None
         except User.MultipleObjectsReturned:
             matches = User.objects.filter(username__iexact=username)
+            # order_by('id') keeps the fallback deterministic —
+            # an unordered .first() follows whatever the DB
+            # planner happens to return.
             user = next(
                 (u for u in matches if u.username == username),
-                matches.first(),
+                matches.order_by('id').first(),
             )
 
         if (
