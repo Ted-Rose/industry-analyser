@@ -63,7 +63,12 @@ export default function RentVsBuy() {
       ? groupParam
       : 'type';
   const params = {
-    days: searchParams.get('days'),
+    // Houses default to a 90-day window in the input but the API
+    // default is 30 — send the kind-aware default so the query
+    // matches what the input shows. Apartment's 30 is already
+    // the API default — only non-default values ride the query.
+    days:
+      searchParams.get('days') ?? (kind === 'house' ? '90' : null),
     minAds: searchParams.get('min_ads'),
     includeResidual: searchParams.get('residual') === '1',
     // 'type' is the API default — only non-default modes ride
@@ -257,9 +262,11 @@ export default function RentVsBuy() {
           {data.n_residual_cells > 0 &&
             data.residual.length === 0 && (
               <p className="text-muted mt-2">
-                {data.n_residual_cells} more cell
-                {data.n_residual_cells === 1 ? '' : 's'} pass the
-                gate in residual regions — enable "Include
+                {data.n_residual_cells} more{' '}
+                {data.n_residual_cells === 1
+                  ? 'cell passes'
+                  : 'cells pass'}{' '}
+                the gate in residual regions — enable "Include
                 residual regions" to see them.
               </p>
             )}

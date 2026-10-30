@@ -899,9 +899,10 @@ class ClassifiedAdsApiTests(TestCase):
     def test_rvb_ranked_rent_price_per_sqm_band(self):
         """Rent rows outside 2–50 €/m² never feed the ranking:
         under the floor sits daily-rate junk, over the cap sits
-        mislisted sale prices that slipped is_sale_misclassified."""
+        mislisted sale prices that slipped is_sale_misclassified.
+        The band is inclusive — 2.0 and 50.0 €/m² both count."""
         today = date.today()
-        for ppsm in (1.0, 9.0, 100.0):
+        for ppsm in (1.0, 2.0, 9.0, 50.0, 100.0):
             ApartmentForRentSighting.objects.create(
                 ad=self._rent_ad(
                     region=self.child,
@@ -913,7 +914,7 @@ class ClassifiedAdsApiTests(TestCase):
             ad=self._sale_ad(region=self.child), seen_on=today
         )
         row = self._ranked(min_ads=1).json()['results'][0]
-        self.assertEqual(row['n_rent_ads'], 1)
+        self.assertEqual(row['n_rent_ads'], 3)
         self.assertEqual(row['median_monthly_rent_per_sqm'], 9.0)
 
     def test_rvb_ranked_gross_yield_pct(self):
@@ -965,9 +966,10 @@ class ClassifiedAdsApiTests(TestCase):
         )
 
     def test_rvb_ranked_group_by_rooms_buckets(self):
-        """group_by=rooms buckets cells on room count —
-        '1r'..'3r', with >=4 folded into '4+r'."""
-        for rooms in (1, 3, 5):
+        """group_by=rooms buckets cells on room count — '0r' for
+        rooms=0 rows, '1r'..'3r', with >=4 folded into '4+r'
+        (n=4 sits on the fold boundary)."""
+        for rooms in (0, 1, 3, 4, 5):
             self._sighted_cell(
                 self.child,
                 dict(monthly_price=300.0, rooms=rooms),
@@ -979,7 +981,7 @@ class ClassifiedAdsApiTests(TestCase):
         ).json()['results']
         self.assertEqual(
             {r['property_type'] for r in rows},
-            {'1r', '3r', '4+r'},
+            {'0r', '1r', '3r', '4+r'},
         )
 
     def test_rvb_ranked_group_by_rooms_houses_empty(self):

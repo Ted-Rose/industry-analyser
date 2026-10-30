@@ -92,6 +92,8 @@ describe('RentVsBuy', () => {
     );
     expect(url).toContain('kind=apartment');
     expect(url).not.toContain('include_residual');
+    // 30 is the API default — it doesn't ride the query.
+    expect(url).not.toContain('days=');
   });
 
   it('passes kind/days/min_ads/residual params through', async () => {
@@ -267,5 +269,8 @@ describe('RentVsBuy', () => {
     renderPage('/rent-vs-buy?kind=house');
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
     expect(screen.getByLabelText('Window (days)')).toHaveValue(90);
+    // The kind-aware default is sent too — the displayed filter
+    // must match the actual data window.
+    expect(calledUrls()[0]).toContain('days=90');
   });
 });

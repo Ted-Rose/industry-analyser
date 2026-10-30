@@ -1188,7 +1188,7 @@ def rent_vs_buy_ranked(
     # Cell dimension alongside the region: 'type' splits on the
     # property type (project / house_type), 'region' merges all
     # types into one 'All' cell per region, 'rooms' buckets on
-    # room count ('1r'–'3r', '4+r').
+    # room count ('0r'–'3r', '4+r').
     group_by: Literal['type', 'region', 'rooms'] = 'type',
 ):
     """Ranked rent-vs-buy view — cells of (exact region node x
@@ -1209,9 +1209,10 @@ def rent_vs_buy_ranked(
 
     `group_by` picks the second cell key: 'type' (default) is
     the property type, 'region' merges types into one 'All'
-    cell per region, 'rooms' buckets on rooms ('1r'–'3r',
-    '4+r'). kind=house with group_by='rooms' returns an empty
-    report — house rows carry rooms=0."""
+    cell per region, 'rooms' buckets on rooms ('0r'–'3r',
+    '4+r' — rooms=0 rows land in '0r'). kind=house with
+    group_by='rooms' returns an empty report — house rows
+    carry rooms=0."""
     date_to = date.today()
     date_from = date_to - timedelta(days=days)
     if kind == 'house' and group_by == 'rooms':

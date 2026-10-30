@@ -387,9 +387,10 @@ export interface paths {
          *
          *     `group_by` picks the second cell key: 'type' (default) is
          *     the property type, 'region' merges types into one 'All'
-         *     cell per region, 'rooms' buckets on rooms ('1r'–'3r',
-         *     '4+r'). kind=house with group_by='rooms' returns an empty
-         *     report — house rows carry rooms=0.
+         *     cell per region, 'rooms' buckets on rooms ('0r'–'3r',
+         *     '4+r' — rooms=0 rows land in '0r'). kind=house with
+         *     group_by='rooms' returns an empty report — house rows
+         *     carry rooms=0.
          */
         get: operations["classified_ads_api_rent_vs_buy_ranked"];
         put?: never;
