@@ -1757,6 +1757,17 @@ class TextToAudioTests(TestCase):
         self.assertEqual(sign['service_account_email'], 'run@sa')
         self.assertEqual(sign['access_token'], 'tok')
 
+    def test_auth_requests_cloud_platform_scope(self):
+        # The access token is also handed to the iamcredentials
+        # signBlob API — devstorage.*-only scopes 403 there.
+        with self._pipeline() as m:
+            text_to_audio('Sveiki')
+        scopes = m.auth.call_args.kwargs['scopes']
+        self.assertEqual(
+            scopes,
+            ['https://www.googleapis.com/auth/cloud-platform'],
+        )
+
     def test_sa_creds_sign_without_signblob_kwargs(self):
         creds = Mock(spec=service_account.Credentials)
         with self._pipeline(creds=creds) as m:
