@@ -928,6 +928,11 @@ class ReceiptsApiTests(TestCase):
 
     def test_api_no_admin_user_reports_empty(self):
         self.user.delete()   # cascades to the receipt
+        # Session auth requires *a* user — a non-admin login still
+        # gets the graceful owner-missing payload.
+        other = get_user_model().objects.create_user(
+            username='other', password='x')
+        self.client.force_login(other)
         resp = self.client.get(self.API)
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
