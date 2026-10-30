@@ -896,6 +896,127 @@ class ClassifiedAdsApiTests(TestCase):
         row = self._ranked(min_ads=1).json()['results'][0]
         self.assertEqual(row['n_sale_ads'], 1)
 
+    def test_rvb_ranked_rent_price_per_sqm_band(self):
+        """Rent rows outside 2–50 €/m² never feed the ranking:
+        under the floor sits daily-rate junk, over the cap sits
+        mislisted sale prices that slipped is_sale_misclassified."""
+        today = date.today()
+        for ppsm in (1.0, 9.0, 100.0):
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child,
+                    monthly_price_per_sqm=ppsm,
+                ),
+                seen_on=today,
+            )
+        ApartmentForSaleSighting.objects.create(
+            ad=self._sale_ad(region=self.child), seen_on=today
+        )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_rent_ads'], 1)
+        self.assertEqual(row['median_monthly_rent_per_sqm'], 9.0)
+
+    def test_rvb_ranked_gross_yield_pct(self):
+        """gross_yield_pct is the inverse metric in percent —
+        1200 / months_to_buyout (annual rent over price)."""
+        self._sighted_cell(
+            self.child,
+            dict(monthly_price=300.0),
+            dict(total_price=30000.0),
+        )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertAlmostEqual(row['months_to_buyout'], 100.0)
+        self.assertAlmostEqual(row['gross_yield_pct'], 12.0)
+
+    def test_rvb_ranked_group_by_region_merges_cells(self):
+        """group_by=region keys cells on region only — type
+        splits that each fail min_ads merge into one 'All'
+        cell that passes."""
+        panelai = Project.objects.create(name='Panelai')
+        m602 = Project.objects.create(name='602.')
+        self._sighted_cell(
+            self.child,
+            dict(monthly_price=300.0, project=panelai),
+            dict(total_price=30000.0, project=panelai),
+            n=1,
+        )
+        self._sighted_cell(
+            self.child,
+            dict(monthly_price=400.0, project=m602),
+            dict(total_price=80000.0, project=m602),
+            n=1,
+        )
+        # Default 'type' split: neither project cell reaches
+        # min_ads=2 on its own.
+        self.assertEqual(
+            self._ranked(min_ads=2).json()['results'], []
+        )
+        rows = self._ranked(
+            min_ads=2, group_by='region'
+        ).json()['results']
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['property_type'], 'All')
+        self.assertEqual(row['n_rent_ads'], 2)
+        self.assertEqual(row['n_sale_ads'], 2)
+        # Median rent 350, median price 55000 → ~157.1 months.
+        self.assertAlmostEqual(
+            row['months_to_buyout'], 55000.0 / 350.0
+        )
+
+    def test_rvb_ranked_group_by_rooms_buckets(self):
+        """group_by=rooms buckets cells on room count —
+        '1r'..'3r', with >=4 folded into '4+r'."""
+        for rooms in (1, 3, 5):
+            self._sighted_cell(
+                self.child,
+                dict(monthly_price=300.0, rooms=rooms),
+                dict(total_price=30000.0, rooms=rooms),
+                n=1,
+            )
+        rows = self._ranked(
+            min_ads=1, group_by='rooms'
+        ).json()['results']
+        self.assertEqual(
+            {r['property_type'] for r in rows},
+            {'1r', '3r', '4+r'},
+        )
+
+    def test_rvb_ranked_group_by_rooms_houses_empty(self):
+        """House rows all carry rooms=0 — kind=house with
+        group_by=rooms short-circuits to an empty report."""
+        today = date.today()
+        HouseForRentSighting.objects.create(
+            ad=self._house_rent_ad(), seen_on=today
+        )
+        HouseForSaleSighting.objects.create(
+            ad=self._house_sale_ad(), seen_on=today
+        )
+        body = self._ranked(
+            kind='house', group_by='rooms', min_ads=1
+        ).json()
+        self.assertEqual(body['results'], [])
+        self.assertEqual(body['residual'], [])
+        self.assertEqual(body['n_residual_cells'], 0)
+
+    def test_rvb_ranked_bad_group_by_422s(self):
+        resp = self._ranked(group_by='bogus')
+        self.assertEqual(resp.status_code, 422)
+
+    def test_rvb_ranked_n_residual_cells(self):
+        """n_residual_cells counts gate-passing residual cells
+        even when `residual` stays empty (include_residual off)."""
+        # Ads on 'Riga' (a parent node) are residual.
+        self._sighted_cell(self.region, {}, {})
+        self._sighted_cell(self.child, {}, {})
+        body = self._ranked(min_ads=1).json()
+        self.assertEqual(len(body['results']), 1)
+        self.assertEqual(body['residual'], [])
+        self.assertEqual(body['n_residual_cells'], 1)
+        body = self._ranked(min_ads=1, include_residual=1).json()
+        self.assertEqual(len(body['residual']), 1)
+        self.assertEqual(body['n_residual_cells'], 1)
+
     def test_rvb_ranked_residual_parent_regions(self):
         """Ads on a parent node are residual — hidden by default,
         flagged under `residual` with include_residual. A
@@ -941,7 +1062,7 @@ class ClassifiedAdsApiTests(TestCase):
 
     def test_rvb_ranked_paired_properties(self):
         """Same-unit pairs: properties linked to both a rent and
-        a sale ad get a paired median at >=5 pairs."""
+        a sale ad get a paired median at >=3 pairs."""
         today = date.today()
         for i in range(5):
             prop = ApartmentProperty.objects.create(
@@ -977,23 +1098,73 @@ class ClassifiedAdsApiTests(TestCase):
             row['paired_months_to_buyout'], 300.0
         )
 
-    def test_rvb_ranked_pairs_under_five_null(self):
-        """Under 5 same-unit pairs the paired median stays null;
+    def test_rvb_ranked_paired_at_three_pairs(self):
+        """Exactly 3 same-unit pairs now yields a paired median —
+        the RVB_MIN_PAIRS threshold lowered from 5 to 3 because
+        paired properties are rare (~100 globally)."""
+        today = date.today()
+        for i in range(3):
+            prop = ApartmentProperty.objects.create(
+                district='Centrs',
+                street_name='Čaka iela',
+                street_no=str(i + 1),
+                rooms=2,
+                size=50.0,
+                floor=3,
+                max_floor=5,
+                first_seen=timezone.now(),
+                last_seen=timezone.now(),
+            )
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child, monthly_price=500.0,
+                    property=prop, property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child,
+                    total_price=50000.0 * (i + 1),
+                    property=prop, property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_paired_properties'], 3)
+        # Pair ratios are 100, 200, 300 → median 200.
+        self.assertAlmostEqual(
+            row['paired_months_to_buyout'], 200.0
+        )
+
+    def test_rvb_ranked_pairs_under_three_null(self):
+        """Under 3 same-unit pairs the paired median stays null;
         unmatched ads (status 'unmatched') never pair."""
         today = date.today()
-        prop = ApartmentProperty.objects.create(
-            district='Centrs', street_name='Čaka iela',
-            street_no='1', rooms=2, size=50.0, floor=3,
-            max_floor=5, first_seen=timezone.now(),
-            last_seen=timezone.now(),
-        )
-        ApartmentForRentSighting.objects.create(
-            ad=self._rent_ad(
-                region=self.child, property=prop,
-                property_match_status='auto',
-            ),
-            seen_on=today,
-        )
+        for i in range(2):
+            prop = ApartmentProperty.objects.create(
+                district='Centrs', street_name='Čaka iela',
+                street_no=str(i + 1), rooms=2, size=50.0, floor=3,
+                max_floor=5, first_seen=timezone.now(),
+                last_seen=timezone.now(),
+            )
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child, property=prop,
+                    property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child, property=prop,
+                    property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+        # An unmatched rent ad never pairs, even on a linked
+        # property.
+        prop = ApartmentProperty.objects.get(street_no='1')
         ApartmentForRentSighting.objects.create(
             ad=self._rent_ad(
                 region=self.child, property=prop,
@@ -1001,15 +1172,8 @@ class ClassifiedAdsApiTests(TestCase):
             ),
             seen_on=today,
         )
-        ApartmentForSaleSighting.objects.create(
-            ad=self._sale_ad(
-                region=self.child, property=prop,
-                property_match_status='auto',
-            ),
-            seen_on=today,
-        )
         row = self._ranked(min_ads=1).json()['results'][0]
-        self.assertEqual(row['n_paired_properties'], 1)
+        self.assertEqual(row['n_paired_properties'], 2)
         self.assertIsNone(row['paired_months_to_buyout'])
 
     def test_rvb_ranked_house_kind(self):

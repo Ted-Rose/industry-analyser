@@ -31,6 +31,7 @@ function makeRow(
     median_total_price: 60000,
     months_to_buyout: 150,
     years_to_buyout: 12.5,
+    gross_yield_pct: 8,
     median_monthly_rent_per_sqm: 8,
     median_sale_price_per_sqm: 1200,
     price_to_rent_ratio_per_sqm: 150,
@@ -54,6 +55,7 @@ function makeOut(
     date_to: '2024-05-31',
     results: [makeRow()],
     residual: [],
+    n_residual_cells: 0,
     ...overrides,
   };
 }
@@ -143,5 +145,127 @@ describe('RentVsBuy', () => {
     await screen.findByText('Rīga / Ķengarags');
     expect(screen.getByText(/Caveats:/)).toBeInTheDocument();
     expect(screen.getByText(/room-share/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/net yield is typically/),
+    ).toBeInTheDocument();
+  });
+
+  it('renders the yield column after Years', async () => {
+    renderPage();
+    await screen.findByText('Rīga / Ķengarags');
+    expect(screen.getByText('Yield %')).toBeInTheDocument();
+    // 1200 / 150 months = 8.0%.
+    expect(screen.getByText('8.0')).toBeInTheDocument();
+  });
+
+  it('is null-safe on the yield column', async () => {
+    mockedApiGet.mockResolvedValue(
+      makeOut({
+        results: [makeRow({ gross_yield_pct: null })],
+      }),
+    );
+    renderPage();
+    const cell = await screen.findByText('Rīga / Ķengarags');
+    expect(cell.closest('tr')).toHaveTextContent('—');
+  });
+
+  it('renders the group segmented control', async () => {
+    renderPage();
+    expect(
+      screen.getByRole('link', { name: 'By type' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'By region' }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: 'By rooms' }),
+    ).toBeInTheDocument();
+  });
+
+  it('sends group_by from the group URL param', async () => {
+    renderPage('/rent-vs-buy?group=region');
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    expect(calledUrls()[0]).toContain('group_by=region');
+  });
+
+  it('sends no group_by by default', async () => {
+    renderPage();
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    expect(calledUrls()[0]).not.toContain('group_by');
+  });
+
+  it('labels the group column per mode', async () => {
+    renderPage('/rent-vs-buy?group=rooms');
+    await screen.findByText('Rīga / Ķengarags');
+    expect(screen.getByText('Rooms')).toBeInTheDocument();
+  });
+
+  it('flags paired medians under five pairs with †', async () => {
+    mockedApiGet.mockResolvedValue(
+      makeOut({
+        results: [
+          makeRow({
+            n_paired_properties: 3,
+            paired_months_to_buyout: 90,
+          }),
+        ],
+      }),
+    );
+    renderPage();
+    const cell = await screen.findByText('Rīga / Ķengarags');
+    expect(cell.closest('tr')).toHaveTextContent('90.0 †');
+  });
+
+  it('does not flag paired medians at five or more pairs', async () => {
+    mockedApiGet.mockResolvedValue(
+      makeOut({
+        results: [
+          makeRow({
+            n_paired_properties: 5,
+            paired_months_to_buyout: 90,
+          }),
+        ],
+      }),
+    );
+    renderPage();
+    const cell = await screen.findByText('Rīga / Ķengarags');
+    expect(cell.closest('tr')).toHaveTextContent('90.0');
+    expect(cell.closest('tr')).not.toHaveTextContent('†');
+  });
+
+  it('hints at hidden residual cells from n_residual_cells', async () => {
+    mockedApiGet.mockResolvedValue(
+      makeOut({ n_residual_cells: 4, residual: [] }),
+    );
+    renderPage();
+    await screen.findByText(
+      /4 more cells pass the gate in residual regions/,
+    );
+  });
+
+  it('hides the residual hint when residual rows are shown', async () => {
+    mockedApiGet.mockResolvedValue(
+      makeOut({
+        n_residual_cells: 1,
+        residual: [
+          makeRow({
+            region_label: 'Rīga',
+            is_residual: true,
+            region: { id: 1, name: 'Rīga' },
+          }),
+        ],
+      }),
+    );
+    renderPage('/rent-vs-buy?residual=1');
+    await screen.findByText(/Residual regions/);
+    expect(
+      screen.queryByText(/more cells pass the gate/),
+    ).toBeNull();
+  });
+
+  it('defaults the days input to 90 for houses', async () => {
+    renderPage('/rent-vs-buy?kind=house');
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    expect(screen.getByLabelText('Window (days)')).toHaveValue(90);
   });
 });

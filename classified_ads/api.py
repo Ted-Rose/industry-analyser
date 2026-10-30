@@ -55,12 +55,17 @@ HOUSE_REGION_URL = '/homes-summer-residences/'
 
 # Ranked rent-vs-buy thresholds: sale rows under this €/m² are
 # land/garage residue, not dwellings; rent rows outside ('',
-# 'month') rate_period are short-stay monthlyized prices.
+# 'month') rate_period are short-stay monthlyized prices. The
+# rent per-m² band is a second line of defence under
+# is_sale_misclassified: below the floor sits daily-rate junk,
+# above the cap sit sale-priced "rents" (real lets run 4–20).
 RVB_MIN_SALE_PRICE_PER_SQM = 10.0
+RVB_MIN_RENT_PRICE_PER_SQM = 2.0
+RVB_MAX_RENT_PRICE_PER_SQM = 50.0
 RVB_RENT_RATE_PERIODS = ('', 'month')
 RVB_SIZE_BAND_LO = 0.8
 RVB_SIZE_BAND_HI = 1.25
-RVB_MIN_PAIRS = 5
+RVB_MIN_PAIRS = 3
 
 Kind = Literal['apartment', 'house']
 Deal = Literal['rent', 'sale']
@@ -353,19 +358,25 @@ class RentVsBuyOut(Schema):
 
 class RentVsBuyRankedRowOut(Schema):
     """One ranked cell of the rent-vs-buy ranking — exact region
-    node (the ad's own region FK, no parent rollup) x property
-    type (project name for apartments, house_type for houses).
+    node (the ad's own region FK, no parent rollup) x the
+    group_by dimension: property type (project name for
+    apartments, house_type for houses), the literal 'All' for
+    group_by='region', or a rooms bucket ('1r'–'3r', '4+r')
+    for group_by='rooms'.
 
     `months_to_buyout` is the headline metric: median whole-unit
     sale price / median monthly rent — months of rent needed to
     cover the purchase (LOWER means buying looks cheap relative
-    to renting). `is_residual` marks rows whose ads sit on a
-    parent region node (or no region at all) instead of a leaf —
-    excluded from `results` unless include_residual is passed,
-    then returned under `residual`. `region` is null only for
-    region-less ads. `paired_months_to_buyout` repeats the metric
-    on same-unit pairs (properties linked to both a rent and a
-    sale ad in the cell) when at least 5 pairs exist."""
+    to renting). `gross_yield_pct` is its inverse in percent:
+    annual median rent / median price x 100 (1200 / months —
+    gross, no vacancy/costs/tax deducted). `is_residual` marks
+    rows whose ads sit on a parent region node (or no region at
+    all) instead of a leaf — excluded from `results` unless
+    include_residual is passed, then returned under `residual`.
+    `region` is null only for region-less ads.
+    `paired_months_to_buyout` repeats the metric on same-unit
+    pairs (properties linked to both a rent and a sale ad in the
+    cell) when at least 3 pairs exist."""
     region: Optional[RegionRefOut]
     region_label: str
     property_type: str
@@ -376,6 +387,7 @@ class RentVsBuyRankedRowOut(Schema):
     median_total_price: Optional[float]
     months_to_buyout: Optional[float]
     years_to_buyout: Optional[float]
+    gross_yield_pct: Optional[float]
     median_monthly_rent_per_sqm: Optional[float]
     median_sale_price_per_sqm: Optional[float]
     # Per-m² twin of months_to_buyout (same "months" units) —
@@ -398,6 +410,10 @@ class RentVsBuyRankedOut(Schema):
     date_to: date
     results: List[RentVsBuyRankedRowOut]
     residual: List[RentVsBuyRankedRowOut]
+    # Count of residual cells that pass the gate — populated even
+    # when `residual` is empty (include_residual off), so the
+    # frontend can hint at hidden cells without shipping rows.
+    n_residual_cells: int
 
 
 class DailySightingsRowOut(Schema):
@@ -773,7 +789,7 @@ def _rent_vs_buy_ranked_row(
     key, rents, sales, regions, parent_ids
 ):
     """Build one RentVsBuyRankedRowOut-shaped dict for a
-    (region_id, property_type) cell. `rents`/`sales` are tuples of
+    (region_id, group_label) cell. `rents`/`sales` are tuples of
     (price, price_per_sqm, size, property_id, match_status) — the
     values_list column order used by the op."""
     region_id, property_type = key
@@ -808,6 +824,8 @@ def _rent_vs_buy_ranked_row(
         'median_total_price': med_sale,
         'months_to_buyout': months,
         'years_to_buyout': months / 12 if months else None,
+        # Annual rent over price — 1200/months, gross figure.
+        'gross_yield_pct': 1200 / months if months else None,
         'median_monthly_rent_per_sqm': med_rent_sqm,
         'median_sale_price_per_sqm': med_sale_sqm,
         'price_to_rent_ratio_per_sqm': (
@@ -1167,22 +1185,48 @@ def rent_vs_buy_ranked(
     days: int = Query(STATS_DEFAULT_DAYS, ge=1, le=365),
     min_ads: int = Query(15, ge=1, le=10000),
     include_residual: bool = False,
+    # Cell dimension alongside the region: 'type' splits on the
+    # property type (project / house_type), 'region' merges all
+    # types into one 'All' cell per region, 'rooms' buckets on
+    # room count ('1r'–'3r', '4+r').
+    group_by: Literal['type', 'region', 'rooms'] = 'type',
 ):
     """Ranked rent-vs-buy view — cells of (exact region node x
-    property type) sorted ascending by `months_to_buyout`, the
-    median whole-unit sale price divided by the median monthly
-    rent of ads active in the window.
+    group_by dimension) sorted ascending by `months_to_buyout`,
+    the median whole-unit sale price divided by the median
+    monthly rent of ads active in the window.
 
     Unlike /regions/rent-vs-buy/ (parent rollup, per-m² ratio)
     this groups by the ad's own region FK and ranks whole-unit
     prices. Rent rows are whole-unit monthly lets only
-    (rate_period in ('', 'month'), is_room_share=False); sale rows
-    under 10 €/m² are dropped as land/garage residue. A cell
-    needs >= min_ads active ads on BOTH sides to rank. Ads parked
-    on a parent region node (or none) are residual — omitted by
-    default, returned under `residual` with include_residual."""
+    (rate_period in ('', 'month'), is_room_share=False) inside a
+    2–50 €/m² sanity band (drops daily-rate junk and mislisted
+    sale prices); sale rows under 10 €/m² are dropped as
+    land/garage residue. A cell needs >= min_ads active ads on
+    BOTH sides to rank. Ads parked on a parent region node (or
+    none) are residual — omitted from `residual` by default but
+    always counted in `n_residual_cells`.
+
+    `group_by` picks the second cell key: 'type' (default) is
+    the property type, 'region' merges types into one 'All'
+    cell per region, 'rooms' buckets on rooms ('1r'–'3r',
+    '4+r'). kind=house with group_by='rooms' returns an empty
+    report — house rows carry rooms=0."""
     date_to = date.today()
     date_from = date_to - timedelta(days=days)
+    if kind == 'house' and group_by == 'rooms':
+        # House rows all carry rooms=0 — a rooms cut would be one
+        # meaningless '0r' cell, so short-circuit to empty.
+        return RentVsBuyRankedOut(
+            kind=kind,
+            days=days,
+            min_ads=min_ads,
+            date_from=date_from,
+            date_to=date_to,
+            results=[],
+            residual=[],
+            n_residual_cells=0,
+        )
     category = 'APARTMENT' if kind == 'apartment' else 'HOUSE'
     if kind == 'apartment':
         rent_model, rent_sightings = (
@@ -1204,12 +1248,29 @@ def rent_vs_buy_ranked(
     def type_label(raw):
         return (raw or '').strip() or unknown_label
 
+    def group_label(raw):
+        # Second cell key per group_by: 'type' keeps the property
+        # type, 'region' merges everything into 'All', 'rooms'
+        # buckets the rooms count (raw is the rooms column then).
+        if group_by == 'region':
+            return 'All'
+        if group_by == 'rooms':
+            n = raw or 0
+            return '4+r' if n >= 4 else f'{n}r'
+        return type_label(raw)
+
+    # For group_by='rooms' the second values_list column is the
+    # rooms count instead of the property-type column.
+    group_field = 'rooms' if group_by == 'rooms' else type_field
+
     rent_rows = rent_model.objects.filter(
         id__in=_sighted_ad_ids(rent_sightings, date_from, date_to),
         rate_period__in=RVB_RENT_RATE_PERIODS,
         is_room_share=False,
+        monthly_price_per_sqm__gte=RVB_MIN_RENT_PRICE_PER_SQM,
+        monthly_price_per_sqm__lte=RVB_MAX_RENT_PRICE_PER_SQM,
     ).values_list(
-        'region_id', type_field, 'monthly_price',
+        'region_id', group_field, 'monthly_price',
         'monthly_price_per_sqm', 'size', 'property_id',
         'property_match_status',
     )
@@ -1217,7 +1278,7 @@ def rent_vs_buy_ranked(
         id__in=_sighted_ad_ids(sale_sightings, date_from, date_to),
         price_per_sqm__gte=RVB_MIN_SALE_PRICE_PER_SQM,
     ).values_list(
-        'region_id', type_field, 'total_price',
+        'region_id', group_field, 'total_price',
         'price_per_sqm', 'size', 'property_id',
         'property_match_status',
     )
@@ -1226,10 +1287,10 @@ def rent_vs_buy_ranked(
     # ad's own region FK; ads on parent nodes are residual.
     rent_cells = defaultdict(list)
     for region_id, raw_type, *rest in rent_rows:
-        rent_cells[(region_id, type_label(raw_type))].append(rest)
+        rent_cells[(region_id, group_label(raw_type))].append(rest)
     sale_cells = defaultdict(list)
     for region_id, raw_type, *rest in sale_rows:
-        sale_cells[(region_id, type_label(raw_type))].append(rest)
+        sale_cells[(region_id, group_label(raw_type))].append(rest)
 
     regions = {
         r.id: r
@@ -1262,6 +1323,7 @@ def rent_vs_buy_ranked(
         date_to=date_to,
         results=results,
         residual=residual if include_residual else [],
+        n_residual_cells=len(residual),
     )
 
 

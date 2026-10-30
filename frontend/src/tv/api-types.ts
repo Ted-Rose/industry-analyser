@@ -370,18 +370,26 @@ export interface paths {
         /**
          * Rent Vs Buy Ranked
          * @description Ranked rent-vs-buy view — cells of (exact region node x
-         *     property type) sorted ascending by `months_to_buyout`, the
-         *     median whole-unit sale price divided by the median monthly
-         *     rent of ads active in the window.
+         *     group_by dimension) sorted ascending by `months_to_buyout`,
+         *     the median whole-unit sale price divided by the median
+         *     monthly rent of ads active in the window.
          *
          *     Unlike /regions/rent-vs-buy/ (parent rollup, per-m² ratio)
          *     this groups by the ad's own region FK and ranks whole-unit
          *     prices. Rent rows are whole-unit monthly lets only
-         *     (rate_period in ('', 'month'), is_room_share=False); sale rows
-         *     under 10 €/m² are dropped as land/garage residue. A cell
-         *     needs >= min_ads active ads on BOTH sides to rank. Ads parked
-         *     on a parent region node (or none) are residual — omitted by
-         *     default, returned under `residual` with include_residual.
+         *     (rate_period in ('', 'month'), is_room_share=False) inside a
+         *     2–50 €/m² sanity band (drops daily-rate junk and mislisted
+         *     sale prices); sale rows under 10 €/m² are dropped as
+         *     land/garage residue. A cell needs >= min_ads active ads on
+         *     BOTH sides to rank. Ads parked on a parent region node (or
+         *     none) are residual — omitted from `residual` by default but
+         *     always counted in `n_residual_cells`.
+         *
+         *     `group_by` picks the second cell key: 'type' (default) is
+         *     the property type, 'region' merges types into one 'All'
+         *     cell per region, 'rooms' buckets on rooms ('1r'–'3r',
+         *     '4+r'). kind=house with group_by='rooms' returns an empty
+         *     report — house rows carry rooms=0.
          */
         get: operations["classified_ads_api_rent_vs_buy_ranked"];
         put?: never;
@@ -1274,23 +1282,31 @@ export interface components {
             results: components["schemas"]["RentVsBuyRankedRowOut"][];
             /** Residual */
             residual: components["schemas"]["RentVsBuyRankedRowOut"][];
+            /** N Residual Cells */
+            n_residual_cells: number;
         };
         /**
          * RentVsBuyRankedRowOut
          * @description One ranked cell of the rent-vs-buy ranking — exact region
-         *     node (the ad's own region FK, no parent rollup) x property
-         *     type (project name for apartments, house_type for houses).
+         *     node (the ad's own region FK, no parent rollup) x the
+         *     group_by dimension: property type (project name for
+         *     apartments, house_type for houses), the literal 'All' for
+         *     group_by='region', or a rooms bucket ('1r'–'3r', '4+r')
+         *     for group_by='rooms'.
          *
          *     `months_to_buyout` is the headline metric: median whole-unit
          *     sale price / median monthly rent — months of rent needed to
          *     cover the purchase (LOWER means buying looks cheap relative
-         *     to renting). `is_residual` marks rows whose ads sit on a
-         *     parent region node (or no region at all) instead of a leaf —
-         *     excluded from `results` unless include_residual is passed,
-         *     then returned under `residual`. `region` is null only for
-         *     region-less ads. `paired_months_to_buyout` repeats the metric
-         *     on same-unit pairs (properties linked to both a rent and a
-         *     sale ad in the cell) when at least 5 pairs exist.
+         *     to renting). `gross_yield_pct` is its inverse in percent:
+         *     annual median rent / median price x 100 (1200 / months —
+         *     gross, no vacancy/costs/tax deducted). `is_residual` marks
+         *     rows whose ads sit on a parent region node (or no region at
+         *     all) instead of a leaf — excluded from `results` unless
+         *     include_residual is passed, then returned under `residual`.
+         *     `region` is null only for region-less ads.
+         *     `paired_months_to_buyout` repeats the metric on same-unit
+         *     pairs (properties linked to both a rent and a sale ad in the
+         *     cell) when at least 3 pairs exist.
          */
         RentVsBuyRankedRowOut: {
             region: components["schemas"]["RegionRefOut"] | null;
@@ -1312,6 +1328,8 @@ export interface components {
             months_to_buyout: number | null;
             /** Years To Buyout */
             years_to_buyout: number | null;
+            /** Gross Yield Pct */
+            gross_yield_pct: number | null;
             /** Median Monthly Rent Per Sqm */
             median_monthly_rent_per_sqm: number | null;
             /** Median Sale Price Per Sqm */
@@ -2314,6 +2332,7 @@ export interface operations {
                 days?: number;
                 min_ads?: number;
                 include_residual?: boolean;
+                group_by?: "type" | "region" | "rooms";
             };
             header?: never;
             path?: never;

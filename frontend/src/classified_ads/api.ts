@@ -252,16 +252,20 @@ export function fetchProperty(
   );
 }
 
+export type RentVsBuyGroup = 'type' | 'region' | 'rooms';
+
 export interface RentVsBuyRankedParams {
   days?: string | null;
   minAds?: string | null;
   includeResidual?: boolean;
+  group?: RentVsBuyGroup | null;
 }
 
 /** GET /api/classified-ads/regions/rent-vs-buy/ranked/ — cells of
- *  (exact region node x property type) ranked ascending by
+ *  (exact region node x group_by dimension) ranked ascending by
  *  months_to_buyout, the median whole-unit sale price over the
- *  median monthly rent. */
+ *  median monthly rent. `group` picks the second cell key:
+ *  property type (default), whole-region merge, or rooms bucket. */
 export function fetchRentVsBuyRanked(
   kind: Kind,
   params: RentVsBuyRankedParams,
@@ -271,6 +275,7 @@ export function fetchRentVsBuyRanked(
   setNumber(qs, 'days', params.days);
   setNumber(qs, 'min_ads', params.minAds);
   if (params.includeResidual) qs.set('include_residual', 'true');
+  if (params.group) qs.set('group_by', params.group);
   return apiGet<RentVsBuyRankedOut>(
     `${API}/regions/rent-vs-buy/ranked/?${qs}`,
   );
