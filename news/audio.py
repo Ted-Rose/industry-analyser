@@ -42,7 +42,10 @@ DetectorFactory.seed = 0
 _LANGUAGES = {'lv', 'en'}
 _DEFAULT_LANG = 'lv'
 _MAX_TEXT_CHARS = 5000
-_GCS_SCOPE = 'https://www.googleapis.com/auth/devstorage.read_write'
+# cloud-platform covers both storage access and the IAM
+# signBlob call behind generate_signed_url — a narrower
+# scope fails signing with ACCESS_TOKEN_SCOPE_INSUFFICIENT.
+_GCS_SCOPES = ['https://www.googleapis.com/auth/cloud-platform']
 
 # Hard cap on stored clips — the endpoint is public, so a
 # flood of unique texts must not grow the bucket unbounded.
@@ -147,7 +150,7 @@ def text_to_audio(text, lang=None, filename=None):
         raise AudioGenerationError('GCS storage not configured')
     blob_name = _blob_name(clean, lang, filename)
     try:
-        credentials, _ = google.auth.default(scopes=[_GCS_SCOPE])
+        credentials, _ = google.auth.default(scopes=_GCS_SCOPES)
         credentials.refresh(Request())
         client = storage.Client(credentials=credentials)
         bucket = client.bucket(bucket_name)
