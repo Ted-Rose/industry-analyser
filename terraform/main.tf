@@ -17,6 +17,13 @@ locals {
     "%s-compute@developer.gserviceaccount.com",
     data.google_project.current.number,
   )
+  # CI deployer SA (GCP_SA_KEY secret) — created outside
+  # terraform, so its email is formatted here the same way
+  # monitoring.tf's deployer_logging_admin member does.
+  deployer_sa_email = format(
+    "industry-analyser-deployer@%s.iam.gserviceaccount.com",
+    var.project_id,
+  )
 }
 
 resource "google_project_service" "apis" {
@@ -305,6 +312,18 @@ resource "google_storage_bucket_iam_member" "audio_admin" {
   bucket = google_storage_bucket.audio_recordings.name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${local.web_runtime_sa_email}"
+}
+
+# The CI deployer SA runs terraform plan/apply: refresh reads the
+# bucket (storage.buckets.get) and apply manages the IAM bindings
+# on it (buckets.getIamPolicy/setIamPolicy). Its project-level
+# roles/storage.objectAdmin covers objects only, so grant
+# storage.admin scoped to this bucket — the same self-grant
+# pattern as deployer_logging_admin in monitoring.tf.
+resource "google_storage_bucket_iam_member" "audio_deployer_admin" {
+  bucket = google_storage_bucket.audio_recordings.name
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${local.deployer_sa_email}"
 }
 
 # generate_signed_url with metadata-server creds goes through
