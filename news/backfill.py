@@ -151,10 +151,12 @@ def normalize_link(url):
 class BackfillStrategy(ABC):
     """How one source's historical listing is walked.
 
-    ``earliest`` is the source's known archive floor —
-    partitions always cover [earliest, until] regardless of
-    ``--since`` (the synced item set must be the full range or
-    sync_items would deactivate the rest).
+    ``earliest`` is the source's known archive floor. The
+    scraper always calls ``enumerate_partitions`` with
+    ``until`` = today — never the user's ``--until`` — so the
+    synced item set is the full range: sync_items deactivates
+    every active item it does not see, and is_active is
+    admin-owned. ``--since``/``--until`` narrow processing only.
     """
 
     earliest = None
@@ -164,6 +166,11 @@ class BackfillStrategy(ABC):
         """Partition objects newest-first. May make HTTP calls
         through ``scraper.make_request`` (index fetches)."""
         raise NotImplementedError
+
+    def skip_link(self, link):
+        """Listing locs that are not article pages — override in
+        strategies whose files mix in non-article URLs."""
+        return False
 
     def iter_article_urls(self, scraper, partition):
         """Fetch the partition's sitemap listing ->
@@ -251,11 +258,19 @@ class ChunkProbeSitemapStrategy(BackfillStrategy):
     (diena, db). The range is a probed ceiling — a chunk that
     404s or fails to parse simply yields zero URLs and still
     completes item_done. Chunks carry no date bounds, so
-    ``--since``/``--until`` never filter them."""
+    ``--since``/``--until`` never filter them. ``exclude_loc``
+    drops non-article locs (diena's /arhivs/ day listings)."""
 
-    def __init__(self, url_pattern, n_range):
+    def __init__(self, url_pattern, n_range, exclude_loc=None):
         self.url_pattern = url_pattern
         self.n_range = sorted(n_range, reverse=True)
+        self.exclude_loc = exclude_loc
+
+    def skip_link(self, link):
+        return (
+            self.exclude_loc is not None
+            and self.exclude_loc.search(link) is not None
+        )
 
     def enumerate_partitions(self, scraper, source, until):
         return [
@@ -330,11 +345,15 @@ class SitemapIndexStrategy(BackfillStrategy):
             if children:
                 break
         if not children:
-            logger.warning(
-                '%s: no sitemap index yielded children matching '
-                '%r', source.slug, self.child_regex.pattern,
+            # Zero matching children means discovery failed
+            # (dead index, non-XML error page) — raising fails
+            # the run before sync_items, where returning []
+            # would deactivate every existing item instead.
+            raise RuntimeError(
+                f'{source.slug}: no sitemap index yielded '
+                f'children matching '
+                f'{self.child_regex.pattern!r}'
             )
-            return []
         children.sort(
             key=lambda c: (c[0] or 0, c[1] or 0), reverse=True,
         )
@@ -383,9 +402,25 @@ class ArchiveMonthStrategy(BackfillStrategy):
     def iter_article_urls(self, scraper, partition):
         first = partition.meta['first']
         last = partition.meta['last']
+        # The walk is up to ``max_pages`` throttled fetches —
+        # --max-minutes must cut it mid-month too. A
+        # deadline-cut walk sets budget_exhausted so the
+        # partition stays pending and is re-walked next run
+        # rather than marked DONE on a partial listing.
+        deadline_passed = getattr(
+            scraper, '_deadline_passed', lambda: False
+        )
         seen = set()
         entries = []
         for page in range(1, self.max_pages + 1):
+            if deadline_passed():
+                scraper.budget_exhausted = True
+                logger.info(
+                    'Deadline reached inside %s page-walk '
+                    'after %d page(s) — partition stays pending',
+                    partition.key, page - 1,
+                )
+                break
             url = self.url_pattern.format(
                 page=page,
                 first=first.strftime('%d.%m.%Y'),
@@ -446,6 +481,11 @@ BACKFILL_STRATEGIES = {
     'diena': ChunkProbeSitemapStrategy(
         'https://www.diena.lv/sitemap-{n}.xml',
         range(1, 16),
+        # sitemap-13 lists /arhivs/ day-listing pages, not
+        # articles — day-page coverage is a planned follow-up.
+        # Skipping the locs (rather than capping the probe at
+        # n=12) keeps any future chunk above 13 in scope.
+        exclude_loc=re.compile(r'/arhivs/'),
     ),
     'db': ChunkProbeSitemapStrategy(
         'https://www.db.lv/sitemap-{n}.xml',
@@ -672,12 +712,21 @@ class NewsBackfillScraper(NewsScraper):
                     source.slug,
                 )
                 continue
-            # An enumeration failure (e.g. a dead sitemap index)
-            # propagates and fails the run rather than syncing
-            # an empty entry set — an empty set would deactivate
-            # the source's existing ScrapeJobItem rows.
+            # Enumeration always runs against today, never
+            # --until: the partitions feed sync_items, which
+            # deactivates every active item it does not see —
+            # and is_active is admin-owned, never re-enabled.
+            # A narrow --until would permanently deactivate the
+            # out-of-range items (a future --until typo would
+            # likewise mint permanently-DONE future partitions);
+            # --since/--until narrow processing only, via
+            # _partition_in_range. An enumeration failure (e.g.
+            # a dead sitemap index) propagates and fails the run
+            # rather than syncing an incomplete entry set —
+            # that would deactivate the source's existing
+            # ScrapeJobItem rows just the same.
             partitions = strategy.enumerate_partitions(
-                self, source, self.until,
+                self, source, timezone.localdate(),
             )
             planned.append((source, strategy, partitions))
         return planned
@@ -765,7 +814,7 @@ class NewsBackfillScraper(NewsScraper):
         results = []
         for entry in entries:
             link = (entry.get('link') or '').strip()
-            if not link:
+            if not link or strategy.skip_link(link):
                 continue
             results.append({
                 # Same fallback id as NewsScraper._parse_item —
@@ -843,7 +892,18 @@ class NewsBackfillScraper(NewsScraper):
                     len(new_results) - len(articles),
                 )
                 break
-            response = self.make_request(result['link'])
+            try:
+                response = self.make_request(result['link'])
+            except Exception as e:
+                # One malformed <loc> (e.g. a URL urllib3
+                # rejects synchronously) must not fail the
+                # partition — every retry would re-hit the
+                # same URL and never reach DONE.
+                logger.warning(
+                    'Skipping %s: fetch raised %s',
+                    result['link'], e,
+                )
+                continue
             fetches += 1
             # ~500-URL partitions run 10+ min — the heartbeat
             # must beat the runner's stale-run sweep.
@@ -856,16 +916,23 @@ class NewsBackfillScraper(NewsScraper):
                     getattr(response, 'status', None),
                 )
                 continue
-            meta = extract_article_metadata(
-                response.data,
-                result['link'],
-                source.slug,
-                getattr(source, 'category_strategy', 'none'),
-            )
-            published_at = (
-                _parse_pubdate(result.get('news_pubdate'))
-                or meta['published_at']
-            )
+            try:
+                meta = extract_article_metadata(
+                    response.data,
+                    result['link'],
+                    source.slug,
+                    getattr(source, 'category_strategy', 'none'),
+                )
+                published_at = (
+                    _parse_pubdate(result.get('news_pubdate'))
+                    or meta['published_at']
+                )
+            except Exception as e:
+                logger.warning(
+                    'Skipping %s: metadata extract raised %s',
+                    result['link'], e,
+                )
+                continue
             if published_at is None:
                 logger.info(
                     'Skipping undateable article %s',
@@ -896,12 +963,14 @@ class NewsBackfillScraper(NewsScraper):
                     | Q(link__in=candidates)
                 )
             )
-            for external_id, link in known.values_list(
-                'external_id', 'link'
+            known_pks = []
+            for pk, external_id, link in known.values_list(
+                'pk', 'external_id', 'link'
             ):
+                known_pks.append(pk)
                 known_ids.add(external_id)
                 known_links.add(link)
-            if known_ids or known_links:
+            if known_pks:
                 if self.dry_run:
                     logger.info(
                         '[dry-run] would bump last_seen on %d '
@@ -909,11 +978,11 @@ class NewsBackfillScraper(NewsScraper):
                         len(known_ids | known_links),
                     )
                 else:
+                    # pk__in reuses the already-evaluated match
+                    # set — re-filtering on ids+links would
+                    # issue the same ~12k-bind OR query twice.
                     NewsArticle.objects.filter(
-                        source=source,
-                    ).filter(
-                        Q(external_id__in=ids)
-                        | Q(link__in=candidates)
+                        pk__in=known_pks
                     ).update(last_seen=timezone.now())
         return [
             r for r in results
@@ -947,8 +1016,11 @@ class NewsBackfillScraper(NewsScraper):
                 continue
             self._active_source = source
             self._active_strategy = strategy
+            # Same contract as _planned_sources: enumerate the
+            # full [earliest, today] range and let
+            # _partition_in_range apply --since/--until.
             for partition in strategy.enumerate_partitions(
-                self, source, self.until
+                self, source, timezone.localdate()
             ):
                 if not self._partition_in_range(partition):
                     continue

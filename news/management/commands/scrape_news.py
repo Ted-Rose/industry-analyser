@@ -97,7 +97,8 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help='Backfill only: process partitions covering '
-                 'YYYY-MM-DD or earlier (default: today)',
+                 'YYYY-MM-DD or earlier (default: today; the '
+                 'synced item set is always the full range)',
         )
         parser.add_argument(
             '--max-minutes',

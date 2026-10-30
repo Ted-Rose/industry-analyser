@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta, timezone as dtz
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.parse import urlparse
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
@@ -28,6 +29,7 @@ from scrape_jobs.models import (
 from scrape_jobs.runner import (
     ScrapeJobRunner,
     cycle_scrape_exists,
+    ensure_job,
 )
 
 from .audio import AudioGenerationError, text_to_audio
@@ -2037,6 +2039,16 @@ BACKFILL_INDEX = b"""<?xml version="1.0" encoding="UTF-8"?>
 </loc></sitemap>
 </sitemapindex>"""
 
+BACKFILL_INDEX_REBALTICA = (
+    b"""<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<sitemap><loc>https://rebaltica.lv/wp-sitemap-posts-page-1.xml
+</loc></sitemap>
+<sitemap><loc>https://rebaltica.lv/wp-sitemap-posts-post-1.xml
+</loc></sitemap>
+</sitemapindex>"""
+)
+
 BACKFILL_ROBOTS = (
     b"User-agent: *\n"
     b"Sitemap: https://ir.lv/sitemap/sitemap_index.xml\n"
@@ -2060,11 +2072,19 @@ BACKFILL_ARTICLE_NODATE = (
 
 def _backfill_request(url, **kwargs):
     """make_request stand-in for backfill tests — routes by URL
-    shape: robots -> robots body, sitemap index -> index,
-    *.xml -> the urlset, else an article page."""
+    shape: robots -> a per-host index pointer, sitemap index ->
+    the host's index, *.xml -> the urlset, else an article
+    page. rebaltica gets its own index shape so its
+    SitemapIndexStrategy finds matching children."""
     if 'robots.txt' in url:
-        return _response(BACKFILL_ROBOTS)
+        host = urlparse(url).netloc
+        return _response(
+            f'User-agent: *\nSitemap: https://{host}'
+            f'/sitemap_index.xml\n'.encode()
+        )
     if 'sitemap_index' in url or 'wp-sitemap.xml' in url:
+        if 'rebaltica' in url:
+            return _response(BACKFILL_INDEX_REBALTICA)
         return _response(BACKFILL_INDEX)
     if url.endswith('.xml'):
         return _response(BACKFILL_URLSET)
@@ -2246,6 +2266,56 @@ class PartitionEnumerationTests(TestCase):
             '12345-zina-viena-2020',
         )
 
+    def test_index_strategy_no_children_raises(self):
+        """Discovery yielding zero matching children (dead
+        index, non-XML error page) raises — the run must end
+        FAILED, not deactivate the source's items via an
+        empty synced set."""
+        scraper = SimpleNamespace(
+            make_request=Mock(
+                side_effect=[
+                    _response(b'User-agent: *\n'),
+                    _response(b'<html>503</html>'),
+                ]
+            )
+        )
+        strategy = BACKFILL_STRATEGIES['ir']
+        with self.assertRaises(RuntimeError):
+            strategy.enumerate_partitions(
+                scraper, self.source, date(2026, 10, 30)
+            )
+
+    def test_lvportals_walk_stops_on_deadline(self):
+        """A --max-minutes deadline cuts the page-walk and
+        flags budget_exhausted so the month partition stays
+        pending instead of being marked DONE on a partial
+        listing."""
+        page1 = (
+            b'<a href="/dienaskartiba/12345-zina-viena-2020">'
+            b'x</a>'
+        )
+        requested = []
+        scraper = SimpleNamespace(budget_exhausted=False)
+        scraper.make_request = Mock(
+            side_effect=lambda url, **kw: (
+                requested.append(url) or _response(page1)
+            )
+        )
+        scraper._deadline_passed = lambda: len(requested) >= 1
+        strategy = ArchiveMonthStrategy(earliest=date(2008, 1, 1))
+        partition = Partition(
+            key='2020-01', label='l', url='u',
+            meta={'first': date(2020, 1, 1),
+                  'last': date(2020, 1, 31)},
+        )
+        entries = strategy.iter_article_urls(scraper, partition)
+        # Page 1 walked; the deadline stopped the page-2 fetch
+        # (the same URL set would otherwise repeat-stop with
+        # one extra request and no flag set).
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(len(requested), 1)
+        self.assertTrue(scraper.budget_exhausted)
+
 
 class MetadataExtractionTests(TestCase):
     """extract_article_metadata: JSON-LD (object + @graph),
@@ -2420,6 +2490,87 @@ class BackfillDedupTests(TestCase):
         self.assertEqual(articles, [])
         self.assertEqual(NewsArticle.objects.count(), 0)
 
+    def test_fetch_exception_skips_url_not_partition(self):
+        """A malformed <loc> raising inside make_request is
+        logged and skipped — the partition still completes."""
+        def _boom(url, **kwargs):
+            if 'broken' in url:
+                raise ValueError('bad URL')
+            return _backfill_request(url)
+
+        results = [
+            self._result('https://a.lv/broken-loc'),
+            self._result(
+                'https://a.lv/raksts/zinas/29.10.2026-viena'
+            ),
+        ]
+        with patch.object(
+            NewsBackfillScraper,
+            'make_request',
+            side_effect=_boom,
+        ):
+            articles = self.scraper.initiate_resources(results)
+        self.assertEqual(len(articles), 1)
+        self.assertEqual(
+            articles[0].link,
+            'https://a.lv/raksts/zinas/29.10.2026-viena',
+        )
+
+    def test_known_row_update_reuses_match_queryset(self):
+        """One SELECT for the match set, one UPDATE by pk —
+        the OR'd ids+links filter must not be issued twice."""
+        NewsArticle.objects.create(
+            source=self.source,
+            external_id='rss-guid-q',
+            link='https://a.lv/x',
+            title='T',
+            published_at=timezone.now(),
+        )
+        with self.assertNumQueries(2):
+            remaining = self.scraper._dedup_slice(
+                self.source, [self._result('https://a.lv/x')]
+            )
+        self.assertEqual(remaining, [])
+
+    def test_diena_arhivs_listing_urls_are_skipped(self):
+        """sitemap-13's /arhivs/ day-listing locs never reach
+        a fetch — day-page coverage is a planned follow-up."""
+        urlset = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<url><loc>https://www.diena.lv/arhivs/diena/05.01.2020</loc>
+</url>
+<url><loc>https://www.diena.lv/raksts/2020/01/05/raksts</loc>
+</url>
+</urlset>"""
+        requested = []
+
+        def _track(url, **kwargs):
+            requested.append(url)
+            if url.endswith('sitemap-13.xml'):
+                return _response(urlset)
+            return _response(BACKFILL_ARTICLE)
+
+        self.scraper._active_source = _source('diena', 'url')
+        self.scraper._active_strategy = BACKFILL_STRATEGIES[
+            'diena'
+        ]
+        self.scraper._active_partition = Partition(
+            key='sitemap-13', label='l',
+            url='https://www.diena.lv/sitemap-13.xml',
+        )
+        with patch.object(
+            NewsBackfillScraper,
+            'make_request',
+            side_effect=_track,
+        ):
+            articles = self.scraper.scrape_portal(
+                'https://www.diena.lv/sitemap-13.xml'
+            )
+        self.assertEqual(len(articles), 1)
+        self.assertFalse(
+            any('/arhivs/' in url for url in requested)
+        )
+
 
 class BackfillRunnerTests(TestCase):
     """Item keys, DONE-resume, --since pending/active
@@ -2501,6 +2652,55 @@ class BackfillRunnerTests(TestCase):
         self.assertTrue(item.is_active)
         self.assertFalse(
             ScrapeJobRunItem.objects.filter(item=item).exists()
+        )
+
+    def test_until_before_earliest_deactivates_nothing(self):
+        """Regression: --until narrows processing, never the
+        synced item set — a run ending before the source's
+        floor processes nothing but must leave every item
+        active for a later wider run (is_active is
+        admin-owned; sync never re-enables)."""
+        scraper = NewsBackfillScraper(
+            runner=self.runner,
+            until=date(2020, 1, 1),
+        )
+        with patch.object(
+            NewsBackfillScraper,
+            'make_request',
+            side_effect=_backfill_request,
+        ):
+            scraper.run()
+        self.assertTrue(ScrapeJobItem.objects.exists())
+        self.assertFalse(
+            ScrapeJobItem.objects.filter(is_active=False)
+            .exists()
+        )
+        self.assertFalse(ScrapeJobRunItem.objects.exists())
+        # A wider rerun re-syncs the same full range and
+        # processes the in-window partition normally.
+        runner2 = ScrapeJobRunner(
+            slug='news.backfill', cycle_key='backfill'
+        )
+        scraper2 = NewsBackfillScraper(
+            runner=runner2,
+            since=date(2026, 1, 5),
+            until=date(2026, 1, 11),
+        )
+        with patch.object(
+            NewsBackfillScraper,
+            'make_request',
+            side_effect=_backfill_request,
+        ):
+            scraper2.run()
+        self.assertFalse(
+            ScrapeJobItem.objects.filter(is_active=False)
+            .exists()
+        )
+        self.assertTrue(
+            ScrapeJobRunItem.objects.filter(
+                item__key='lsm:2026-W02',
+                status=ScrapeJobRunItem.DONE,
+            ).exists()
         )
 
     def test_failed_partition_records_failed_continues(self):
@@ -2614,6 +2814,42 @@ class BackfillCommandTests(TestCase):
         self.assertFalse(
             ScrapeJobRunItem.objects.filter(run=run).exists()
         )
+
+    def test_dead_sitemap_index_fails_run_not_items(self):
+        """A source whose sitemap index yields no children
+        fails the whole run BEFORE sync_items — its existing
+        items keep is_active=True instead of being
+        deactivated by an empty entry set."""
+        job = ensure_job('news.backfill')
+        item = ScrapeJobItem.objects.create(
+            job=job, key='ir:2020-01', label='ir 2020-01'
+        )
+
+        def _dead_index(url, **kwargs):
+            if 'robots.txt' in url:
+                return _response(b'User-agent: *\n')
+            if 'sitemap' in url:
+                return _response(b'<html>503</html>', status=503)
+            return _backfill_request(url)
+
+        with (
+            patch.object(
+                NewsBackfillScraper,
+                'make_request',
+                side_effect=_dead_index,
+            ),
+            self.assertRaises(CommandError),
+        ):
+            call_command(
+                'scrape_news',
+                backfill=True,
+                source='lsm',
+                stdout=StringIO(),
+            )
+        run = ScrapeJobRun.objects.latest('id')
+        self.assertEqual(run.status, ScrapeJobRun.FAILED)
+        item.refresh_from_db()
+        self.assertTrue(item.is_active)
 
     def test_zero_budget_ends_partial(self):
         with patch.object(
