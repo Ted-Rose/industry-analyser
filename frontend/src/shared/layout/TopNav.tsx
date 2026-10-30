@@ -34,7 +34,7 @@ async function logout(): Promise<void> {
 
 function loginHref(): string {
   const next = window.location.pathname + window.location.search;
-  return `/admin/login/?next=${encodeURIComponent(next)}`;
+  return `/accounts/login/?next=${encodeURIComponent(next)}`;
 }
 
 /**

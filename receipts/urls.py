@@ -7,8 +7,9 @@ page client-side; non-GET requests 404. The 'dashboard' name is
 kept so reverse('receipts:dashboard') callers keep resolving.
 
 Unlike the public SPAs the shell mounts `react_app`
-(login-required) — the receipts page IS the data, so anonymous
-visitors bounce to /admin/login/ before the bundle loads.
+(staff-required) — the receipts page IS the data, so
+anonymous and non-staff visitors bounce to /admin/login/
+before the bundle loads.
 """
 from functools import partial
 

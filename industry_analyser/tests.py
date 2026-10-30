@@ -150,17 +150,19 @@ class SpaShellContractTests(TestCase):
     TopNav reads."""
 
     def test_no_spa_page_ships_bootstrap(self):
-        """/vacancies/ is a mounted public SPA — its shell must
-        render without the CDN links or the ia-bs body marker the
-        legacy_bootstrap flag used to gate."""
-        resp = self.client.get('/vacancies/')
-        self.assertEqual(resp.status_code, 200)
-        self.assertNotContains(
-            resp, 'cdn.jsdelivr.net/npm/bootstrap'
-        )
-        self.assertNotContains(resp, 'bootstrap-icons')
-        self.assertNotContains(resp, 'ia-bs')
-        self.assertContains(resp, '<body>')
+        """Every mounted SPA shell renders without the CDN links
+        or the ia-bs body marker the legacy_bootstrap flag used
+        to gate — including the accounts pages migrated in the
+        cleanup PR."""
+        for path in ('/vacancies/', '/accounts/login/'):
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 200, path)
+            self.assertNotContains(
+                resp, 'cdn.jsdelivr.net/npm/bootstrap'
+            )
+            self.assertNotContains(resp, 'bootstrap-icons')
+            self.assertNotContains(resp, 'ia-bs')
+            self.assertContains(resp, '<body>')
 
     def test_bootstrap_payload_carries_apps_and_auth(self):
         resp = self.client.get('/vacancies/')
@@ -306,6 +308,23 @@ class SentryHelpersTests(SimpleTestCase):
         self.assertNotIn('data', result['request'])
         # URL and method survive so the event stays debuggable.
         self.assertEqual(result['request']['method'], 'POST')
+
+    def test_before_send_strips_accounts_request_body(self):
+        """Register/login bodies carry passwords — /api/accounts/
+        is a sensitive prefix like /admin/."""
+        for url in (
+            'https://x.example/api/accounts/register/',
+            'https://x.example/api/accounts/login/',
+        ):
+            event = {
+                'request': {
+                    'url': url,
+                    'method': 'POST',
+                    'data': {'password': 's3cret'},
+                }
+            }
+            result = sentry_before_send(event, {})
+            self.assertNotIn('data', result['request'], url)
 
     def test_before_send_keeps_other_request_bodies(self):
         event = {
