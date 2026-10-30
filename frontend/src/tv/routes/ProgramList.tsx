@@ -1,13 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Fragment,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useQuery,
+} from '@tanstack/react-query';
+import {
+  ChevronDown,
+  ChevronRight,
+  ThumbsDown,
+  ThumbsUp,
+} from 'lucide-react';
 import { fetchPrograms, type ProgramOut } from '../api';
 import { useReactToProgram } from '../mutations';
 import { displayRating, formatStartTime } from '../format';
 import { errorDetail } from '../../shared/api/errors';
-
-const PLACEHOLDER_IMAGE =
-  'https://via.assets.so/img.jpg?w=400&h=300&bg=e5e7eb&f=png';
+import { cx } from '../../shared/cx';
+import PageContainer, {
+  PageHeader,
+} from '../../shared/layout/PageContainer';
+import Badge from '../../shared/ui/Badge';
+import Button from '../../shared/ui/Button';
+import Card from '../../shared/ui/Card';
+import Checkbox from '../../shared/ui/Checkbox';
+import EmptyState from '../../shared/ui/EmptyState';
+import ErrorState from '../../shared/ui/ErrorState';
+import Field from '../../shared/ui/Field';
+import FilterBar from '../../shared/ui/FilterBar';
+import IconButton from '../../shared/ui/IconButton';
+import Input from '../../shared/ui/Input';
+import { LoadingState } from '../../shared/ui/Skeleton';
+import { pushToast } from '../../shared/toasts';
 
 interface Draft {
   contentRating: string;
@@ -51,9 +80,10 @@ function groupPrograms(programs: ProgramOut[]): ProgramGroup[] {
 
 /**
  * React port of tv_programs/program_list.html — the filtered program
- * feed. All filter state lives in the URL (useSearchParams) so
- * filtered feeds stay bookmarkable; like the GET form, inputs are
- * staged locally and applied to the URL on Filter.
+ * feed — restyled on the shared component kit (plan §9.6). All
+ * filter state lives in the URL (useSearchParams) so filtered feeds
+ * stay bookmarkable; like the GET form, inputs are staged locally
+ * and applied to the URL on Filter.
  *
  * Draft seeding mirrors the template inputs: `request.GET.*` fields
  * render the raw param ('' when absent); `filters.*` fields render
@@ -63,7 +93,14 @@ function groupPrograms(programs: ProgramOut[]): ProgramGroup[] {
 export default function ProgramList() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const { data, isPending, isError, error } = useQuery({
+  const {
+    data,
+    isPending,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ['tv', 'programs', searchParams.toString()],
     queryFn: () =>
       fetchPrograms({
@@ -81,7 +118,29 @@ export default function ProgramList() {
         excludeChannel: searchParams.get('exclude_channel'),
         showDisliked: searchParams.get('show_disliked'),
       }),
+    // A filter change keeps the previous feed on screen while the
+    // new one loads — the opacity dim below is the only "loading"
+    // signal a refetch needs.
+    placeholderData: keepPreviousData,
   });
+
+  // Query failures surface both inline (ErrorState on first load)
+  // and as a toast — a failed background refetch must still be
+  // visible while stale rows stay on screen. The ref dedupes
+  // StrictMode's double-effect and repeat failures of one error.
+  const reported = useRef<unknown>(null);
+  useEffect(() => {
+    if (!isError) {
+      reported.current = null;
+      return;
+    }
+    if (reported.current === error) return;
+    reported.current = error;
+    pushToast(
+      `Failed to load programs — ${errorDetail(error)}`,
+      'danger',
+    );
+  }, [isError, error]);
 
   const paramsKey = searchParams.toString();
   const [draft, setDraft] = useState<Draft>({
@@ -163,13 +222,30 @@ export default function ProgramList() {
     [data],
   );
 
+  // Only user-set URL params count as active filters — the server's
+  // effective defaults (the 'R' exclusion, the 7-day window) are
+  // applied silently and surface in the summary line instead
+  // (plan §8.4).
+  const activeCount = [...new Set(searchParams.keys())].length;
+
   return (
-    <div className="feed-container">
-      {/* Filtering Form */}
-      <form className="filter-form" onSubmit={applyFilters}>
-        <div className="form-group">
-          <label htmlFor="content_rating">Content Rating:</label>
-          <input
+    <PageContainer width="narrow">
+      <PageHeader
+        title="TV programs"
+        description={
+          'Filtered program feed — repeat airings of a show ' +
+          'group into one card.'
+        }
+      />
+      <FilterBar
+        onSubmit={applyFilters}
+        collapsible="mobile"
+        activeCount={activeCount}
+        submitLabel="Filter"
+        className="mb-6"
+      >
+        <Field label="Content Rating:" htmlFor="content_rating">
+          <Input
             type="text"
             name="content_rating"
             id="content_rating"
@@ -178,11 +254,10 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, contentRating: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="not_content_rating">Exclude Rating:</label>
-          <input
+        <Field label="Exclude Rating:" htmlFor="not_content_rating">
+          <Input
             type="text"
             name="not_content_rating"
             id="not_content_rating"
@@ -195,11 +270,10 @@ export default function ProgramList() {
               }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="rating_value">Minimum Rating:</label>
-          <input
+        <Field label="Minimum Rating:" htmlFor="rating_value">
+          <Input
             type="number"
             step="0.1"
             name="rating_value"
@@ -209,11 +283,10 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, ratingValue: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="start_date">Start Date:</label>
-          <input
+        <Field label="Start Date:" htmlFor="start_date">
+          <Input
             type="date"
             name="start_date"
             id="start_date"
@@ -222,11 +295,10 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, startDate: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="end_date">End Date:</label>
-          <input
+        <Field label="End Date:" htmlFor="end_date">
+          <Input
             type="date"
             name="end_date"
             id="end_date"
@@ -235,11 +307,10 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, endDate: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="ratio">Min. Match Ratio:</label>
-          <input
+        <Field label="Min. Match Ratio:" htmlFor="ratio">
+          <Input
             type="number"
             step="0.1"
             name="ratio"
@@ -249,11 +320,10 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, ratio: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="channel">Channel:</label>
-          <input
+        <Field label="Channel:" htmlFor="channel">
+          <Input
             type="text"
             name="channel"
             id="channel"
@@ -263,11 +333,10 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, channel: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="not_channel">Exclude Channel:</label>
-          <input
+        <Field label="Exclude Channel:" htmlFor="not_channel">
+          <Input
             type="text"
             name="exclude_channel"
             id="not_channel"
@@ -277,24 +346,23 @@ export default function ProgramList() {
               setDraft((d) => ({ ...d, excludeChannel: e.target.value }))
             }
           />
-        </div>
+        </Field>
 
-        <div className="form-group">
-          <label htmlFor="show_disliked">Show disliked:</label>
-          <input
-            type="checkbox"
+        {/* items-end drops the checkbox level with the row's inputs
+            (it carries no Field label row of its own). */}
+        <div className="flex items-end">
+          <Checkbox
             name="show_disliked"
             id="show_disliked"
             value="1"
+            label="Show disliked:"
             checked={draft.showDisliked}
             onChange={(e) =>
               setDraft((d) => ({ ...d, showDisliked: e.target.checked }))
             }
           />
         </div>
-
-        <button type="submit">Filter</button>
-      </form>
+      </FilterBar>
 
       {/* Channel names — the template context carried `channels` for
           autocomplete that never shipped; the API still returns it. */}
@@ -304,41 +372,84 @@ export default function ProgramList() {
         ))}
       </datalist>
 
-      {isError && (
-        <div className="feed-card feed-content">
-          Failed to load programs — {errorDetail(error)}
-        </div>
-      )}
-      {reactMutation.isError && (
-        <div className="feed-card feed-content">
-          Reaction failed — {errorDetail(reactMutation.error)}
-        </div>
+      {/* The effective server defaults live here, not in the
+          "Filters (n)" count (plan §8.4). */}
+      {data && (
+        <p className="mb-4 text-sm text-fg-muted tabular-nums">
+          Showing {groups.length} programs ·{' '}
+          {data.filters.start_date}–{data.filters.end_date}
+          {data.filters.not_content_rating &&
+            ` · rating "${data.filters.not_content_rating}" excluded`}
+        </p>
       )}
 
-      {/* Feed Content */}
-      {groups.length === 0 && !isPending ? (
-        <div>No programs available</div>
+      {isError && !data ? (
+        <ErrorState
+          title="Failed to load programs"
+          error={errorDetail(error)}
+          onRetry={() => void refetch()}
+        />
+      ) : isPending ? (
+        <LoadingState variant="cards" />
+      ) : groups.length === 0 ? (
+        <EmptyState
+          title="No programs available"
+          description={
+            activeCount > 0
+              ? 'Nothing matches the active filters.'
+              : 'No programs in the default window — the last 7 ' +
+                'days, R-rated content excluded.'
+          }
+          action={
+            activeCount > 0 ? (
+              <Button
+                variant="secondary"
+                onClick={() => setSearchParams({})}
+              >
+                Clear filters
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        groups.map((group) => (
-          <ProgramCard
-            key={group.key}
-            airings={group.airings}
-            pendingProgramId={
-              reactMutation.isPending
-                ? (reactMutation.variables?.programId ?? null)
-                : null
-            }
-            onReact={(reaction) => {
-              reactMutation.mutate({
-                programId: group.airings[0].id,
-                reaction,
-              });
-            }}
-          />
-        ))
+        <div
+          aria-busy={isFetching}
+          className={cx(
+            'space-y-4 transition-opacity ' +
+              'motion-safe:duration-180 ease-ia',
+            isFetching && 'opacity-60',
+          )}
+        >
+          {groups.map((group) => (
+            <ProgramCard
+              key={group.key}
+              airings={group.airings}
+              pendingProgramId={
+                reactMutation.isPending
+                  ? (reactMutation.variables?.programId ?? null)
+                  : null
+              }
+              onReact={(reaction) => {
+                reactMutation.mutate(
+                  {
+                    programId: group.airings[0].id,
+                    reaction,
+                  },
+                  {
+                    onError: (mutationError) =>
+                      pushToast(
+                        'Reaction failed — ' +
+                          errorDetail(mutationError),
+                        'danger',
+                      ),
+                  },
+                );
+              }}
+            />
+          ))}
+        </div>
       )}
-      {isPending && <div>Loading…</div>}
-    </div>
+    </PageContainer>
   );
 }
 
@@ -356,10 +467,9 @@ function ProgramCard({
   const program = airings[0];
   const channels = [...new Set(airings.map((a) => a.channel_name))];
   const show = program.show;
-  const imageSrc =
-    program.image_url || show?.image_url || PLACEHOLDER_IMAGE;
   // `||` not `??`: the template used |default: (falsy), so an empty
   // string on the linked Show must still fall back.
+  const imageSrc = program.image_url || show?.image_url;
   const imageAlt =
     show?.title_eng || program.title_eng || program.title_lv;
   const imdbHref = show?.imdb_url || program.url;
@@ -367,87 +477,121 @@ function ProgramCard({
   const pgRating = show?.pg_rating || program.pg_rating;
   const busy = pendingProgramId === program.id;
 
+  // `·`-separated meta row — plan §9.6: IMDb link or bare rating,
+  // channels, start time (+ the rerun toggle) and the PG badge.
+  const meta: ReactNode[] = [];
+  if (imdbHref) {
+    meta.push(
+      <Button
+        as="a"
+        variant="secondary"
+        size="sm"
+        href={imdbHref}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        IMDb{rating ? ` ${rating}` : ''}
+      </Button>,
+    );
+  } else if (rating) {
+    meta.push(<span>Rating: {rating}</span>);
+  }
+  meta.push(<span>Channel: {channels.join(', ')}</span>);
+  meta.push(
+    <span className="inline-flex items-center gap-1">
+      Start Time: {formatStartTime(program.start_time)}
+      {airings.length > 1 && (
+        <>
+          <IconButton
+            size="sm"
+            icon={expanded ? <ChevronDown /> : <ChevronRight />}
+            label="All showtimes"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          />
+          <Badge variant="outline">{airings.length}</Badge>
+        </>
+      )}
+    </span>,
+  );
+  if (pgRating) {
+    meta.push(<Badge variant="outline">{pgRating}</Badge>);
+  }
+
   return (
-    <div className="feed-card">
-      <img src={imageSrc} alt={imageAlt} />
-      <div className="feed-content">
-        <div className="feed-title">
-          {show ? show.title_lv : program.title_lv}
-          {show?.title_eng && (
-            <span className="feed-title-eng"> {show.title_eng}</span>
-          )}
-          {/* Reactions work on every card — the API lazily resolves a
-              Show for airings that don't have one yet. */}
-          <span className="feed-actions">
-            <button
-              type="button"
-              className={`reaction-btn${
-                program.user_reaction === 'like' ? ' liked' : ''
-              }`}
-              disabled={busy}
-              aria-label="Like"
-              title="Like"
-              onClick={() => onReact('like')}
-            >
-              👍
-            </button>
-            <button
-              type="button"
-              className={`reaction-btn${
-                program.user_reaction === 'dislike' ? ' disliked' : ''
-              }`}
-              disabled={busy}
-              aria-label="Dislike"
-              title="Dislike"
-              onClick={() => onReact('dislike')}
-            >
-              👎
-            </button>
-          </span>
-        </div>
-        <div className="feed-description">{program.description_lv}</div>
-        <div className="feed-metadata">
-          {(imdbHref || rating) && (
-            <>
-              {imdbHref ? (
-                <a
-                  href={imdbHref}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-secondary btn-sm"
-                >
-                  IMDb{rating ? ` ${rating}` : ''}
-                </a>
-              ) : (
-                <span>Rating: {rating}</span>
-              )}{' '}
-              |{' '}
-            </>
-          )}
-          <span>Channel: {channels.join(', ')}</span> |{' '}
-          <span>
-            Start Time: {formatStartTime(program.start_time)}
-            {airings.length > 1 && (
-              <button
-                type="button"
-                className="airings-toggle"
-                aria-expanded={expanded}
-                aria-label="All showtimes"
-                onClick={() => setExpanded((v) => !v)}
+    // Feed-card recipe (§7): image left ≥sm, stacked <sm; the
+    // remote via.assets.so placeholder is replaced by a local
+    // bg-surface-2 block (§8.17).
+    <Card
+      data-testid="program-card"
+      className="flex flex-col gap-4 sm:flex-row"
+    >
+      {imageSrc ? (
+        <img
+          src={imageSrc}
+          alt={imageAlt}
+          loading="lazy"
+          className="size-24 shrink-0 rounded-md object-cover"
+        />
+      ) : (
+        <div
+          aria-hidden="true"
+          className="size-24 shrink-0 rounded-md bg-surface-2"
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-lg font-medium text-fg">
+            {show ? show.title_lv : program.title_lv}
+            {show?.title_eng && (
+              <span
+                className={
+                  'ml-1 text-sm font-normal text-fg-subtle'
+                }
               >
-                {expanded ? '▾' : '▸'} {airings.length}
-              </button>
+                {show.title_eng}
+              </span>
             )}
-          </span>
-          {pgRating && (
-            <>
-              {' '}
-              | <span className="pg-badge">{pgRating}</span>
-            </>
-          )}
+          </h2>
+          {/* Reactions work on every card — the API lazily resolves
+              a Show for airings that don't have one yet. Re-clicking
+              the same reaction toggles it off server-side. */}
+          <div className="flex shrink-0 items-center gap-1">
+            <IconButton
+              icon={<ThumbsUp />}
+              label="Like"
+              pressed={program.user_reaction === 'like'}
+              disabled={busy}
+              onClick={() => onReact('like')}
+            />
+            <IconButton
+              icon={<ThumbsDown />}
+              label="Dislike"
+              pressed={program.user_reaction === 'dislike'}
+              disabled={busy}
+              onClick={() => onReact('dislike')}
+            />
+          </div>
+        </div>
+        <p className="mt-1 text-sm text-fg-muted">
+          {program.description_lv}
+        </p>
+        <div
+          data-testid="program-meta"
+          className={
+            'mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-1 ' +
+            'text-xs text-fg-subtle'
+          }
+        >
+          {meta.map((item, index) => (
+            <Fragment key={index}>
+              {index > 0 && <span aria-hidden="true">·</span>}
+              {item}
+            </Fragment>
+          ))}
         </div>
         {expanded && (
-          <ul className="airings-list">
+          <ul className="mt-2 space-y-0.5 text-xs text-fg-subtle">
             {airings.map((a) => (
               <li key={a.id}>
                 {formatStartTime(a.start_time)}
@@ -457,6 +601,6 @@ function ProgramCard({
           </ul>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

@@ -185,17 +185,19 @@ describe('ProgramList', () => {
     expect(imdb).toHaveAttribute('href', 'https://imdb.com/title/tt1');
     expect(screen.queryByText(/^Rating: /)).not.toBeInTheDocument();
     // Show-level pg_rating renders as a badge chip.
-    expect(screen.getByText('PG-13')).toHaveClass('pg-badge');
+    expect(screen.getByText('PG-13')).toBeInTheDocument();
     // Match Ratio is debug noise — gone from the card (the filter
     // form's "Min. Match Ratio:" label is unrelated).
     expect(
       screen.queryByText(/^Match Ratio: /),
     ).not.toBeInTheDocument();
+    // The reaction pair is a pressed-toggle — the server toggles
+    // the same reaction off on re-click.
     const like = screen.getByRole('button', { name: 'Like' });
-    expect(like).toHaveClass('liked');
+    expect(like).toHaveAttribute('aria-pressed', 'true');
     expect(
       screen.getByRole('button', { name: 'Dislike' }),
-    ).not.toHaveClass('disliked');
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('renders the rating inside the IMDb link text', async () => {
@@ -248,10 +250,9 @@ describe('ProgramList', () => {
         programs: [makeProgram({ pg_rating: 'TV-MA' })],
       }),
     );
-    const { container } = renderList('/tv/');
+    renderList('/tv/');
     await screen.findByText('Dienas ziņas');
-    const badge = container.querySelector('.pg-badge');
-    expect(badge).toHaveTextContent('TV-MA');
+    expect(screen.getByText('TV-MA')).toBeInTheDocument();
   });
 
   it('omits Rating/PG segments and dangling separators when ' +
@@ -267,18 +268,18 @@ describe('ProgramList', () => {
           ],
         }),
       );
-      const { container } = renderList('/tv/');
+      renderList('/tv/');
       await screen.findByText('Dienas ziņas');
       expect(screen.queryByText(/^Rating: /)).not.toBeInTheDocument();
       expect(
         screen.queryByRole('link', { name: /IMDb/ }),
       ).not.toBeInTheDocument();
-      expect(container.querySelector('.pg-badge')).toBeNull();
-      // The metadata row starts cleanly at Channel — no leading
-      // or trailing '|'.
-      const metadata = container.querySelector('.feed-metadata');
-      expect(metadata?.textContent).toMatch(/^Channel:/);
-      expect(metadata?.textContent).not.toMatch(/\|\s*$/);
+      // The metadata row starts cleanly at Channel — '·' joins the
+      // segments, so no leading or trailing separator.
+      const metadata = screen.getByTestId('program-meta');
+      expect(metadata.textContent).toMatch(/^Channel:/);
+      expect(metadata.textContent).toContain('·');
+      expect(metadata.textContent).not.toMatch(/·\s*$/);
     });
 
   it('renders reaction buttons for programs without a Show ' +
@@ -323,9 +324,9 @@ describe('ProgramList', () => {
         ],
       }),
     );
-    const { container } = renderList('/tv/');
+    renderList('/tv/');
     await screen.findByText('13. karotājs');
-    expect(container.querySelectorAll('.feed-card')).toHaveLength(1);
+    expect(screen.getAllByTestId('program-card')).toHaveLength(1);
     // Collapsed: only the newest slot headlines the card.
     expect(
       screen.getByText(/Start Time: Oct\. 2, 2026, 3:00 p\.m\./),
@@ -368,9 +369,9 @@ describe('ProgramList', () => {
         ],
       }),
     );
-    const { container } = renderList('/tv/');
+    renderList('/tv/');
     await screen.findByText('Dienas ziņas');
-    expect(container.querySelectorAll('.feed-card')).toHaveLength(2);
+    expect(screen.getAllByTestId('program-card')).toHaveLength(2);
 
     fireEvent.click(
       screen.getByRole('button', { name: 'All showtimes' }),

@@ -44,6 +44,11 @@ export interface ButtonProps
   leftIcon?: ReactNode;
   /** Render as another element — e.g. 'a' or a router Link. */
   as?: ElementType;
+  /** Forwarded when `as` renders an anchor or router Link. */
+  href?: string;
+  to?: string;
+  target?: string;
+  rel?: string;
 }
 
 /**
