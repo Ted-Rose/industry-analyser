@@ -28,10 +28,11 @@ class NewsSourceAdmin(admin.ModelAdmin):
 class NewsArticleAdmin(admin.ModelAdmin):
     list_display = (
         'title', 'source', 'topic', 'published_at',
-        'story_match_status',
+        'story_match_status', 'is_backfill',
     )
     list_filter = (
         'source', 'topic', 'story_match_status', 'published_at',
+        'is_backfill',
     )
     search_fields = ('title', 'link')
     readonly_fields = ('first_seen', 'last_seen')

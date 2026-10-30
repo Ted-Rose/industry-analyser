@@ -105,9 +105,9 @@ export interface paths {
         put?: never;
         /**
          * Add Keyword
-         * @description Create a keyword — session-auth replacement for the retired
-         *     HARD_CODED_PASSWORD form. Validation still goes through
-         *     KeywordForm so name normalization/uniqueness are unchanged.
+         * @description Create a keyword — staff-only (global scrape configuration,
+         *     not per-user data). Validation still goes through KeywordForm
+         *     so name normalization/uniqueness are unchanged.
          */
         post: operations["fetcher_api_add_keyword"];
         delete?: never;
@@ -559,6 +559,79 @@ export interface paths {
          *     minus render().
          */
         get: operations["receipts_api_receipts_dashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/register/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register */
+        post: operations["accounts_api_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/login/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Session Login */
+        post: operations["accounts_api_session_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/logout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Session Logout */
+        post: operations["accounts_api_session_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/me/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Me
+         * @description Auth-state probe — always 200. A 401 here would trigger
+         *     apiFetch's navigate-to-login_url path, redirecting the very
+         *     page that asked.
+         */
+        get: operations["accounts_api_me"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1878,6 +1951,53 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** AuthOut */
+        AuthOut: {
+            user: components["schemas"]["UserOut"];
+        };
+        /** UserOut */
+        UserOut: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Is Staff */
+            is_staff: boolean;
+        };
+        /** RegisterIn */
+        RegisterIn: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+            /** Password Confirm */
+            password_confirm: string;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
+        };
+        /** LoginIn */
+        LoginIn: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
+        /** SuccessOut */
+        SuccessOut: {
+            /** Success */
+            success: boolean;
+        };
+        /** MeOut */
+        MeOut: {
+            user?: components["schemas"]["UserOut"] | null;
+            /** Is Authenticated */
+            is_authenticated: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -2526,6 +2646,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptsDashboardOut"];
+                };
+            };
+        };
+    };
+    accounts_api_register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+        };
+    };
+    accounts_api_session_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+        };
+    };
+    accounts_api_session_logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessOut"];
+                };
+            };
+        };
+    };
+    accounts_api_me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
                 };
             };
         };

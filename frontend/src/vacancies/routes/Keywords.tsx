@@ -13,10 +13,10 @@ import Input from '../../shared/ui/Input';
 
 /**
  * React replacement for the retired /add_keyword/ page (301'd here).
- * The old HARD_CODED_PASSWORD gate is gone — the POST is session-authed
- * now, so anonymous users see a hint and the API client bounces them
- * to /admin/login/ on the 401. `only_filter` stays pre-checked, as in
- * the template form.
+ * The old HARD_CODED_PASSWORD gate is gone — the POST is staff-authed
+ * now, so non-staff users see a hint and the API client bounces
+ * anonymous ones to /accounts/login/ on the 401. `only_filter` stays
+ * pre-checked, as in the template form.
  */
 export default function Keywords() {
   const { user } = useBootstrap();

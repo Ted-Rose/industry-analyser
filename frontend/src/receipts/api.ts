@@ -32,9 +32,10 @@ function setDate(
 
 /** GET /api/receipts/ — the whole page in one fat call (summary
  *  cards + by-month/by-store/by-category tables + the all-receipts
- *  table). Session-authed: the op keeps django_auth and the page
- *  mount is login-required — a 401's login_url sends the browser
- *  to /admin/login/?next=/receipts/. */
+ *  table). Staff-authed: the op uses staff_auth and the page mount
+ *  is staff-required — an anonymous 401's login_url sends the
+ *  browser to /accounts/login/?next=/receipts/, and non-staff
+ *  sessions 403 before this bundle ever runs. */
 export function fetchReceiptsDashboard(
   params: ReceiptsDashboardParams = {},
 ): Promise<ReceiptsDashboardOut> {

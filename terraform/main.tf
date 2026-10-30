@@ -1,9 +1,29 @@
 locals {
   ar_repo_id = "dockerhub-cache"
-  # Cloud Run validates the image at job create time. The AR remote cache has no tag until
-  # a pull happens, and your Docker Hub tag may not exist yet — so default to a public
-  # image that always resolves. GitHub Actions immediately updates both jobs to your image.
-  job_image = trimspace(var.container_image) != "" ? trimspace(var.container_image) : "us-docker.pkg.dev/cloudrun/container/job:latest"
+  # Cloud Run validates the image at job create time. The AR
+  # remote cache has no tag until a pull happens, and your
+  # Docker Hub tag may not exist yet — so default to a public
+  # image that always resolves. GitHub Actions immediately
+  # updates both jobs to your image.
+  job_image = (
+    trimspace(var.container_image) != ""
+    ? trimspace(var.container_image)
+    : "us-docker.pkg.dev/cloudrun/container/job:latest"
+  )
+  # The web service is deployed by CI's `gcloud run deploy`
+  # with no --service-account flag, so it runs as the project
+  # default compute service account.
+  web_runtime_sa_email = format(
+    "%s-compute@developer.gserviceaccount.com",
+    data.google_project.current.number,
+  )
+  # CI deployer SA (GCP_SA_KEY secret) — created outside
+  # terraform, so its email is formatted here the same way
+  # monitoring.tf's deployer_logging_admin member does.
+  deployer_sa_email = format(
+    "industry-analyser-deployer@%s.iam.gserviceaccount.com",
+    var.project_id,
+  )
 }
 
 resource "google_project_service" "apis" {
@@ -12,6 +32,9 @@ resource "google_project_service" "apis" {
     "cloudscheduler.googleapis.com",
     "artifactregistry.googleapis.com",
     "iam.googleapis.com",
+    # IAM signBlob — generate_signed_url for the news audio
+    # bucket when runtime creds are metadata-server creds.
+    "iamcredentials.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "secretmanager.googleapis.com",
     "monitoring.googleapis.com",
@@ -25,9 +48,12 @@ resource "google_project_service" "apis" {
 resource "google_artifact_registry_repository" "dockerhub_cache" {
   location      = var.region
   repository_id = local.ar_repo_id
-  description   = "Docker Hub pull-through cache (optional mirror; CI pushes to industry-analyser-app)"
-  format        = "DOCKER"
-  mode          = "REMOTE_REPOSITORY"
+  description = join(" ", [
+    "Docker Hub pull-through cache (optional mirror;",
+    "CI pushes to industry-analyser-app)",
+  ])
+  format = "DOCKER"
+  mode   = "REMOTE_REPOSITORY"
 
   remote_repository_config {
     docker_repository {
@@ -61,8 +87,11 @@ resource "google_artifact_registry_repository" "dockerhub_cache" {
 resource "google_artifact_registry_repository" "app_images" {
   location      = var.region
   repository_id = "industry-analyser-app"
-  description   = "Container images built and pushed from GitHub Actions - Cost Optimized"
-  format        = "DOCKER"
+  description = join(" ", [
+    "Container images built and pushed from GitHub Actions",
+    "- Cost Optimized",
+  ])
+  format = "DOCKER"
 
   # 1. DELETE Policy: Target ALL images older than 1 day
   cleanup_policies {
@@ -211,8 +240,11 @@ resource "google_cloud_run_v2_job_iam_member" "scheduler_invoker_all_jobs" {
 }
 
 resource "google_cloud_scheduler_job" "all_jobs_daily" {
-  name             = "all-jobs-daily"
-  description      = "Run all-jobs master job daily; per-job gating in run_all_jobs JOBS list"
+  name = "all-jobs-daily"
+  description = join(" ", [
+    "Run all-jobs master job daily;",
+    "per-job gating in run_all_jobs JOBS list",
+  ])
   schedule         = "50 19 * * *"
   time_zone        = "Etc/UTC"
   region           = var.scheduler_region
@@ -220,8 +252,13 @@ resource "google_cloud_scheduler_job" "all_jobs_daily" {
 
   http_target {
     http_method = "POST"
-    uri         = "https://${var.region}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${var.project_id}/jobs/${google_cloud_run_v2_job.all_jobs.name}:run"
-    body        = base64encode("{}")
+    uri = join("", [
+      "https://${var.region}-run.googleapis.com/apis/",
+      "run.googleapis.com/v1/namespaces/",
+      "${var.project_id}/jobs/",
+      "${google_cloud_run_v2_job.all_jobs.name}:run",
+    ])
+    body = base64encode("{}")
 
     oauth_token {
       service_account_email = google_service_account.scheduler_invoker.email
@@ -233,4 +270,71 @@ resource "google_cloud_scheduler_job" "all_jobs_daily" {
     google_cloud_run_v2_job_iam_member.scheduler_invoker_all_jobs,
     google_project_service.apis,
   ]
+}
+
+# --- News digest audio (gTTS -> GCS, /news/audio/) ---
+# The Cloud Run web service is NOT terraform-managed — CI's
+# `gcloud run deploy` sets only --set-secrets, so the service
+# runs as the project default compute service account. That SA
+# therefore owns the bucket access and the self-signBlob
+# binding needed for IAM-signed playback URLs.
+data "google_project" "current" {}
+
+resource "google_storage_bucket" "audio_recordings" {
+  name                        = "${var.project_id}-audio-recordings"
+  location                    = var.region
+  uniform_bucket_level_access = true
+
+  # Clips die just past their 7-day signed-URL expiry.
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      age = 8
+    }
+  }
+
+  # <audio> playback needs no CORS — this only covers a future
+  # fetch() of the files from the web origin (ALLOWED_HOSTS).
+  cors {
+    origin = [
+      "https://industry-analyser-180632294935.europe-north1.run.app",
+    ]
+    method = ["GET", "HEAD"]
+  }
+}
+
+# objectAdmin covers uploads, the get/list that powers
+# blob.exists() dedup, and the delete the FIFO cap needs to
+# evict the oldest clip.
+resource "google_storage_bucket_iam_member" "audio_admin" {
+  bucket = google_storage_bucket.audio_recordings.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${local.web_runtime_sa_email}"
+}
+
+# The CI deployer SA runs terraform plan/apply: refresh reads the
+# bucket (storage.buckets.get) and apply manages the IAM bindings
+# on it (buckets.getIamPolicy/setIamPolicy). Its project-level
+# roles/storage.objectAdmin covers objects only, so grant
+# storage.admin scoped to this bucket — the same self-grant
+# pattern as deployer_logging_admin in monitoring.tf.
+resource "google_storage_bucket_iam_member" "audio_deployer_admin" {
+  bucket = google_storage_bucket.audio_recordings.name
+  role   = "roles/storage.admin"
+  member = "serviceAccount:${local.deployer_sa_email}"
+}
+
+# generate_signed_url with metadata-server creds goes through
+# the IAM signBlob API — the runtime SA must be its own
+# TokenCreator (iamcredentials API enabled above).
+resource "google_service_account_iam_member" "audio_signblob" {
+  service_account_id = format(
+    "projects/%s/serviceAccounts/%s",
+    var.project_id,
+    local.web_runtime_sa_email,
+  )
+  role   = "roles/iam.serviceAccountTokenCreator"
+  member = "serviceAccount:${local.web_runtime_sa_email}"
 }

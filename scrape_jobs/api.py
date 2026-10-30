@@ -1,12 +1,13 @@
 """django-ninja router for the dashboard SPA (mounted at
 /api/dashboard/).
 
-The dashboard is a non-public SPA — the page it replaces was
-@login_required, so the GET op keeps the default django_auth
-(session + CSRF). Anonymous callers get a JSON 401 whose
-`login_url`'s `next` resolves to '/dashboard/' via SPA_BASES —
-the SPA mounts at /dashboard/ since the public landing page took
-over the site root.
+The dashboard is a staff-only SPA — the page it replaced was
+@login_required and the dashboard shows global scrape state, so
+the GET op uses staff_auth (session + CSRF + is_staff). Anonymous
+callers get a JSON 401 whose `login_url`'s `next` resolves to
+'/dashboard/' via SPA_BASES; authenticated non-staff callers get
+a 403. The SPA mounts at /dashboard/ since the public landing
+page took over the site root.
 
 Query/aggregate logic mirrors the retired
 scrape_jobs.views.dashboard view: per-job cycle progress plus a
@@ -20,6 +21,8 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from ninja import Router, Schema
+
+from industry_analyser.api import staff_auth
 
 from . import usage
 
@@ -116,7 +119,7 @@ class DashboardOut(Schema):
 # --- Ops ---
 
 
-@router.get('/', response=DashboardOut)
+@router.get('/', auth=staff_auth, response=DashboardOut)
 def dashboard(
     request,
     date_from: Optional[date] = None,
