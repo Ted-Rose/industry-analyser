@@ -24,6 +24,7 @@ export default defineConfig({
         classified_ads: 'src/classified_ads/main.tsx',
         dashboard: 'src/dashboard/main.tsx',
         receipts: 'src/receipts/main.tsx',
+        accounts: 'src/accounts/main.tsx',
       },
       output: {
         entryFileNames: '[name]/[name].[hash].js',
