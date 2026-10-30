@@ -18,6 +18,7 @@ from google.auth.transport.requests import Request
 from google.cloud import storage
 from google.oauth2 import service_account
 from gtts import gTTS
+from gtts.lang import tts_langs
 from langdetect import (
     DetectorFactory,
     LangDetectException,
@@ -96,11 +97,23 @@ def text_to_audio(text, lang=None, filename=None):
         raise ValueError('text is required')
     if len(text) > _MAX_TEXT_CHARS:
         raise ValueError('text is too long')
+    if filename is not None and not isinstance(filename, str):
+        raise ValueError('filename must be a string')
     clean = _sanitize(text)
     if not clean:
         raise ValueError('text has no speakable content')
     if lang is None:
         lang = _detect_lang(clean)
+    elif not isinstance(lang, str):
+        raise ValueError('lang must be a string')
+    elif lang not in tts_langs():
+        # Region tags like 'lv-LV' are not gTTS keys — a
+        # supported base language speaks with its plain voice.
+        base = lang.split('-')[0]
+        if base in tts_langs():
+            lang = base
+        else:
+            raise ValueError(f'unsupported lang: {lang}')
     bucket_name = settings.GCS_AUDIO_BUCKET
     if not bucket_name:
         raise AudioGenerationError('GCS storage not configured')
@@ -126,11 +139,18 @@ def text_to_audio(text, lang=None, filename=None):
         if not isinstance(credentials, service_account.Credentials):
             # Metadata-server creds (Cloud Run) cannot sign
             # locally — generate_signed_url must go through the
-            # IAM signBlob API instead.
+            # IAM signBlob API instead. User ADC creds carry no
+            # service_account_email to impersonate.
+            email = getattr(
+                credentials, 'service_account_email', None
+            )
+            if not email:
+                raise AudioGenerationError(
+                    'credentials cannot sign URLs: no '
+                    'service_account_email'
+                )
             sign_kwargs = {
-                'service_account_email': (
-                    credentials.service_account_email
-                ),
+                'service_account_email': email,
                 'access_token': credentials.token,
             }
         return blob.generate_signed_url(

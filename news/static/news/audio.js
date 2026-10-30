@@ -20,6 +20,7 @@
   var audioDown = false; // a 502 stopped the pre-warm fan-out
   var clipSeq = 0;
   var playQueue = [];
+  var clipToken = 0;   // bumps per dequeued clip
   var player = new Audio();
 
   // djb2 hex — the server re-hashes anyway, so this only keeps
@@ -156,6 +157,17 @@
     return document.querySelector('.audio-stop');
   }
 
+  // A failing clip trips BOTH the play() rejection and the
+  // element 'error' event — only the callback carrying the
+  // current clip's token advances, so one failure consumes
+  // exactly one queue entry.
+  function clipFailed(token) {
+    if (token !== clipToken) {
+      return;
+    }
+    playNext();
+  }
+
   function playNext() {
     var url = playQueue.shift();
     if (!url) {
@@ -165,10 +177,14 @@
       }
       return;
     }
+    clipToken += 1;
+    var token = clipToken;
     player.src = url;
     var played = player.play();
     if (played && played.catch) {
-      played.catch(playNext);
+      played.catch(function () {
+        clipFailed(token);
+      });
     }
   }
 
@@ -226,9 +242,7 @@
 
   player.addEventListener('ended', playNext);
   player.addEventListener('error', function () {
-    if (playQueue.length) {
-      playNext();
-    }
+    clipFailed(clipToken);
   });
 
   document.addEventListener('click', function (event) {

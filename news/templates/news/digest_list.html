@@ -3,13 +3,14 @@
 {% block content %}
 {% if not digests %}
   <p class="muted">Vēl nav neviena kopsavilkuma.</p>
-{% endif %}
+{% else %}
 <div class="audio-bar">
   <button type="button" class="audio-btn" data-audio-all>
     ▶ Play all news</button>
   <button type="button" class="audio-stop" hidden>■ Stop</button>
   <span class="audio-note muted" hidden></span>
 </div>
+{% endif %}
 {% for digest in digests %}
   <section class="digest"{% if forloop.first %}
            data-audio-newest{% endif %}>
@@ -17,8 +18,10 @@
       <a href="{% url 'news:digest-detail' date=digest.date %}">
         {{ digest.date }}
       </a>
+      {% if digest.items.all %}
       <button type="button" class="audio-btn" data-audio-date>
         ▶</button>
+      {% endif %}
     </h2>
     <ol>
       {% for item in digest.items.all %}

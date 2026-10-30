@@ -1830,6 +1830,23 @@ class AudioEndpointTests(TestCase):
             400,
         )
 
+    def test_oversized_filename_and_unsupported_lang_400(self):
+        self.assertEqual(
+            self.client.get(
+                '/news/audio/',
+                {'text': 'hi', 'filename': 'f' * 201},
+            ).status_code,
+            400,
+        )
+        # 'zz' passes the view's shape regex but is not a gTTS
+        # voice — bad input (400), not a pipeline failure (502).
+        self.assertEqual(
+            self.client.get(
+                '/news/audio/', {'text': 'hi', 'lang': 'zz'}
+            ).status_code,
+            400,
+        )
+
     def test_pipeline_errors_map_to_400_and_502(self):
         with patch(
             'news.views.text_to_audio',
