@@ -156,14 +156,15 @@ class SpaShellContractTests(TestCase):
         return _spa_shell(request, entry)
 
     def test_bootstrap_cdn_only_for_legacy_entries(self):
-        resp = self._shell('classified_ads')
+        """The CDN links + ia-bs body marker only ship for entries
+        in LEGACY_BOOTSTRAP_ENTRIES — 'accounts' is the last
+        member until its own cleanup-PR migration."""
+        resp = self._shell('accounts')
         self.assertContains(resp, 'cdn.jsdelivr.net/npm/bootstrap')
         # The body marker scopes ia-components.css's Bootstrap
         # coexistence re-assertions to Bootstrap pages only.
         self.assertContains(resp, '<body class="ia-bs">')
-        resp = self._shell('accounts')
-        self.assertContains(resp, 'cdn.jsdelivr.net/npm/bootstrap')
-        resp = self._shell('vacancies')
+        resp = self._shell('classified_ads')
         self.assertNotContains(
             resp, 'cdn.jsdelivr.net/npm/bootstrap'
         )
