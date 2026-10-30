@@ -7,9 +7,10 @@ text, so repeat requests dedup on ``blob.exists()`` and no
 database rows are needed. ``GCS_AUDIO_BUCKET`` unset disables
 the feature (AudioGenerationError -> 502 from the view).
 
-Abuse bounds: texts are capped at ``_MAX_TEXT_CHARS`` and the
-bucket is FIFO-capped at ``_MAX_OBJECTS`` clips — beyond it,
-each new upload first deletes the oldest clip."""
+Abuse bounds: texts are capped at ``_MAX_TEXT_CHARS``,
+synthesized clips at ``_MAX_OBJECT_BYTES``, and the bucket is
+FIFO-capped at ``_MAX_OBJECTS`` clips — beyond it, each new
+upload first deletes the oldest clip."""
 import hashlib
 import logging
 import os
@@ -42,6 +43,11 @@ DetectorFactory.seed = 0
 _LANGUAGES = {'lv', 'en'}
 _DEFAULT_LANG = 'lv'
 _MAX_TEXT_CHARS = 5000
+
+# Hard ceiling on the synthesized file — the text cap should
+# keep clips far below this, but a bloated or hostile engine
+# output is rejected before it ever reaches the bucket.
+_MAX_OBJECT_BYTES = 1024 * 1024
 # cloud-platform covers both storage access and the IAM
 # signBlob call behind generate_signed_url — a narrower
 # scope fails signing with ACCESS_TOKEN_SCOPE_INSUFFICIENT.
@@ -163,6 +169,10 @@ def text_to_audio(text, lang=None, filename=None):
                 path = tmp.name
             try:
                 gTTS(text=clean, lang=lang).save(path)
+                if os.path.getsize(path) > _MAX_OBJECT_BYTES:
+                    raise AudioGenerationError(
+                        'audio exceeds 1 MB size limit'
+                    )
                 blob.upload_from_filename(
                     path, content_type='audio/mpeg', timeout=30
                 )

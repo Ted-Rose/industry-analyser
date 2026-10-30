@@ -1856,6 +1856,21 @@ class TextToAudioTests(TestCase):
             url = text_to_audio('Sveiki')
         self.assertEqual(url, 'https://signed.example/clip.mp3')
 
+    def test_oversized_clip_rejected_before_upload(self):
+        # A synthesized file over the 1 MB ceiling must never
+        # reach the bucket — and the temp file is still cleaned.
+        def fake_save(path):
+            with open(path, 'wb') as f:
+                f.write(b'0' * (1024 * 1024 + 1))
+
+        with self._pipeline() as m:
+            m.gtts.return_value.save.side_effect = fake_save
+            with self.assertRaises(AudioGenerationError):
+                text_to_audio('Sveiki')
+            path = m.gtts.return_value.save.call_args.args[0]
+            self.assertFalse(os.path.exists(path))
+        m.blob.upload_from_filename.assert_not_called()
+
 
 class AudioEndpointTests(TestCase):
     """GET /news/audio/ — the public JSON contract behind the
