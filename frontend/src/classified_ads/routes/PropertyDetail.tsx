@@ -1,8 +1,25 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { fetchProperty, type Kind } from '../api';
+import { ExternalLink } from 'lucide-react';
+import {
+  fetchProperty,
+  type Kind,
+  type LinkedAdOut,
+} from '../api';
 import { formatDateYmd, formatFloat } from '../format';
 import { errorDetail } from '../../shared/api/errors';
+import { kindUrls } from '../urls';
+import PageContainer, {
+  PageHeader,
+} from '../../shared/layout/PageContainer';
+import Badge from '../../shared/ui/Badge';
+import Card from '../../shared/ui/Card';
+import DataTable, { type Column } from '../../shared/ui/DataTable';
+import DescriptionList from '../../shared/ui/DescriptionList';
+import EmptyState from '../../shared/ui/EmptyState';
+import ErrorState from '../../shared/ui/ErrorState';
+import { LoadingState } from '../../shared/ui/Skeleton';
+import useErrorToast from '../useErrorToast';
 
 /**
  * React port of property_detail.html — canonical address, attribute
@@ -12,13 +29,14 @@ import { errorDetail } from '../../shared/api/errors';
  */
 export default function PropertyDetail({ kind }: { kind: Kind }) {
   const { pk } = useParams();
-  const navigate = useNavigate();
+  const urls = kindUrls(kind);
 
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['classified_ads', 'property', kind, pk],
     queryFn: () => fetchProperty(kind, pk ?? ''),
     enabled: !!pk,
   });
+  useErrorToast(isError, error, 'Failed to load the property');
 
   const prop = data;
   const address = prop
@@ -27,144 +45,175 @@ export default function PropertyDetail({ kind }: { kind: Kind }) {
       }`
     : '';
 
-  return (
-    <div className="container py-4">
-      <button
-        type="button"
-        className="btn btn-link back-link p-0"
-        onClick={() => navigate(-1)}
-      >
-        ← Back
-      </button>
-
-      {isError && (
-        <div className="alert alert-danger" role="alert">
-          Failed to load the property — {errorDetail(error)}
-        </div>
-      )}
-      {isPending && <p className="text-muted">Loading…</p>}
-
-      {prop && (
+  const columns: Column<LinkedAdOut>[] = [
+    {
+      id: 'ad',
+      header: 'Ad',
+      cell: (row) => (
+        <a
+          href={row.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-fg hover:text-accent-text"
+        >
+          {/* truncatechars:30 — 29 chars + '…' */}
+          {row.ad_id.length > 30
+            ? `${row.ad_id.slice(0, 29)}…`
+            : row.ad_id}
+          <ExternalLink
+            className="ml-0.5 inline size-3"
+            aria-hidden="true"
+          />
+        </a>
+      ),
+      mobile: 'title',
+    },
+    {
+      id: 'deal',
+      header: 'Deal',
+      cell: (row) =>
+        row.deal === 'Rent' ? (
+          <Badge tone="info">Rent</Badge>
+        ) : (
+          <Badge tone="success">Sell</Badge>
+        ),
+      mobile: 'badge',
+    },
+    {
+      id: 'price',
+      header: 'Price',
+      align: 'right',
+      cell: (row) => (
         <>
-          <h2 className="mb-1">{address}</h2>
-          <p className="text-muted mb-4">
-            {prop.district}
-            {prop.region_name ? ` · ${prop.region_name}` : ''}
-          </p>
-
-          <div className="card filter-card mb-4">
-            <div className="card-body">
-              <dl className="prop-attrs row mb-0">
-                <dt className="col-sm-3">Rooms</dt>
-                <dd className="col-sm-3">{prop.rooms}</dd>
-                <dt className="col-sm-3">Size</dt>
-                <dd className="col-sm-3">
-                  {formatFloat(prop.size, 1)} m²
-                </dd>
-                {kind === 'apartment' && (
-                  <>
-                    <dt className="col-sm-3">Floor</dt>
-                    <dd className="col-sm-3">
-                      {prop.floor} / {prop.max_floor}
-                    </dd>
-                  </>
-                )}
-                {kind === 'house' && (
-                  <>
-                    <dt className="col-sm-3">Floors</dt>
-                    <dd className="col-sm-3">{prop.floors}</dd>
-                  </>
-                )}
-                {kind === 'house' && prop.land_area_sqm != null && (
-                  <>
-                    <dt className="col-sm-3">Land</dt>
-                    <dd className="col-sm-3">
-                      {formatFloat(prop.land_area_sqm, 0)} m²
-                    </dd>
-                  </>
-                )}
-                <dt className="col-sm-3">Days on market</dt>
-                <dd className="col-sm-3">{prop.days_on_market}</dd>
-                <dt className="col-sm-3">First seen</dt>
-                <dd className="col-sm-3">
-                  {formatDateYmd(prop.first_seen)}
-                </dd>
-                <dt className="col-sm-3">Last seen</dt>
-                <dd className="col-sm-3">
-                  {formatDateYmd(prop.last_seen)}
-                </dd>
-              </dl>
-            </div>
-          </div>
-
-          <h4 className="mb-3">Linked ads ({prop.ad_rows.length})</h4>
-          <div className="card filter-card">
-            <div className="card-body p-0">
-              <div className="table-responsive">
-                <table className="table table-hover table-sm mb-0">
-                  <thead>
-                    <tr>
-                      <th>Ad</th>
-                      <th>Deal</th>
-                      <th className="text-end">Price</th>
-                      <th>Match</th>
-                      <th className="text-end">Score</th>
-                      <th>First seen</th>
-                      <th>Last seen</th>
-                      <th className="text-end">Days seen</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {prop.ad_rows.length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={8}
-                          className="text-center text-muted py-4"
-                        >
-                          No linked ads.
-                        </td>
-                      </tr>
-                    ) : (
-                      prop.ad_rows.map((row) => (
-                        <tr key={`${row.deal}-${row.ad_id}`}>
-                          <td>
-                            <a
-                              href={row.link}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              {/* truncatechars:30 — 29 chars + '…' */}
-                              {row.ad_id.length > 30
-                                ? `${row.ad_id.slice(0, 29)}…`
-                                : row.ad_id}
-                            </a>
-                          </td>
-                          <td>{row.deal}</td>
-                          <td className="text-end">
-                            €{formatFloat(row.price, 0)}
-                            {row.price_suffix}
-                          </td>
-                          <td>{row.match_status}</td>
-                          <td className="text-end">
-                            {row.match_score != null
-                              ? formatFloat(row.match_score, 2)
-                              : '—'}
-                          </td>
-                          <td>{formatDateYmd(row.first_seen)}</td>
-                          <td>{formatDateYmd(row.last_seen)}</td>
-                          <td className="text-end">
-                            {row.days_active}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          €{formatFloat(row.price, 0)}
+          {row.price_suffix}
         </>
+      ),
+    },
+    {
+      id: 'match',
+      header: 'Match',
+      cell: (row) => row.match_status,
+    },
+    {
+      id: 'score',
+      header: 'Score',
+      align: 'right',
+      cell: (row) =>
+        row.match_score != null
+          ? formatFloat(row.match_score, 2)
+          : '—',
+    },
+    {
+      id: 'first_seen',
+      header: 'First seen',
+      cell: (row) => formatDateYmd(row.first_seen),
+      mobile: 'meta',
+    },
+    {
+      id: 'last_seen',
+      header: 'Last seen',
+      cell: (row) => formatDateYmd(row.last_seen),
+      mobile: 'meta',
+    },
+    {
+      id: 'days',
+      header: 'Days seen',
+      align: 'right',
+      cell: (row) => row.days_active,
+    },
+  ];
+
+  return (
+    <PageContainer width="page">
+      <PageHeader
+        back={{ to: urls.properties, label: 'Back to properties' }}
+        title={address || 'Property'}
+        description={
+          prop
+            ? `${prop.district}${
+                prop.region_name ? ` · ${prop.region_name}` : ''
+              }`
+            : undefined
+        }
+      />
+
+      {isError && !prop ? (
+        <ErrorState
+          title="Failed to load the property"
+          error={errorDetail(error)}
+          onRetry={() => void refetch()}
+        />
+      ) : isPending ? (
+        <LoadingState variant="table" />
+      ) : (
+        prop && (
+          <>
+            <Card className="mb-4">
+              <DescriptionList
+                items={[
+                  { term: 'Rooms', description: prop.rooms },
+                  {
+                    term: 'Size',
+                    description: `${formatFloat(prop.size, 1)} m²`,
+                  },
+                  ...(kind === 'apartment'
+                    ? [
+                        {
+                          term: 'Floor',
+                          description: `${prop.floor} / ${prop.max_floor}`,
+                        },
+                      ]
+                    : [
+                        {
+                          term: 'Floors',
+                          description: prop.floors,
+                        },
+                        ...(prop.land_area_sqm != null
+                          ? [
+                              {
+                                term: 'Land',
+                                description: `${formatFloat(
+                                  prop.land_area_sqm,
+                                  0,
+                                )} m²`,
+                              },
+                            ]
+                          : []),
+                      ]),
+                  {
+                    term: 'Days on market',
+                    description: prop.days_on_market,
+                  },
+                  {
+                    term: 'First seen',
+                    description: formatDateYmd(prop.first_seen),
+                  },
+                  {
+                    term: 'Last seen',
+                    description: formatDateYmd(prop.last_seen),
+                  },
+                ]}
+              />
+            </Card>
+
+            <h2 className="mb-3 text-xl font-semibold">
+              Linked ads ({prop.ad_rows.length})
+            </h2>
+            <Card padding="none" className="overflow-hidden">
+              <DataTable
+                columns={columns}
+                rows={prop.ad_rows}
+                getRowKey={(row) => `${row.deal}-${row.ad_id}`}
+                empty={<EmptyState title="No linked ads." />}
+                caption="Linked ads"
+                mobile="cards"
+                className="max-md:p-3"
+              />
+            </Card>
+          </>
+        )
       )}
-    </div>
+    </PageContainer>
   );
 }

@@ -1,10 +1,20 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import Pagination from '../components/Pagination';
+import { ExternalLink } from 'lucide-react';
 import { fetchRegionAds, type AdOut, type Kind } from '../api';
 import { formatDate, formatFloat } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 import { kindUrls } from '../urls';
+import PageContainer, {
+  PageHeader,
+} from '../../shared/layout/PageContainer';
+import Badge from '../../shared/ui/Badge';
+import Card from '../../shared/ui/Card';
+import DataTable, { type Column } from '../../shared/ui/DataTable';
+import EmptyState from '../../shared/ui/EmptyState';
+import ErrorState, { Alert } from '../../shared/ui/ErrorState';
+import Pagination from '../../shared/ui/Pagination';
+import useErrorToast from '../useErrorToast';
 
 /**
  * React port of region_ads_list.html / house_region_ads_list.html —
@@ -26,7 +36,7 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
     page: searchParams.get('page'),
   };
 
-  const { data, isPending, isError, error } = useQuery({
+  const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: [
       'classified_ads',
       'region-ads',
@@ -37,11 +47,11 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
     queryFn: () => fetchRegionAds(kind, regionId ?? '', params),
     enabled: !!regionId,
   });
+  useErrorToast(isError, error, 'Failed to load ads');
 
   const urls = kindUrls(kind);
   const isApartment = kind === 'apartment';
   const region = data?.region;
-  const colSpan = isApartment ? 12 : 11;
 
   const backTarget =
     data && region
@@ -50,28 +60,146 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
         : `${urls.stats}?date_from=${data.date_from}&date_to=${data.date_to}&deal_type=${data.deal_type}&regions=${region.id}`
       : urls.stats;
   const backLabel = region?.parent_id
-    ? `← Back to ${region.parent_name}`
-    : '← Back to region stats';
+    ? `Back to ${region.parent_name}`
+    : 'Back to region stats';
+
+  const columns: Column<AdOut>[] = [
+    ...(isApartment
+      ? [
+          {
+            id: 'type',
+            header: 'Type',
+            cell: (ad: AdOut) =>
+              ad.deal === 'Rent' ? (
+                <Badge tone="info">Rent</Badge>
+              ) : (
+                <Badge tone="success">Sell</Badge>
+              ),
+            mobile: 'badge' as const,
+          },
+        ]
+      : []),
+    {
+      id: 'district',
+      header: 'District',
+      cell: (ad) => ad.district,
+      mobile: 'subtitle',
+    },
+    {
+      id: 'street',
+      header: 'Street',
+      cell: (ad) =>
+        ad.street_no
+          ? `${ad.street_name} ${ad.street_no}`
+          : ad.street_name,
+      mobile: 'title',
+    },
+    {
+      id: 'rooms',
+      header: 'Rooms',
+      align: 'right',
+      cell: (ad) => ad.rooms,
+    },
+    {
+      id: 'size',
+      header: 'Size m²',
+      align: 'right',
+      cell: (ad) => formatFloat(ad.size, 1),
+    },
+    isApartment
+      ? {
+          id: 'floor',
+          header: 'Floor',
+          align: 'right' as const,
+          cell: (ad: AdOut) => `${ad.floor}/${ad.max_floor}`,
+        }
+      : {
+          id: 'floors',
+          header: 'Floors',
+          align: 'right' as const,
+          cell: (ad: AdOut) => ad.floors,
+        },
+    isApartment
+      ? {
+          id: 'project',
+          header: 'Project',
+          cell: (ad: AdOut) => ad.project ?? '—',
+        }
+      : {
+          id: 'land',
+          header: 'Land Area m²',
+          align: 'right' as const,
+          cell: (ad: AdOut) => formatFloat(ad.land_area_sqm, 0),
+        },
+    {
+      id: 'sqm',
+      header: '€/m²',
+      align: 'right',
+      cell: (ad) => (
+        <span className="font-medium">
+          {formatFloat(ad.price_per_sqm, 0)}
+        </span>
+      ),
+    },
+    {
+      id: 'total',
+      header: 'Total €',
+      align: 'right',
+      cell: (ad) => (
+        <span className="font-medium">
+          {formatFloat(ad.total_price, 0)}
+        </span>
+      ),
+    },
+    {
+      id: 'posted',
+      header: 'Posted',
+      cell: (ad) => formatDate(ad.post_date),
+      mobile: 'meta',
+    },
+    {
+      id: 'days',
+      header: 'Days active',
+      align: 'right',
+      cell: (ad) => ad.days_active,
+    },
+    {
+      id: 'link',
+      header: 'Link',
+      cell: (ad) => (
+        <a
+          href={ad.link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent-text hover:text-accent-hover"
+        >
+          View
+          <ExternalLink
+            className="ml-0.5 inline size-3"
+            aria-hidden="true"
+          />
+        </a>
+      ),
+      ...(isApartment ? {} : { mobile: 'badge' as const }),
+    },
+  ];
 
   return (
-    <div className="container-fluid py-4">
-      <Link to={backTarget} className="back-link">
-        {backLabel}
-      </Link>
-
-      <div className="d-flex align-items-center mb-3">
-        <h2 className="mb-0 me-3">
-          {region ? `${region.name} - Ads` : 'Ads'}
-        </h2>
-        <span className="result-count">
-          {data
-            ? `${data.total_count} result${data.total_count === 1 ? '' : 's'}`
-            : ''}
-        </span>
-      </div>
+    <PageContainer width="page">
+      <PageHeader
+        back={{ to: backTarget, label: backLabel }}
+        title={region ? `${region.name} - Ads` : 'Ads'}
+        description={
+          data
+            ? `${data.total_count} result${
+                data.total_count === 1 ? '' : 's'
+              }`
+            : undefined
+        }
+      />
 
       {data && (
-        <div className="alert alert-info">
+        <Alert tone="info" className="mb-4">
           <strong>Time period:</strong> {data.date_from} to{' '}
           {data.date_to}
           {data.deal_type && (
@@ -80,147 +208,42 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
               <strong>Deal type:</strong> {data.deal_type}
             </>
           )}
-        </div>
+        </Alert>
       )}
 
-      {isError && (
-        <div className="alert alert-danger" role="alert">
-          Failed to load ads — {errorDetail(error)}
-        </div>
-      )}
-
-      {/* Table */}
-      <div className="card filter-card">
-        <div className="card-body p-0">
-          <div className="table-responsive">
-            <table className="table table-hover table-sm mb-0">
-              <thead>
-                <tr>
-                  {isApartment && <th>Type</th>}
-                  <th>District</th>
-                  <th>Street</th>
-                  <th>Rooms</th>
-                  <th>Size m²</th>
-                  {isApartment ? (
-                    <>
-                      <th>Floor</th>
-                      <th>Project</th>
-                    </>
-                  ) : (
-                    <>
-                      <th>Floors</th>
-                      <th>Land Area m²</th>
-                    </>
-                  )}
-                  <th>€/m²</th>
-                  <th>Total €</th>
-                  <th>Posted</th>
-                  <th>Days active</th>
-                  <th>Link</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data && data.ads.length === 0 && !isPending ? (
-                  <tr>
-                    <td
-                      colSpan={colSpan}
-                      className="text-center text-muted py-4"
-                    >
-                      No ads found for this region in the selected time
-                      period.
-                    </td>
-                  </tr>
-                ) : (
-                  data?.ads.map((ad) => (
-                    <RegionAdRow
-                      key={ad.id}
-                      ad={ad}
-                      isApartment={isApartment}
-                    />
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {data && (
-        <Pagination
-          variant="caps"
-          page={data.page}
-          numPages={data.num_pages}
-          hasPrevious={data.has_previous}
-          hasNext={data.has_next}
+      {isError && !data ? (
+        <ErrorState
+          title="Failed to load ads"
+          error={errorDetail(error)}
+          onRetry={() => void refetch()}
         />
-      )}
-    </div>
-  );
-}
-
-/**
- * Both deal types show the sale-equivalent columns
- * (price_per_sqm/total_price) — matching the retired template, which
- * rendered those fields for rent ads too.
- */
-function RegionAdRow({
-  ad,
-  isApartment,
-}: {
-  ad: AdOut;
-  isApartment: boolean;
-}) {
-  const street = ad.street_no
-    ? `${ad.street_name} ${ad.street_no}`
-    : ad.street_name;
-  return (
-    <tr>
-      {isApartment && (
-        <td>
-          {ad.deal === 'Rent' ? (
-            <span className="badge bg-info">Rent</span>
-          ) : (
-            <span className="badge bg-success">Sell</span>
-          )}
-        </td>
-      )}
-      <td>{ad.district}</td>
-      <td>{street}</td>
-      <td className="text-center">{ad.rooms}</td>
-      <td className="text-end">{formatFloat(ad.size, 1)}</td>
-      {isApartment ? (
-        <>
-          <td className="text-center">
-            {ad.floor}/{ad.max_floor}
-          </td>
-          <td>{ad.project ?? '—'}</td>
-        </>
       ) : (
         <>
-          <td className="text-center">{ad.floors}</td>
-          <td className="text-end">
-            {formatFloat(ad.land_area_sqm, 0)}
-          </td>
+          <Card padding="none" className="overflow-hidden">
+            <DataTable
+              columns={columns}
+              rows={data?.ads ?? []}
+              getRowKey={(ad) => ad.id}
+              loading={isPending}
+              empty={
+                <EmptyState title="No ads found for this region in the selected time period." />
+              }
+              caption={
+                region ? `${region.name} — ads` : 'Region ads'
+              }
+              mobile="cards"
+              className="max-md:p-3"
+            />
+          </Card>
+          {data && (
+            <Pagination
+              page={data.page}
+              numPages={data.num_pages}
+              className="mt-4"
+            />
+          )}
         </>
       )}
-      <td className="text-end fw-bold">
-        {formatFloat(ad.price_per_sqm, 0)}
-      </td>
-      <td className="text-end fw-bold">
-        {formatFloat(ad.total_price, 0)}
-      </td>
-      <td>{formatDate(ad.post_date)}</td>
-      <td className="text-center">{ad.days_active}</td>
-      <td>
-        <a
-          href={ad.link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="ad-link"
-        >
-          View
-        </a>
-      </td>
-    </tr>
+    </PageContainer>
   );
 }

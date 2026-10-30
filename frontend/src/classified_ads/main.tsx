@@ -8,6 +8,10 @@ import queryClient from '../shared/queryClient';
 import ErrorBoundary from '../shared/components/ErrorBoundary';
 import { initSentry } from '../shared/sentry';
 import { initGlobalErrorHandlers } from '../shared/errorReporter';
+import '../shared/styles/app.css';
+// Still needed by the unmigrated Index/RentVsBuy/RegionConfig
+// routes — PR-9 deletes it together with the Bootstrap CDN links
+// ('classified_ads' is the last LEGACY_BOOTSTRAP_ENTRIES member).
 import './classified_ads.css';
 
 // DSN-gated — no-ops until the spa-bootstrap payload carries one.
