@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import {
@@ -105,27 +106,62 @@ beforeEach(() => {
 describe('ReceiptsDashboard', () => {
   it('renders summary cards, a category and a receipt row',
     async () => {
-      const { container } = renderDashboard();
+      renderDashboard();
       // Summary cards ('5.98 €' also shows in the money columns).
       expect(
         (await screen.findAllByText('5.98 €')).length,
       ).toBeGreaterThan(0);
-      const cards = container.querySelectorAll('.summary .card');
-      expect(cards).toHaveLength(3);
-      expect(cards[1]).toHaveTextContent('Receipts');
+      const summary = screen.getByTestId('summary');
+      // The three StatCards of the old .summary row.
+      expect(
+        summary.firstElementChild?.children,
+      ).toHaveLength(3);
+      expect(
+        within(summary).getByText('Total spend'),
+      ).toBeInTheDocument();
+      expect(
+        within(summary).getByText('Receipts'),
+      ).toBeInTheDocument();
       // By-month row — 'F Y' like the template, not raw ISO.
-      expect(screen.getByText('February 2026')).toBeInTheDocument();
-      // Category row (name appears twice: category + all-receipts
-      // store cells don't collide) and its top item.
-      expect(screen.getByText('Uncategorized')).toBeInTheDocument();
-      // All-receipts row.
-      expect(screen.getByText('2-999888')).toBeInTheDocument();
-      expect(screen.getByText('5.98 EUR')).toBeInTheDocument();
+      // (Every cell renders twice: desktop table + mobile card.)
+      expect(
+        screen.getAllByText('February 2026').length,
+      ).toBeGreaterThan(0);
+      // Category row and all-receipts row.
+      expect(
+        screen.getAllByText('Uncategorized').length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText('2-999888').length,
+      ).toBeGreaterThan(0);
+      expect(
+        screen.getAllByText('5.98 EUR').length,
+      ).toBeGreaterThan(0);
       expect(
         screen.getAllByText('Rimi Akropolis').length,
       ).toBeGreaterThan(0);
-      // Per-receipt <details> item table.
-      expect(screen.getAllByText('Piens')).toHaveLength(2);
+      // Expandable rows: the category's top-items table and the
+      // receipt's item table hide behind the chevron toggles —
+      // aria-expanded flips and the content lands in the
+      // colSpan row (and inside the mobile card).
+      const toggles = screen.getAllByRole('button', {
+        name: 'Expand row',
+      });
+      expect(toggles.length).toBeGreaterThanOrEqual(2);
+      for (const toggle of toggles) {
+        expect(toggle).toHaveAttribute(
+          'aria-expanded',
+          'false',
+        );
+        fireEvent.click(toggle);
+        expect(toggle).toHaveAttribute(
+          'aria-expanded',
+          'true',
+        );
+      }
+      // 'Piens' in both expanded bodies, each rendered twice
+      // (desktop colSpan row + mobile in-card expansion).
+      expect(screen.getAllByText('Piens')).toHaveLength(4);
     });
 
   it('passes ?date_from=&date_to= through to the API', async () => {
@@ -140,10 +176,10 @@ describe('ReceiptsDashboard', () => {
 
   it('"Last 12 months" clears the range params', async () => {
     renderDashboard('/?date_from=2026-01-01&date_to=2026-01-31');
-    await screen.findByText('2-999888');
+    await screen.findAllByText('2-999888');
     mockedFetch.mockClear();
     fireEvent.click(
-      screen.getByRole('link', { name: 'Last 12 months' }),
+      screen.getByRole('button', { name: 'Last 12 months' }),
     );
     await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
     expect(mockedFetch).toHaveBeenCalledWith({
@@ -154,10 +190,10 @@ describe('ReceiptsDashboard', () => {
 
   it('"Last month" applies the server-provided preset', async () => {
     renderDashboard();
-    await screen.findByText('2-999888');
+    await screen.findAllByText('2-999888');
     mockedFetch.mockClear();
     fireEvent.click(
-      screen.getByRole('link', { name: 'Last month' }),
+      screen.getByRole('button', { name: 'Last month' }),
     );
     await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
     expect(mockedFetch).toHaveBeenCalledWith({
