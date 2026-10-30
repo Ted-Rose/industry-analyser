@@ -158,10 +158,14 @@ class SpaShellContractTests(TestCase):
     def test_bootstrap_cdn_only_for_legacy_entries(self):
         resp = self._shell('classified_ads')
         self.assertContains(resp, 'cdn.jsdelivr.net/npm/bootstrap')
+        # The body marker scopes ia-components.css's Bootstrap
+        # coexistence re-assertions to Bootstrap pages only.
+        self.assertContains(resp, '<body class="ia-bs">')
         resp = self._shell('vacancies')
         self.assertNotContains(
             resp, 'cdn.jsdelivr.net/npm/bootstrap'
         )
+        self.assertNotContains(resp, 'class="ia-bs"')
 
     def test_bootstrap_payload_carries_apps_and_auth(self):
         resp = self.client.get('/vacancies/')

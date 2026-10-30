@@ -185,14 +185,20 @@
    !important utilities beat every layered Tailwind class they
    contest. The rules below re-assert the design-system values the
    kit loses; each is keyed on a Tailwind-only class name so the
-   Bootstrap markup in unmigrated routes is untouched. (Bootstrap
-   5.3.0 ships no `.grid`, so grid-cols-* needs no shim; spacing
-   scale differences on shared padding, margin and gap class names
-   are accepted as cosmetic.) Delete this section with the
-   Bootstrap CDN links. */
+   Bootstrap markup in unmigrated routes is untouched (the
+   semantic text-* and bg-*-subtle block at the bottom is the
+   one deliberate exception). Every rule is scoped to `.ia-bs` —
+   spa_shell.html emits that marker class on <body> only when
+   `legacy_bootstrap` is set — because this file rides every SPA
+   bundle via Toasts/ErrorBoundary and its unlayered rules would
+   otherwise beat Tailwind's @layer utilities on Bootstrap-free
+   pages too. (Bootstrap 5.3.0 ships no `.grid`, so grid-cols-*
+   needs no shim; spacing scale differences on shared padding,
+   margin and gap class names are accepted as cosmetic.) Delete
+   this section with the Bootstrap CDN links. */
 
 /* Reboot pins Bootstrap's font/color/background on body. */
-body {
+body.ia-bs {
   background-color: var(--ia-bg);
   color: var(--ia-fg);
   font-family:
@@ -202,57 +208,57 @@ body {
 /* Reboot's `a`/`a:hover` link-blue + underline beats every text-*
    color. Kit links always carry a token text class — re-assert it
    and drop the underline the design doesn't use on them. */
-a.text-fg {
+.ia-bs a.text-fg {
   color: var(--ia-fg);
   text-decoration: none;
 }
-a.text-fg-muted {
+.ia-bs a.text-fg-muted {
   color: var(--ia-fg-muted);
   text-decoration: none;
 }
-a.text-fg-subtle {
+.ia-bs a.text-fg-subtle {
   color: var(--ia-fg-subtle);
   text-decoration: none;
 }
-a.text-accent-text {
+.ia-bs a.text-accent-text {
   color: var(--ia-accent-text);
   text-decoration: none;
 }
-a[class*="hover:text-fg"]:hover {
+.ia-bs a[class*="hover:text-fg"]:hover {
   color: var(--ia-fg);
 }
-a[class*="hover:text-fg-muted"]:hover {
+.ia-bs a[class*="hover:text-fg-muted"]:hover {
   color: var(--ia-fg-muted);
 }
-a[class*="hover:text-fg-subtle"]:hover {
+.ia-bs a[class*="hover:text-fg-subtle"]:hover {
   color: var(--ia-fg-subtle);
 }
-a[class*="hover:text-accent-text"]:hover {
+.ia-bs a[class*="hover:text-accent-text"]:hover {
   color: var(--ia-accent-text);
 }
-a[class*="hover:text-accent-hover"]:hover {
+.ia-bs a[class*="hover:text-accent-hover"]:hover {
   color: var(--ia-accent-hover);
 }
-a[class*="hover:underline"]:hover {
+.ia-bs a[class*="hover:underline"]:hover {
   text-decoration: underline;
 }
 
 /* Reboot's h1–h6 sizes/weights/margins beat the heading utilities —
    re-assert the type-scale values on the classes the kit emits. */
-h1.text-2xl {
+.ia-bs h1.text-2xl {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 600;
   line-height: 2rem;
 }
-h2.text-xl {
+.ia-bs h2.text-xl {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
   line-height: 1.75rem;
 }
-h2.text-lg,
-h3.text-lg {
+.ia-bs h2.text-lg,
+.ia-bs h3.text-lg {
   margin: 0;
   font-size: 1.125rem;
   font-weight: 500;
@@ -262,116 +268,120 @@ h3.text-lg {
 /* `p { margin-bottom: 1rem }` — kit paragraphs carry a text-size
    or font class; zero the Reboot margins on those (explicit m-*
    utilities are Bootstrap-!important and keep working). */
-p.text-xs,
-p.text-sm,
-p.text-base,
-p.text-lg,
-p.text-xl,
-p.text-2xl,
-p.text-fg,
-p.text-fg-muted,
-p.text-fg-subtle,
-p.text-accent-text,
-p.text-danger,
-p.font-medium {
+.ia-bs p.text-xs,
+.ia-bs p.text-sm,
+.ia-bs p.text-base,
+.ia-bs p.text-lg,
+.ia-bs p.text-xl,
+.ia-bs p.text-2xl,
+.ia-bs p.text-fg,
+.ia-bs p.text-fg-muted,
+.ia-bs p.text-fg-subtle,
+.ia-bs p.text-accent-text,
+.ia-bs p.text-danger,
+.ia-bs p.font-medium {
   margin-top: 0;
   margin-bottom: 0;
 }
 
 /* `ol,ul { padding-left: 2rem; margin-bottom: 1rem }` — the kit's
    lists are bullet-free (DataTable mobile cards, AppSwitcher). */
-ul.list-none,
-ol.list-none,
-ul.space-y-1,
-ul.space-y-2,
-ul.space-y-3,
-ul.space-y-4,
-ul.space-y-6,
-ol.space-y-1,
-ol.space-y-2,
-ol.space-y-3,
-ol.space-y-4,
-ol.space-y-6 {
+.ia-bs ul.list-none,
+.ia-bs ol.list-none,
+.ia-bs ul.space-y-1,
+.ia-bs ul.space-y-2,
+.ia-bs ul.space-y-3,
+.ia-bs ul.space-y-4,
+.ia-bs ul.space-y-6,
+.ia-bs ol.space-y-1,
+.ia-bs ol.space-y-2,
+.ia-bs ol.space-y-3,
+.ia-bs ol.space-y-4,
+.ia-bs ol.space-y-6 {
   margin-top: 0;
   margin-bottom: 0;
   padding-left: 0;
   list-style: none;
 }
 
-/* DescriptionList — Reboot's dl/dt/dd defaults. `dl.grid` only
-   comes from ui/DescriptionList, so it can't hit Bootstrap markup
-   (Bootstrap 5.3.0 defines no `.grid` class). */
-dl.grid {
+/* Reboot's dl/dt/dd defaults — `dl.grid` comes from ui/
+   DescriptionList and `dl.space-y-1` from DataTable's mobile
+   card; both class names are Tailwind-only, so Bootstrap markup
+   is untouched (Bootstrap 5.3.0 defines no `.grid` class). */
+.ia-bs dl.grid,
+.ia-bs dl.space-y-1 {
   margin-top: 0;
   margin-bottom: 0;
 }
-dl.grid dt {
+.ia-bs dl.grid dt,
+.ia-bs dl.space-y-1 dt {
   font-weight: 500;
 }
-dl.grid dd {
+.ia-bs dl.grid dd,
+.ia-bs dl.space-y-1 dd {
   margin-bottom: 0;
   margin-left: 0;
 }
 
 /* `button { border-radius: 0 }` squares every rounded-* button. */
-button.rounded-sm {
+.ia-bs button.rounded-sm {
   border-radius: 0.25rem;
 }
-button.rounded-md {
+.ia-bs button.rounded-md {
   border-radius: 0.375rem;
 }
-button.rounded-lg {
+.ia-bs button.rounded-lg {
   border-radius: 0.5rem;
 }
-button.rounded-xl {
+.ia-bs button.rounded-xl {
   border-radius: 0.75rem;
 }
-button.rounded-full {
+.ia-bs button.rounded-full {
   border-radius: 9999px;
 }
 
 /* `label { display: inline-block; margin-bottom: .5rem }` — it
    also flattens Checkbox's wrapping flex label. */
-label.flex {
+.ia-bs label.flex {
   display: flex;
   margin-bottom: 0;
 }
-label.inline-flex {
+.ia-bs label.inline-flex {
   display: inline-flex;
   margin-bottom: 0;
 }
-label.block {
+.ia-bs label.block {
   display: block;
   margin-bottom: 0;
 }
-label.text-sm,
-label.text-xs {
+.ia-bs label.text-sm,
+.ia-bs label.text-xs {
   margin-bottom: 0;
 }
 
 /* `input,select { font-size: inherit }` defeats the kit's iOS
    zoom-guard pair (text-lg below sm, text-sm at ≥sm). */
-input.text-lg,
-select.text-lg {
+.ia-bs input.text-lg,
+.ia-bs select.text-lg {
   font-size: 1.125rem;
   line-height: 1.75rem;
 }
 @media (min-width: 640px) {
-  input[class*="sm:text-sm"],
-  select[class*="sm:text-sm"] {
+  .ia-bs input[class*="sm:text-sm"],
+  .ia-bs select[class*="sm:text-sm"] {
     font-size: 0.875rem;
     line-height: 1.25rem;
   }
 }
 
 /* `th { text-align: match-parent }` beats text-right on headers. */
-th.text-left {
+.ia-bs th.text-left {
   text-align: left;
 }
-th.text-center {
+.ia-bs th.text-center {
   text-align: center;
 }
-th.text-right {
+.ia-bs th.text-right {
   text-align: right;
 }
 
@@ -379,27 +389,64 @@ th.text-right {
    on every `border` element — re-assert the token colors the kit
    pairs it with. All Tailwind-only names; !important is required
    to win. */
-.border-border {
+.ia-bs .border-border {
   border-color: var(--ia-border) !important;
 }
-.border-border-strong {
+.ia-bs .border-border-strong {
   border-color: var(--ia-border-strong) !important;
 }
-.border-accent {
+.ia-bs .border-accent {
   border-color: var(--ia-accent) !important;
 }
-.border-transparent {
+.ia-bs .border-transparent {
   border-color: transparent !important;
 }
-.border-info {
+.ia-bs .border-info {
   border-color: var(--ia-info) !important;
 }
-.border-success {
+.ia-bs .border-success {
   border-color: var(--ia-success) !important;
 }
-.border-warning {
+.ia-bs .border-warning {
   border-color: var(--ia-warning) !important;
 }
-.border-danger {
+.ia-bs .border-danger {
   border-color: var(--ia-danger) !important;
+}
+
+/* Bootstrap's semantic color utilities are all !important and
+   its *-subtle backgrounds resolve to the light palette — this
+   app never sets data-bs-theme, so a kit Badge/Alert on a dark
+   page would otherwise render Bootstrap's light cyan/yellow
+   washes. Unlike the shims above these are REAL Bootstrap class
+   names, not Tailwind-only: re-asserting the --ia-* values is
+   deliberate — Badge tones, Alert/ErrorState boxes and Button's
+   danger variant keep the design-system palette, and any legacy
+   Bootstrap markup using them picks up the same tokens. */
+.ia-bs .text-info {
+  color: var(--ia-info) !important;
+}
+.ia-bs .text-success {
+  color: var(--ia-success) !important;
+}
+.ia-bs .text-warning {
+  color: var(--ia-warning) !important;
+}
+.ia-bs .text-danger {
+  color: var(--ia-danger) !important;
+}
+.ia-bs .bg-info-subtle {
+  background-color: var(--ia-info-subtle) !important;
+}
+.ia-bs .bg-success-subtle {
+  background-color: var(--ia-success-subtle) !important;
+}
+.ia-bs .bg-warning-subtle {
+  background-color: var(--ia-warning-subtle) !important;
+}
+.ia-bs .bg-danger-subtle {
+  background-color: var(--ia-danger-subtle) !important;
+}
+.ia-bs .bg-danger {
+  background-color: var(--ia-danger) !important;
 }
