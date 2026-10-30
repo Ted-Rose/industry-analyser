@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   fetchRentVsBuyRanked,
   type Kind,
+  type RentVsBuyGroup,
   type RentVsBuyRankedRowOut,
 } from '../api';
 import { formatFloat } from '../format';
@@ -13,6 +14,23 @@ const KINDS: { kind: Kind; label: string }[] = [
   { kind: 'apartment', label: 'Apartments' },
   { kind: 'house', label: 'Houses' },
 ];
+
+/** Cell dimension alongside the region — drives the `group` URL
+ *  param → the API's group_by ('type' default). */
+const GROUPS: { group: RentVsBuyGroup; label: string }[] = [
+  { group: 'type', label: 'By type' },
+  { group: 'region', label: 'By region' },
+  { group: 'rooms', label: 'By rooms' },
+];
+
+/** Header of the grouping column per group_by mode — 'type'
+ *  keeps the kind-specific label (Project/House type), 'region'
+ *  merges into 'All' cells, 'rooms' shows the bucket. */
+function groupHeader(group: RentVsBuyGroup, kind: Kind): string {
+  if (group === 'rooms') return 'Rooms';
+  if (group === 'region') return 'Type';
+  return kind === 'apartment' ? 'Project' : 'House type';
+}
 
 /** Rows under both thresholds on both ad sides are excluded by the
  *  API already (min_ads); rows that pass the gate but stay thin
@@ -30,19 +48,32 @@ function isFlagged(row: RentVsBuyRankedRowOut): boolean {
 
 /**
  * Ranked rent-vs-buy report — the API returns cells of (exact
- * region node x property type) pre-sorted ascending by
+ * region node x group_by dimension) pre-sorted ascending by
  * months_to_buyout: how many months of the median rent it takes
  * to buy the median unit outright. Filters live in the URL
- * (kind/days/min_ads/residual).
+ * (kind/days/min_ads/residual/group).
  */
 export default function RentVsBuy() {
   const [searchParams, setSearchParams] = useSearchParams();
   const kind: Kind =
     searchParams.get('kind') === 'house' ? 'house' : 'apartment';
+  const groupParam = searchParams.get('group');
+  const group: RentVsBuyGroup =
+    groupParam === 'region' || groupParam === 'rooms'
+      ? groupParam
+      : 'type';
   const params = {
-    days: searchParams.get('days'),
+    // Houses default to a 90-day window in the input but the API
+    // default is 30 — send the kind-aware default so the query
+    // matches what the input shows. Apartment's 30 is already
+    // the API default — only non-default values ride the query.
+    days:
+      searchParams.get('days') ?? (kind === 'house' ? '90' : null),
     minAds: searchParams.get('min_ads'),
     includeResidual: searchParams.get('residual') === '1',
+    // 'type' is the API default — only non-default modes ride
+    // the query string (additive param).
+    group: group === 'type' ? null : group,
   };
 
   const { data, isPending, isError, error } = useQuery({
@@ -61,6 +92,7 @@ export default function RentVsBuy() {
     const form = new FormData(e.currentTarget);
     const next = new URLSearchParams();
     next.set('kind', kind);
+    if (group !== 'type') next.set('group', group);
     const days = String(form.get('days') ?? '');
     const minAds = String(form.get('min_ads') ?? '');
     if (days) next.set('days', days);
@@ -73,6 +105,17 @@ export default function RentVsBuy() {
     const next = new URLSearchParams(searchParams);
     next.set('kind', k);
     return `?${next}`;
+  };
+
+  const groupUrl = (g: RentVsBuyGroup) => {
+    const next = new URLSearchParams(searchParams);
+    if (g === 'type') {
+      next.delete('group');
+    } else {
+      next.set('group', g);
+    }
+    const qs = next.toString();
+    return qs ? `?${qs}` : '';
   };
 
   return (
@@ -93,6 +136,26 @@ export default function RentVsBuy() {
               }
             >
               {k.label}
+            </Link>
+          ))}
+        </div>
+        <div
+          className="btn-group btn-group-sm ms-3"
+          role="group"
+          aria-label="Grouping"
+        >
+          {GROUPS.map((g) => (
+            <Link
+              key={g.group}
+              to={groupUrl(g.group)}
+              className={
+                'btn ' +
+                (group === g.group
+                  ? 'btn-primary'
+                  : 'btn-outline-primary')
+              }
+            >
+              {g.label}
             </Link>
           ))}
         </div>
@@ -120,7 +183,9 @@ export default function RentVsBuy() {
                   min="1"
                   max="365"
                   className="form-control form-control-sm"
-                  defaultValue={params.days ?? '30'}
+                  defaultValue={
+                    params.days ?? (kind === 'house' ? '90' : '30')
+                  }
                 />
               </div>
               <div className="col-md-2 mb-2">
@@ -172,6 +237,7 @@ export default function RentVsBuy() {
           <RankedTable
             rows={data.results}
             kind={kind}
+            group={group}
             regionAds={urls.regionAds}
             emptyText={
               'No cells pass the minimum ad count in this window.'
@@ -187,11 +253,23 @@ export default function RentVsBuy() {
               <RankedTable
                 rows={data.residual}
                 kind={kind}
+                group={group}
                 regionAds={urls.regionAds}
                 emptyText=""
               />
             </>
           )}
+          {data.n_residual_cells > 0 &&
+            data.residual.length === 0 && (
+              <p className="text-muted mt-2">
+                {data.n_residual_cells} more{' '}
+                {data.n_residual_cells === 1
+                  ? 'cell passes'
+                  : 'cells pass'}{' '}
+                the gate in residual regions — enable "Include
+                residual regions" to see them.
+              </p>
+            )}
           <CaveatNote
             dateFrom={data.date_from}
             dateTo={data.date_to}
@@ -206,12 +284,14 @@ export default function RentVsBuy() {
 function RankedTable({
   rows,
   kind,
+  group,
   regionAds,
   emptyText,
   showRank = false,
 }: {
   rows: RentVsBuyRankedRowOut[];
   kind: Kind;
+  group: RentVsBuyGroup;
   regionAds: (regionId: number) => string;
   emptyText: string;
   showRank?: boolean;
@@ -225,9 +305,10 @@ function RankedTable({
               <tr>
                 {showRank && <th>#</th>}
                 <th>Region</th>
-                <th>{kind === 'apartment' ? 'Project' : 'House type'}</th>
+                <th>{groupHeader(group, kind)}</th>
                 <th className="text-end">Months to buy</th>
                 <th className="text-end">Years</th>
+                <th className="text-end">Yield %</th>
                 <th className="text-end">Med rent €/mo</th>
                 <th className="text-end">Med price €</th>
                 <th className="text-end">Rent €/m²</th>
@@ -243,7 +324,7 @@ function RankedTable({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={showRank ? 15 : 14}
+                    colSpan={showRank ? 16 : 15}
                     className="text-center text-muted py-4"
                   >
                     {emptyText}
@@ -284,6 +365,15 @@ function Row({
   const flags: string[] = [];
   if (!row.size_comparable) flags.push('size gap');
   if (isThin(row)) flags.push('thin data');
+  // The paired median displays at ≥3 pairs; under 5 it's thin —
+  // flag it † (title tooltip explains).
+  const fewPairs =
+    row.paired_months_to_buyout !== null &&
+    row.n_paired_properties < 5;
+  const pairTitle = row.n_paired_properties
+    ? `${row.n_paired_properties} same-unit pairs` +
+      (fewPairs ? ' — few pairs, indicative only' : '')
+    : undefined;
   return (
     <tr
       className={
@@ -312,6 +402,9 @@ function Row({
         {formatFloat(row.years_to_buyout, 1)}
       </td>
       <td className="text-end">
+        {formatFloat(row.gross_yield_pct, 1)}
+      </td>
+      <td className="text-end">
         {formatFloat(row.median_monthly_rent, 0)}
       </td>
       <td className="text-end">
@@ -331,15 +424,11 @@ function Row({
       </td>
       <td className="text-end">{row.n_rent_ads}</td>
       <td className="text-end">{row.n_sale_ads}</td>
-      <td
-        className="text-end"
-        title={
-          row.n_paired_properties
-            ? `${row.n_paired_properties} same-unit pairs`
-            : undefined
-        }
-      >
+      <td className="text-end" title={pairTitle}>
         {formatFloat(row.paired_months_to_buyout, 1)}
+        {fewPairs && (
+          <span title="few pairs — indicative only"> †</span>
+        )}
       </td>
     </tr>
   );
@@ -366,7 +455,12 @@ function CaveatNote({
       more than 25%, or have fewer than {THIN_AD_COUNT} ads on a
       side — treat their months-to-buy as indicative only. The
       "Paired" column repeats the metric on properties carrying
-      both a rent and a sale ad (shown at ≥5 pairs).
+      both a rent and a sale ad (shown at ≥3 pairs; † marks
+      under 5 — indicative only). All figures use asking prices
+      on both sides and are gross — vacancy, repairs,
+      transaction costs (~2–3%) and income tax are not
+      deducted; net yield is typically ~2–3pp lower, so the
+      real buyout takes ~15–25% longer than shown.
     </div>
   );
 }
