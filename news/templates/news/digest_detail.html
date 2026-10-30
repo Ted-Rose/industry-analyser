@@ -1,7 +1,10 @@
 {% extends "news/base.html" %}
 {% block title %}Kopsavilkums {{ digest.date }}{% endblock %}
 {% block content %}
-<nav class="back"><a href="{% url 'news:digest-list' %}">&larr; Visi kopsavilkumi</a></nav>
+<nav class="back">
+  <a href="{% url 'news:digest-list' %}">
+    &larr; Visi kopsavilkumi</a>
+</nav>
 <h2>{{ digest.date }}</h2>
 {% for item in items %}
   <article class="item">

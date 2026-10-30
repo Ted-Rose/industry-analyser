@@ -25,7 +25,7 @@
           <input type="number" min="1" max="99" size="3"
                  name="rank-{{ row.source.slug }}"
                  value="{{ row.rank }}"
-                 aria-label="Rangs">
+                 aria-label="{{ row.source.name }} rangs">
         </td>
       </tr>
     {% endfor %}

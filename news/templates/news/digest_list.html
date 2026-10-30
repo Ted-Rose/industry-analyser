@@ -15,9 +15,12 @@
       {% for item in digest.items.all %}
         <li>
           <button type="button" class="story-toggle"
-                  data-story="{{ item.story_id }}">
+                  data-story="{{ item.story_id }}"
+                  aria-expanded="false"
+                  aria-controls="story-slot-{{ item.story_id }}">
             {{ item.headline }}</button>
-          <div class="story-slot" hidden></div>
+          <div class="story-slot"
+               id="story-slot-{{ item.story_id }}" hidden></div>
         </li>
       {% empty %}
         <li class="muted">Nav ierakstu.</li>
