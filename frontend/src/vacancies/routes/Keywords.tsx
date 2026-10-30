@@ -6,10 +6,10 @@ import { useBootstrap } from '../../shared/hooks/useBootstrap';
 
 /**
  * React replacement for the retired /add_keyword/ page (301'd here).
- * The old HARD_CODED_PASSWORD gate is gone — the POST is session-authed
- * now, so anonymous users see a hint and the API client bounces them
- * to /admin/login/ on the 401. `only_filter` stays pre-checked, as in
- * the template form.
+ * The old HARD_CODED_PASSWORD gate is gone — the POST is staff-authed
+ * now, so non-staff users see a hint and the API client bounces
+ * anonymous ones to /accounts/login/ on the 401. `only_filter` stays
+ * pre-checked, as in the template form.
  */
 export default function Keywords() {
   const { user } = useBootstrap();
@@ -47,7 +47,11 @@ export default function Keywords() {
           send you to the sign-in page.
         </p>
       )}
-      <form onSubmit={submit} className="mx-auto" style={{ maxWidth: '480px' }}>
+      <form
+        onSubmit={submit}
+        className="mx-auto"
+        style={{ maxWidth: '480px' }}
+      >
         <div className="mb-3">
           <label htmlFor="keyword-name">Name:</label>
           <input

@@ -29,7 +29,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Query, Router, Schema
 from pydantic import Field
 
-from industry_analyser.api import ApiHttpError
+from industry_analyser.api import ApiHttpError, staff_auth
 
 from .models import (
     ApartmentForRent,
@@ -998,7 +998,10 @@ def region_config(request, kind: Kind):
     )
 
 
-@router.post('/regions/config/', response=RegionConfigSavedOut)
+@router.post(
+    '/regions/config/', auth=staff_auth,
+    response=RegionConfigSavedOut,
+)
 def save_region_config(request, payload: RegionConfigIn):
     """Save checked regions — session-auth replacement for the two
     retired config POST forms. Same semantics as the views: the kind's
