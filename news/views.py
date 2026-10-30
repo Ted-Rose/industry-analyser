@@ -1,6 +1,5 @@
 """Digest pages — plain Django templates (MVP UI; the React SPA
 and ninja API are out of scope for this feature)."""
-import logging
 import os
 from datetime import datetime
 
@@ -20,8 +19,6 @@ from .models import (
     NewsStory,
 )
 from .preferences import ordered_story_articles
-
-logger = logging.getLogger('news')
 
 
 def digest_list(request):
@@ -112,6 +109,8 @@ def article_audio(request, pk):
         NewsArticleAudio.objects
         .filter(article_id=pk, status='ready')
         .exclude(file_path='')
+        # Several engines/voices may be ready — newest wins.
+        .order_by('-created_at')
         .first()
     )
     if audio is None or not os.path.isfile(audio.file_path):

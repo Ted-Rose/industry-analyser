@@ -96,6 +96,8 @@ class NewsSourcePreferenceAdmin(admin.ModelAdmin):
 
 @admin.register(NewsArticleAudio)
 class NewsArticleAudioAdmin(admin.ModelAdmin):
-    # Machine-written rows — text/error stay read-only.
+    # Machine-written rows — text/error stay read-only, and
+    # file_path too: the public audio endpoint serves whatever
+    # it points at, so an admin edit must not redirect it.
     list_display = ('article', 'engine', 'status')
-    readonly_fields = ('text', 'error')
+    readonly_fields = ('text', 'error', 'file_path')

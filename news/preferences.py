@@ -1,16 +1,11 @@
 """Per-user news source ranking — decides which outlet's
 article a story shows in the inline reader
 (docs/plans/news_story_reader_plan.md)."""
-import logging
-
 from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsSource,
     NewsSourcePreference,
 )
-
-logger = logging.getLogger('news')
-
 
 def ordered_sources(user):
     """Enabled NewsSource list: the user's preferred sources

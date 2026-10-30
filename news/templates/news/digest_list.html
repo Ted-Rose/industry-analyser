@@ -15,7 +15,7 @@
       {% for item in digest.items.all %}
         <li>
           <button type="button" class="story-toggle"
-                  data-story="{{ item.story.pk }}">
+                  data-story="{{ item.story_id }}">
             {{ item.headline }}</button>
           <div class="story-slot" hidden></div>
         </li>

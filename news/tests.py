@@ -1,6 +1,8 @@
 """Tests for the news app — RSS parsing, idempotent upsert,
 keyword topic classification, story clustering, digest build."""
 import hashlib
+import os
+import tempfile
 from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
@@ -1482,6 +1484,19 @@ class StoryFragmentViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context['article'], self.art_a)
 
+    def test_source_with_only_candidate_member_falls_back(self):
+        # A 'candidate' link is not confirmed coverage, so the
+        # slug matches no member article and the default pick
+        # stands — same as an unknown slug.
+        c = _source('c')
+        _article(
+            c, 'Stāsts C', story=self.story,
+            story_match_status='candidate',
+        )
+        response = self.client.get(self.url, {'source': 'c'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['article'], self.art_a)
+
     def test_no_confirmed_members_404s(self):
         NewsArticle.objects.filter(story=self.story).update(
             story_match_status='candidate',
@@ -1598,3 +1613,20 @@ class ArticleAudioViewTests(TestCase):
         )
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 404)
+
+    def test_200_serves_ready_audio_file(self):
+        with tempfile.NamedTemporaryFile(
+            suffix='.mp3', delete=False,
+        ) as tmp:
+            tmp.write(b'audio-bytes')
+            path = tmp.name
+        self.addCleanup(os.unlink, path)
+        NewsArticleAudio.objects.create(
+            article=self.article, engine='test', text='t',
+            text_sha256='x' * 64, status='ready', file_path=path,
+        )
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            b''.join(response.streaming_content), b'audio-bytes',
+        )
