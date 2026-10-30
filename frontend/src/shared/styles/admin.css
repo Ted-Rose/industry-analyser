@@ -2,8 +2,8 @@
    file only (NO Tailwind): remaps the --ia-* palette onto the
    admin's own CSS variables so the admin follows the same
    light/dark scheme. Linked from admin/base_site.html via
-   {% vite_asset %} (PR-10); built now so the manifest entry
-   exists.
+   {% ds_head 'admin' %} (PR-10); built now so the manifest
+   entry exists.
 
    tokens.css flips --ia-* on `.dark`, on
    html[data-theme="dark"], and under prefers-color-scheme for

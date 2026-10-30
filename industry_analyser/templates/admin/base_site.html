@@ -1,14 +1,16 @@
 {% extends "admin/base.html" %}
 {% load i18n design_system %}
 
-{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | Industry Analyser{% endblock %}
 
 {% block extrastyle %}
 {{ block.super }}
-{# The design-system admin theme (frontend_dist admin entry).
-   ds_head renders nothing when the manifest entry is missing,
-   so a stale build degrades to the default admin look instead
-   of 500ing (plan §11.2). #}
+{% comment %}
+The design-system admin theme (frontend_dist admin entry).
+ds_head renders nothing when the manifest entry is missing,
+so a stale build degrades to the default admin look instead
+of 500ing (plan §11.2).
+{% endcomment %}
 {% ds_head 'admin' %}
 {% endblock %}
 
