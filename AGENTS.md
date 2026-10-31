@@ -79,16 +79,19 @@ the top-level app mounts by introspecting the root urlconf per
 request — `_landing_entries()` reads `title` (and optional
 `landing_title`/`landing_desc`/`landing_cta` overrides,
 swallowed by `react_app`'s `**kwargs`) off the
-`functools.partial` SPA callbacks, flags a mount login-required
-when `react_app` (not `react_app_public`) was bound, and
+`functools.partial` SPA callbacks, flags a mount staff-required
+(the `login_required` key — `react_app` shells bounce
+non-staff users to `/admin/login/`) when `react_app` (not
+`react_app_public`) was bound, and
 inspects `include()` mounts' inner urlconf for an SPA partial
 (plain-template apps like `news` fall back to a humanized path
-segment). The `api/`/`admin/`/`static/` prefixes, converter
-routes, file routes and the `''` root itself are skipped, so a
+segment). The `api/`/`admin/`/`static/`/`accounts/` prefixes,
+converter routes, file routes and the `''` root itself are
+skipped, so a
 new top-level `path('<app>/', …)` mount appears on `/` with no
 edit to the landing view; `landing_cta=True` on a mount's
 partial promotes it to the prominent call-to-action slot (today:
-the dashboard's "Web scraping results"). The login-required
+the dashboard's "Web scraping results"). The staff-required
 dashboard SPA lives at `/dashboard/`; the terminal
 `<path:subpath>` catch-all renders the landing page for unknown
 paths (typos get the app directory, not a 404).
@@ -101,8 +104,15 @@ is: `run()` → `get_search_urls()` → `scrape_portal()` →
 `extract_resources()` → `create_or_update_resources()`.
 
 Subclass flags control behavior: `enrich_search_results` (fetch
-each detail page), `validate_result`, `ai_analysis` (Gemini),
-`bulk_save`. HTTP goes through a shared `urllib3.PoolManager`
+each detail page), `validate_result`, `excluded_resources`
+(list of rejected results), `ai_analysis`, `stop_on_redirect`.
+The first three MUST be declared in the subclass `__init__` —
+the base sets no default, so omitting one raises
+`AttributeError` mid-run; `ai_analysis` and `stop_on_redirect`
+default `False` on the base (the AI provider is resolved from
+the DB per job, not hardcoded). `bulk_save` is initialized but
+never read — vestigial. HTTP goes through a shared
+`urllib3.PoolManager`
 with retries (429/5xx, backoff 30s) and per-domain throttling in
 `sleep()` — never bypass it with raw `requests`/`urllib3` calls
 in subclasses.
@@ -116,7 +126,8 @@ Key domain patterns:
   duplicates — so sightings are still recorded for existing ads.
 - **Custom managers**: ad models' default `objects` manager hides
   `is_hidden=True` rows (and `is_sale_misclassified=True` on
-  `ApartmentForRent`). Use `all_objects` in admin, refetch
+  the for-rent models `ApartmentForRent` and `HouseForRent`).
+  Use `all_objects` in admin, refetch
   commands, and data-fix scripts. A `ModelAdmin` must override
   `get_queryset` to use `all_objects`, or flagged rows are
   invisible in admin (see `docs/django_notes.md`).
@@ -538,7 +549,8 @@ Universal rules (apply to every task):
     (multi-file plans get a subdirectory, e.g.
     `docs/plans/react_frontend_migration/`), each with a status
     header: implemented / partial / in progress / not
-    implemented / reverted.
+    implemented / reverted. New feature plans go through
+    `openspec changes`, not `docs/plans/` (see OpenSpec).
 11. **Test login**: none documented — the app uses Django
     session auth; `python manage.py createsuperuser` creates a
     local admin. Ask the user whether a shared test account
@@ -578,7 +590,8 @@ Universal rules (apply to every task):
 capability specs — **current behavior as source of truth**
 (code wins over docs; verify claims against source):
 `scraper-pipeline`, `ai-jobs`, `spa-api-contract`,
-`data-layer`. `openspec/changes/` + `changes/archive/` hold
+`data-layer`, `user-auth`. `openspec/changes/` +
+`changes/archive/` hold
 the change lifecycle; `openspec/config.yaml` carries project
 context.
 

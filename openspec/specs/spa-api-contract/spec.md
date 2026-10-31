@@ -70,25 +70,19 @@ status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
 
 ### Requirement: 401 login-redirect handshake
 
-Authentication failures SHALL return `{error:
-'unauthenticated', login_url: '/accounts/login/?next=<spa_url>'}`
-where `spa_url_for()` rewrites the `/api/<app>/<sub>` request
-path to the SPA page that issued it — `login_url`/`next` MUST
-never point back at an `/api/` path. `SPA_BASES` and
-`SPA_SUBPATHS` map APIs whose owning page lives elsewhere
-(e.g. `dashboard` → `/dashboard/`, `vacancies/companies` →
-`/companies/`). The public `/accounts/login/` SPA route is the
-single login_url target; the Django admin login at
-`/admin/login/` remains reachable for staff but is no longer
-emitted by the API. Credential failures on the login endpoint
-itself are 401s WITHOUT `login_url` (see the user-auth spec).
+Authentication failures SHALL return 401 `{error:
+'unauthenticated', login_url:
+'/accounts/login/?next=<spa_url>'}` where `spa_url_for()`
+rewrites the `/api/<app>/<sub>` request path to the SPA page
+that issued it — `login_url`/`next` MUST never point back at
+an `/api/` path.
 
 #### Scenario: Dashboard API 401 maps to the SPA mount
 
 - **WHEN** `GET /api/dashboard/` returns 401
 - **THEN** `login_url` is `/accounts/login/?next=/dashboard/`
-  (the dashboard SPA mounts at /dashboard/; `/` is the public
-  landing page)
+  (`SPA_BASES` pins `dashboard` → `/dashboard/`; `/` itself is
+  the public landing page)
 
 #### Scenario: Query string is preserved
 
@@ -104,6 +98,26 @@ itself are 401s WITHOUT `login_url` (see the user-auth spec).
 - **THEN** the response is 403 `{error: 'forbidden'}` — no
   `login_url`, since logging in again cannot help
 
+#### Scenario: Sub-path remap lands on the owning SPA page
+
+- **WHEN** an authed op under a remapped sub-path 401s — e.g.
+  `PUT /api/vacancies/companies/{pk}/preference/`
+- **THEN** `next` is `/companies/` via `SPA_SUBPATHS`, not the
+  nonexistent `/vacancies/companies/`
+
+#### Scenario: Login surface is the single login_url target
+
+- **WHEN** any API 401 emits a `login_url`
+- **THEN** it targets the public `/accounts/login/` SPA route;
+  the `/admin/login/` page stays reachable for staff but is
+  never emitted by the API
+
+#### Scenario: Credential failure on the login endpoint
+
+- **WHEN** the login endpoint itself rejects credentials
+- **THEN** the response is a 401 WITHOUT `login_url` (see the
+  user-auth spec)
+
 ### Requirement: Shared SPA shell
 
 Every SPA mount SHALL serve `react_app` (staff-required) or
@@ -111,14 +125,8 @@ Every SPA mount SHALL serve `react_app` (staff-required) or
 `vite_entry = src/<entry>/main.tsx`; any other method 404s.
 `entry` must match `[a-z0-9_]+` and maps to a
 `frontend/src/<entry>/` folder and manifest key. The shell
-injects a `bootstrap` JSON carrying `user`, `is_authenticated`,
-`is_staff` and `sentry.{dsn,environment,release}` — no VITE_*
-build vars. `react_app` redirects anonymous AND authenticated
-non-staff visitors to the admin login (the mounts that bind it
-— dashboard, receipts — are staff-only pages); per-user
-login-required surfaces outside the SPA shell use ordinary
-`login_required`, which redirects to `LOGIN_URL`
-(`/accounts/login/`).
+injects a `bootstrap` JSON — no VITE_* build vars reach the
+page.
 
 #### Scenario: Client-side route loads the shell
 
@@ -150,18 +158,28 @@ login-required surfaces outside the SPA shell use ordinary
 
 #### Scenario: Non-staff visitor hits a staff SPA mount
 
-- **WHEN** an authenticated non-staff GET hits `/dashboard/` or
-  `/receipts/`
-- **THEN** the shell view redirects to the admin login instead
-  of serving a bundle whose API calls would all 403
+- **WHEN** an anonymous OR authenticated non-staff GET hits a
+  `react_app` mount (`/dashboard/`, `/receipts/` — staff-only
+  pages)
+- **THEN** `staff_member_required` redirects to the admin
+  login instead of serving a bundle whose API calls would all
+  403
+
+#### Scenario: Plain login_required surfaces use LOGIN_URL
+
+- **WHEN** an anonymous user hits a per-user login-required
+  page outside the SPA shell (e.g. news preferences)
+- **THEN** ordinary `login_required` redirects to `LOGIN_URL`
+  (`/accounts/login/`), not the admin login
 
 #### Scenario: Auth flags ride the bootstrap payload
 
 - **WHEN** any SPA shell renders for an authenticated staff
   user
-- **THEN** `bootstrap.is_authenticated` is true and
-  `bootstrap.is_staff` is true; anonymous renders carry false
-  for both
+- **THEN** `bootstrap` carries `user`, `is_authenticated`
+  (true), `is_staff` (true) and
+  `sentry.{dsn,environment,release}`; anonymous renders carry
+  false for both flags
 
 ### Requirement: Frontend client honors the contract
 
