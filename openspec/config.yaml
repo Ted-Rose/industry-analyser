@@ -7,17 +7,19 @@ schema: spec-driven
 context: |
   Single repo, two layers: a Django 5.2 / Python 3.12 monolith
   (apps: fetcher, classified_ads, blogs, tv_programs, news,
-  receipts, core_scraper, scrape_jobs, ai_providers,
+  receipts, core_scraper, scrape_jobs, ai_providers, accounts,
   industry_analyser) plus a React 19 + TS + Vite SPA under
   frontend/ (one entry per app: vacancies, tv, classified_ads,
-  dashboard, receipts). The SPA talks to a single django-ninja
-  API mounted at /api/; specs under openspec/specs/ describe
-  CURRENT behavior — the code wins over docs (AGENTS.md lists
-  known-stale docs; verify every claim against source).
+  dashboard, receipts, accounts). The SPA talks to a single
+  django-ninja API mounted at /api/; specs under
+  openspec/specs/ describe CURRENT behavior — the code wins
+  over docs (AGENTS.md lists known-stale docs; verify every
+  claim against source).
   Constraints that apply to every change:
     - Max line length is 79 chars in every file type
       (flake8-enforced; migrations excluded; vendored
-      .agents/skills/ + .devin/skills/openspec-*/ files exempt).
+      .agents/skills/openspec-*/ + .devin/skills/openspec-*/
+      files exempt).
     - Commit messages use "Type: Capitalized message"
       (Feat:/Fix:/Docs:/Refactor:/Test:/Chore:); commit on
       feature branches only, never master; stage only files you
