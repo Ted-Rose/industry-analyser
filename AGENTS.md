@@ -600,6 +600,10 @@ context.
 - The CLI is a global npm install in `/opt/homebrew/bin` —
   agent shells lack it on PATH, so
   `export PATH="/opt/homebrew/bin:$PATH"` first.
+- **Always run `openspec validate --all --strict` after
+  touching `openspec/`** — proposing, spec edits, sync,
+  archive. It must pass before committing; strict mode catches
+  >500-char requirement bodies and spec/delta drift.
 - Workflow: `openspec-propose` → implement via
   `openspec-apply-change` → `openspec-archive-change`. The
   upstream skills live in `.agents/skills/openspec-*/`
