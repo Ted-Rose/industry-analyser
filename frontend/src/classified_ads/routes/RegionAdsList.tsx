@@ -16,6 +16,14 @@ import ErrorState, { Alert } from '../../shared/ui/ErrorState';
 import Pagination from '../../shared/ui/Pagination';
 import useErrorToast from '../useErrorToast';
 
+/** Friendly labels for the deal_type the API echoes back —
+ *  'ALL' is the rent-vs-buy drill-down's both-deals mode. */
+const DEAL_LABELS: Record<string, string> = {
+  RENT: 'Rent',
+  SELL: 'Sell',
+  ALL: 'Rent + Sell',
+};
+
 /**
  * React port of region_ads_list.html / house_region_ads_list.html —
  * ads first-seen inside the window across a region subtree. No filter
@@ -64,21 +72,20 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
     : 'Back to region stats';
 
   const columns: Column<AdOut>[] = [
-    ...(isApartment
-      ? [
-          {
-            id: 'type',
-            header: 'Type',
-            cell: (ad: AdOut) =>
-              ad.deal === 'Rent' ? (
-                <Badge tone="info">Rent</Badge>
-              ) : (
-                <Badge tone="success">Sell</Badge>
-              ),
-            mobile: 'badge' as const,
-          },
-        ]
-      : []),
+    // The deal badge renders for both kinds — deal_type=ALL
+    // mixes rent and sale rows, so the column disambiguates
+    // them (and stays accurate on single-deal views too).
+    {
+      id: 'type',
+      header: 'Type',
+      cell: (ad: AdOut) =>
+        ad.deal === 'Rent' ? (
+          <Badge tone="info">Rent</Badge>
+        ) : (
+          <Badge tone="success">Sell</Badge>
+        ),
+      mobile: 'badge' as const,
+    },
     {
       id: 'district',
       header: 'District',
@@ -205,7 +212,8 @@ export default function RegionAdsList({ kind }: { kind: Kind }) {
           {data.deal_type && (
             <>
               <br />
-              <strong>Deal type:</strong> {data.deal_type}
+              <strong>Deal type:</strong>{' '}
+              {DEAL_LABELS[data.deal_type] ?? data.deal_type}
             </>
           )}
         </Alert>

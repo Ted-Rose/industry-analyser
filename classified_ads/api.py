@@ -1383,8 +1383,9 @@ def region_ads_list(
 ):
     """Ads in a region subtree — mirrors the retired *_region_ads_list
     views except the window filter, which is F5 active-in-window: the
-    ad must have a sighting inside [date_from, date_to]. A
-    missing/blank deal_type still yields an empty table."""
+    ad must have a sighting inside [date_from, date_to].
+    deal_type='ALL' returns both deals merged; a missing/blank or
+    unknown deal_type still yields an empty table."""
     region = get_object_or_404(Region, pk=region_id)
     date_from, date_to = _default_date_range(date_from, date_to)
 
@@ -1404,26 +1405,37 @@ def region_ads_list(
             HouseForSale, HouseForSaleSighting
         )
 
+    def active_ads(model, sightings):
+        return model.objects.filter(
+            region_id__in=region_ids,
+            id__in=_sighted_ad_ids(sightings, date_from, date_to),
+        ).annotate(
+            days_active_count=Count('sightings', distinct=True)
+        )
+
     if deal_type == 'RENT':
-        ads_qs = rent_model.objects.filter(
-            region_id__in=region_ids,
-            id__in=_sighted_ad_ids(
-                rent_sightings, date_from, date_to
-            ),
-        ).order_by('-first_seen')
+        ads_qs = active_ads(rent_model, rent_sightings).order_by(
+            '-first_seen'
+        )
     elif deal_type == 'SELL':
-        ads_qs = sale_model.objects.filter(
-            region_id__in=region_ids,
-            id__in=_sighted_ad_ids(
-                sale_sightings, date_from, date_to
-            ),
-        ).order_by('-first_seen')
+        ads_qs = active_ads(sale_model, sale_sightings).order_by(
+            '-first_seen'
+        )
+    elif deal_type == 'ALL':
+        # Both deals merged — the rent-vs-buy ranked rows link here.
+        # The two tables can't merge in one queryset, so each is
+        # evaluated and the rows sorted in Python; Paginator accepts
+        # a plain list.
+        ads_qs = sorted(
+            [
+                *active_ads(rent_model, rent_sightings),
+                *active_ads(sale_model, sale_sightings),
+            ],
+            key=lambda ad: ad.first_seen,
+            reverse=True,
+        )
     else:
         ads_qs = rent_model.objects.none()
-
-    ads_qs = ads_qs.annotate(
-        days_active_count=Count('sightings', distinct=True)
-    )
 
     paginator = Paginator(ads_qs, ADS_PER_PAGE)
     ads = paginator.get_page(page)

@@ -119,6 +119,37 @@ describe('RentVsBuy', () => {
     expect(screen.getByText('12.5')).toBeInTheDocument();
   });
 
+  it('links the region cell to its ads page with deal_type=ALL', async () => {
+    renderPage();
+    const link = await screen.findByRole('link', {
+      name: 'Rīga / Ķengarags',
+    });
+    expect(link).toHaveAttribute(
+      'href',
+      '/apartments/regions/7/ads?date_from=2024-05-01' +
+        '&date_to=2024-05-31&deal_type=ALL',
+    );
+  });
+
+  it('links the ad counts to the per-deal ads pages', async () => {
+    renderPage();
+    await screen.findByText('Rīga / Ķengarags');
+    expect(
+      screen.getByRole('link', { name: '30' }),
+    ).toHaveAttribute(
+      'href',
+      '/apartments/regions/7/ads?date_from=2024-05-01' +
+        '&date_to=2024-05-31&deal_type=RENT',
+    );
+    expect(
+      screen.getByRole('link', { name: '25' }),
+    ).toHaveAttribute(
+      'href',
+      '/apartments/regions/7/ads?date_from=2024-05-01' +
+        '&date_to=2024-05-31&deal_type=SELL',
+    );
+  });
+
   it('flags rows whose sizes are not comparable', async () => {
     mockedApiGet.mockResolvedValue(
       makeOut({

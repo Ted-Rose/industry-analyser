@@ -227,7 +227,11 @@ export default function RegionStats({ kind }: { kind: Kind }) {
                 mobile="scroll"
               />
             </Card>
-            {!data.deal_type && <NoDealTypeNote />}
+            {/* 'ALL' arrives via the region-ads back link — the
+                backend treats it like blank (combined stats, null
+                averages), so the note applies too. */}
+            {data.deal_type !== 'RENT' &&
+              data.deal_type !== 'SELL' && <NoDealTypeNote />}
           </>
         )
       )}

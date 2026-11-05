@@ -166,7 +166,11 @@ export default function RegionStatsChildren({ kind }: { kind: Kind }) {
                 mobile="scroll"
               />
             </Card>
-            {!data.deal_type && <NoDealTypeNote />}
+            {/* 'ALL' echoes through from the region-ads back
+                link — like blank it yields combined stats, so the
+                note applies too. */}
+            {data.deal_type !== 'RENT' &&
+              data.deal_type !== 'SELL' && <NoDealTypeNote />}
           </>
         )
       )}

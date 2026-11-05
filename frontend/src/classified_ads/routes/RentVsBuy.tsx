@@ -195,6 +195,19 @@ export default function RentVsBuy() {
 
   const urls = kindUrls(kind);
 
+  // Region-ads drill-down: a ranked row aggregates rent AND sale
+  // ads, so the region name links with deal_type=ALL on the
+  // report's own window (which the API echoes back — a houses or
+  // custom-days report would otherwise land on the wrong 30-day
+  // window). The per-deal count cells pass RENT/SELL instead.
+  const regionAdsUrl = (regionId: number, dealType = 'ALL') => {
+    if (!data) return urls.regionAds(regionId);
+    return (
+      `${urls.regionAds(regionId)}?date_from=${data.date_from}` +
+      `&date_to=${data.date_to}&deal_type=${dealType}`
+    );
+  };
+
   const kindUrl = (k: Kind) => {
     const next = new URLSearchParams(searchParams);
     next.set('kind', k);
@@ -330,7 +343,7 @@ export default function RentVsBuy() {
               }))}
               kind={kind}
               group={group}
-              regionAds={urls.regionAds}
+              regionAds={regionAdsUrl}
               loading={isPending}
               empty={
                 <EmptyState
@@ -357,7 +370,7 @@ export default function RentVsBuy() {
                   }))}
                   kind={kind}
                   group={group}
-                  regionAds={urls.regionAds}
+                  regionAds={regionAdsUrl}
                   loading={false}
                   caption="Residual regions"
                 />
@@ -414,7 +427,7 @@ function RankedTable({
   rows: RankedRow[];
   kind: Kind;
   group: RentVsBuyGroup;
-  regionAds: (regionId: number) => string;
+  regionAds: (regionId: number, dealType?: string) => string;
   loading: boolean;
   empty?: ReactNode;
   caption: string;
@@ -531,13 +544,35 @@ function RankedTable({
       id: 'n_rent',
       header: 'n rent',
       align: 'right',
-      cell: ({ row }) => row.n_rent_ads,
+      // Per-deal drill-down — the same window with
+      // deal_type=RENT shows just the rent cohort.
+      cell: ({ row }) =>
+        row.region ? (
+          <Link
+            to={regionAds(row.region.id, 'RENT')}
+            className="hover:text-accent-text hover:underline"
+          >
+            {row.n_rent_ads}
+          </Link>
+        ) : (
+          row.n_rent_ads
+        ),
     },
     {
       id: 'n_sale',
       header: 'n sale',
       align: 'right',
-      cell: ({ row }) => row.n_sale_ads,
+      cell: ({ row }) =>
+        row.region ? (
+          <Link
+            to={regionAds(row.region.id, 'SELL')}
+            className="hover:text-accent-text hover:underline"
+          >
+            {row.n_sale_ads}
+          </Link>
+        ) : (
+          row.n_sale_ads
+        ),
     },
     {
       id: 'paired',

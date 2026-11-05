@@ -182,8 +182,9 @@ export interface RegionAdsParams {
   page?: string | null;
 }
 
-/** GET /api/classified-ads/regions/<id>/ads/ — ads first-seen in the
- *  window inside the region subtree (empty unless deal_type is set). */
+/** GET /api/classified-ads/regions/<id>/ads/ — ads sighted in the
+ *  window inside the region subtree (empty unless deal_type is
+ *  'RENT'/'SELL'; 'ALL' merges both deals). */
 export function fetchRegionAds(
   kind: Kind,
   regionId: string,
