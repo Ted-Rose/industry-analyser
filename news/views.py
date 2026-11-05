@@ -3,10 +3,10 @@ and ninja API are out of scope for this feature)."""
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.contrib.auth.decorators import login_required
-from django.db.models import Prefetch
+from django.db.models import Max, Min, Prefetch
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET
@@ -29,22 +29,69 @@ _LANG_RE = re.compile(r'^[a-z]{2}(-[a-zA-Z]{2})?$')
 
 
 def digest_list(request):
-    digests = (
-        NewsDigest.objects.order_by('-date')
-        .prefetch_related(Prefetch(
-            'items',
-            # select_related('story') makes each item's
-            # representative_lead (the audio description clip)
-            # cost zero extra queries.
-            queryset=(
-                NewsDigestItem.objects
-                .select_related('story')
-                .order_by('rank')
-            ),
-        ))
+    """Public digest index with a GET date filter:
+    ?date=YYYY-MM-DD anchors a window; ?period=day|week|all
+    picks its size (week = the anchor plus the 6 days before
+    it). No params — or a malformed `date` — falls back to the
+    7-day window ending on the newest digest in the DB, so an
+    empty today never blanks the page; period=all ignores the
+    anchor and lists everything. ?period=day with no `date`
+    anchors on the newest digest too, so it renders just that
+    single day rather than the default week window."""
+    bounds = NewsDigest.objects.aggregate(
+        first=Min('date'), last=Max('date'),
     )
+    anchor = None
+    raw_date = request.GET.get('date', '')
+    if raw_date:
+        try:
+            anchor = datetime.strptime(
+                raw_date, '%Y-%m-%d'
+            ).date()
+        except ValueError:
+            anchor = None
+    period = request.GET.get('period', '')
+    if period not in ('day', 'week', 'all'):
+        # Unknown/absent period degrades to the weekly window —
+        # a valid `date` merely re-anchors it.
+        period = 'week'
+    if anchor is None:
+        anchor = bounds['last']
+
+    digests = NewsDigest.objects.order_by('-date')
+    range_start = range_end = None
+    if period == 'day' and anchor is not None:
+        digests = digests.filter(date=anchor)
+        range_start = range_end = anchor
+    elif period == 'week' and anchor is not None:
+        range_start = anchor - timedelta(days=6)
+        range_end = anchor
+        digests = digests.filter(
+            date__range=(range_start, range_end)
+        )
+    digests = digests.prefetch_related(Prefetch(
+        'items',
+        # select_related('story') makes each item's
+        # representative_lead (the audio description clip)
+        # cost zero extra queries.
+        queryset=(
+            NewsDigestItem.objects
+            .select_related('story')
+            .order_by('rank')
+        ),
+    ))
     return render(
-        request, 'news/digest_list.html', {'digests': digests}
+        request,
+        'news/digest_list.html',
+        {
+            'digests': digests,
+            'period': period,
+            'anchor_date': anchor,
+            'range_start': range_start,
+            'range_end': range_end,
+            'min_date': bounds['first'],
+            'max_date': bounds['last'],
+        },
     )
 
 

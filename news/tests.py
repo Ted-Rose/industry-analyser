@@ -1895,7 +1895,7 @@ class AudioEndpointTests(TestCase):
 
     def test_anonymous_get_returns_audio_url(self):
         with patch(
-            'news.views.text_to_audio',
+            'news.audio.text_to_audio',
             return_value='https://signed.example/clip.mp3',
         ):
             response = self.client.get(
@@ -1946,7 +1946,7 @@ class AudioEndpointTests(TestCase):
 
     def test_pipeline_errors_map_to_400_and_502(self):
         with patch(
-            'news.views.text_to_audio',
+            'news.audio.text_to_audio',
             side_effect=ValueError('bad input'),
         ):
             self.assertEqual(
@@ -1956,7 +1956,7 @@ class AudioEndpointTests(TestCase):
                 400,
             )
         with patch(
-            'news.views.text_to_audio',
+            'news.audio.text_to_audio',
             side_effect=AudioGenerationError('down'),
         ):
             response = self.client.get(
@@ -2010,6 +2010,135 @@ class DigestListAudioRenderTests(TestCase):
                 f'data-desc="{item.story.representative_lead}"',
                 content,
             )
+
+
+class DigestListViewTests(TestCase):
+    """GET /news/ — the ?date/?period filter contract: default
+    is a 7-day window ending on the latest digest, period=day
+    pins the anchor, period=all lists everything, and malformed
+    params fall back to the default window (never 400/500 on a
+    public page)."""
+
+    def setUp(self):
+        # Ten consecutive digest days: 2026-10-20 .. 2026-10-29.
+        self.first = date(2026, 10, 20)
+        for offset in range(10):
+            NewsDigest.objects.create(
+                date=self.first + timedelta(days=offset)
+            )
+        self.latest = self.first + timedelta(days=9)
+
+    def _dates(self, response):
+        return [d.date for d in response.context['digests']]
+
+    def _week_ending(self, anchor):
+        return [anchor - timedelta(days=i) for i in range(7)]
+
+    def test_defaults_to_week_ending_on_latest_digest(self):
+        response = self.client.get('/news/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self._dates(response), self._week_ending(self.latest)
+        )
+
+    def test_day_period_filters_to_anchor(self):
+        anchor = self.first + timedelta(days=3)
+        response = self.client.get(
+            '/news/',
+            {'date': anchor.isoformat(), 'period': 'day'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._dates(response), [anchor])
+
+    def test_day_period_without_date_shows_latest_day(self):
+        # With no anchor, period=day pins the newest digest —
+        # just that single day, not the week window.
+        response = self.client.get('/news/', {'period': 'day'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._dates(response), [self.latest])
+
+    def test_week_period_inclusive_edges(self):
+        anchor = self.first + timedelta(days=7)
+        response = self.client.get(
+            '/news/',
+            {'date': anchor.isoformat(), 'period': 'week'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self._dates(response), self._week_ending(anchor)
+        )
+
+    def test_date_without_period_means_week(self):
+        anchor = self.first + timedelta(days=7)
+        response = self.client.get(
+            '/news/', {'date': anchor.isoformat()}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            self._dates(response), self._week_ending(anchor)
+        )
+
+    def test_period_all_lists_every_digest(self):
+        for params in (
+            {'period': 'all'},
+            {'date': self.first.isoformat(), 'period': 'all'},
+        ):
+            response = self.client.get('/news/', params)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(self._dates(response)), 10)
+            self.assertEqual(
+                self._dates(response)[0], self.latest
+            )
+            self.assertEqual(
+                self._dates(response)[-1], self.first
+            )
+
+    def test_malformed_params_fall_back_to_default(self):
+        for params in (
+            {'date': 'garbage'},
+            {'date': '2026-13-40'},
+            {'period': 'bogus'},
+            {'date': 'garbage', 'period': 'bogus'},
+        ):
+            response = self.client.get('/news/', params)
+            self.assertEqual(response.status_code, 200, params)
+            self.assertEqual(
+                self._dates(response),
+                self._week_ending(self.latest),
+                params,
+            )
+
+    def test_anchor_on_empty_range_shows_range_message(self):
+        response = self.client.get(
+            '/news/', {'date': '2030-01-01', 'period': 'week'}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._dates(response), [])
+        content = response.content.decode()
+        self.assertIn('Šajā periodā nav neviena', content)
+        self.assertNotIn('Vēl nav neviena', content)
+
+    def test_empty_db_shows_global_empty_state(self):
+        NewsDigest.objects.all().delete()
+        response = self.client.get('/news/')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Vēl nav neviena kopsavilkuma.', content)
+        # Nothing to anchor on — the filter form is hidden.
+        self.assertNotIn('<form class="digest-filter"', content)
+
+    def test_filter_form_and_range_line_render(self):
+        response = self.client.get('/news/')
+        content = response.content.decode()
+        self.assertIn('<form class="digest-filter"', content)
+        self.assertIn('type="date"', content)
+        self.assertIn('name="date"', content)
+        self.assertIn('Diena', content)
+        self.assertIn('7 dienas', content)
+        self.assertIn('Visi', content)
+        self.assertIn('Rādīt', content)
+        # The range line names the visible window.
+        self.assertIn('2026-10-23 – 2026-10-29', content)
 
 
 BACKFILL_URLSET = b"""<?xml version="1.0" encoding="UTF-8"?>

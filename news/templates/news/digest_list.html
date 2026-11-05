@@ -1,15 +1,55 @@
 {% extends "news/base.html" %}
+{% load static %}
 {% block title %}Ziņu kopsavilkumi{% endblock %}
 {% block content %}
-{% if not digests %}
-  <p class="muted">Vēl nav neviena kopsavilkuma.</p>
-{% else %}
+{% if digests %}
 <div class="audio-bar">
   <button type="button" class="audio-btn" data-audio-all>
     ▶ Play all news</button>
   <button type="button" class="audio-stop" hidden>■ Stop</button>
   <span class="audio-note muted" hidden></span>
 </div>
+{% endif %}
+{% if max_date %}
+<form class="digest-filter" method="get"
+      action="{% url 'news:digest-list' %}">
+  <label for="id_digest_date">Datums</label>
+  <input type="date" id="id_digest_date" name="date"
+         value="{{ anchor_date|date:'Y-m-d' }}"
+         min="{{ min_date|date:'Y-m-d' }}"
+         max="{{ max_date|date:'Y-m-d' }}">
+  <span class="digest-filter-periods" role="group"
+        aria-label="Periods">
+    <label{% if period == 'day' %}
+           class="period-active"{% endif %}>
+      <input type="radio" name="period" value="day"
+             {% if period == 'day' %}checked
+             aria-current="true"{% endif %}>
+      Diena</label>
+    <label{% if period == 'week' %}
+           class="period-active"{% endif %}>
+      <input type="radio" name="period" value="week"
+             {% if period == 'week' %}checked
+             aria-current="true"{% endif %}>
+      7 dienas</label>
+    <label{% if period == 'all' %}
+           class="period-active"{% endif %}>
+      <input type="radio" name="period" value="all"
+             {% if period == 'all' %}checked
+             aria-current="true"{% endif %}>
+      Visi</label>
+  </span>
+  <button type="submit">Rādīt</button>
+</form>
+{% if range_start %}
+<p class="muted digest-range">
+  {% if range_start == range_end %}
+    {{ range_end|date:'Y-m-d' }}
+  {% else %}
+    {{ range_start|date:'Y-m-d' }} – {{ range_end|date:'Y-m-d' }}
+  {% endif %}
+</p>
+{% endif %}
 {% endif %}
 {% for digest in digests %}
   <section class="digest"{% if forloop.first %}
@@ -43,5 +83,12 @@
       {% endfor %}
     </ol>
   </section>
+{% empty %}
+  {% if max_date %}
+  <p class="muted">Šajā periodā nav neviena kopsavilkuma.</p>
+  {% else %}
+  <p class="muted">Vēl nav neviena kopsavilkuma.</p>
+  {% endif %}
 {% endfor %}
+<script src="{% static 'news/filter.js' %}" defer></script>
 {% endblock %}
