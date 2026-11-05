@@ -634,6 +634,67 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(resp.json()['total_count'], 0)
 
+    def test_region_ads_list_all_deal_type(self):
+        """deal_type=ALL merges both tables across the subtree —
+        the rent-vs-buy ranked rows link here. Per-row `deal`
+        stays accurate on the mixed list."""
+        rent_ad = self._rent_ad(region=self.child)
+        sale_ad = self._sale_ad(region=self.region)
+        today = date.today()
+        ApartmentForRentSighting.objects.create(
+            ad=rent_ad, seen_on=today
+        )
+        ApartmentForSaleSighting.objects.create(
+            ad=sale_ad, seen_on=today
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 2)
+        deals = {ad['ad_id']: ad['deal'] for ad in body['ads']}
+        self.assertEqual(
+            deals, {rent_ad.ad_id: 'Rent', sale_ad.ad_id: 'Sell'}
+        )
+
+    def test_region_ads_list_all_orders_by_first_seen(self):
+        """The merged list interleaves both tables by -first_seen
+        (auto_now_add can't be set at create → direct UPDATE)."""
+        old_sale = self._sale_ad(region=self.region)
+        new_rent = self._rent_ad(region=self.region)
+        today = date.today()
+        for model, ad in (
+            (ApartmentForSaleSighting, old_sale),
+            (ApartmentForRentSighting, new_rent),
+        ):
+            model.objects.create(ad=ad, seen_on=today)
+        ApartmentForSale.objects.filter(pk=old_sale.pk).update(
+            first_seen=timezone.now() - timedelta(days=10)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        ads = resp.json()['ads']
+        self.assertEqual(
+            [a['ad_id'] for a in ads],
+            [new_rent.ad_id, old_sale.ad_id],
+        )
+
+    def test_region_ads_list_all_deal_type_respects_window(self):
+        """deal_type=ALL keeps the F5 active-in-window filter —
+        ads sighted only outside the window are dropped."""
+        stale = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=stale, seen_on=date.today() - timedelta(days=60)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        self.assertEqual(resp.json()['total_count'], 0)
+
     # --- GET /api/classified-ads/regions/rent-vs-buy/ ---
 
     def test_rent_vs_buy_medians_ratio_and_counts(self):

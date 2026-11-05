@@ -32,6 +32,13 @@ interface Draft {
   regions: Set<string>;
 }
 
+/** 'ALL' arrives via region-ads back links — the backend treats
+ *  it like blank (combined stats) and the deal-type Select only
+ *  offers ''/RENT/SELL, so anything else normalizes to ''. */
+export function statsDealType(param: string | null): string {
+  return param === 'RENT' || param === 'SELL' ? param : '';
+}
+
 /** The stats columns shared by RegionStats and
  *  RegionStatsChildren — replaces StatsResultsTable (plan §9.8).
  *  '—' for null averages via formatFloat, matching the old
@@ -92,7 +99,7 @@ export default function RegionStats({ kind }: { kind: Kind }) {
       fromParams: (p) => ({
         dateFrom: p.get('date_from') ?? '',
         dateTo: p.get('date_to') ?? '',
-        dealType: p.get('deal_type') ?? '',
+        dealType: statsDealType(p.get('deal_type')),
         regions: new Set(p.getAll('regions')),
       }),
       toParams: (d) => {
@@ -126,7 +133,7 @@ export default function RegionStats({ kind }: { kind: Kind }) {
   const activeCount =
     (params.dateFrom ? 1 : 0) +
     (params.dateTo ? 1 : 0) +
-    (params.dealType ? 1 : 0) +
+    (statsDealType(params.dealType) ? 1 : 0) +
     params.regions.length;
 
   return (
@@ -227,7 +234,11 @@ export default function RegionStats({ kind }: { kind: Kind }) {
                 mobile="scroll"
               />
             </Card>
-            {!data.deal_type && <NoDealTypeNote />}
+            {/* 'ALL' arrives via the region-ads back link — the
+                backend treats it like blank (combined stats, null
+                averages), so the note applies too. */}
+            {data.deal_type !== 'RENT' &&
+              data.deal_type !== 'SELL' && <NoDealTypeNote />}
           </>
         )
       )}
