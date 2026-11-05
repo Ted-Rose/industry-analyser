@@ -22,8 +22,8 @@
       "_Checkbox.DD4UfFMw.js"
     ]
   },
-  "_DataTable.t5jsYZe1.js": {
-    "file": "shared/DataTable.t5jsYZe1.js",
+  "_DataTable.D1CtxNOO.js": {
+    "file": "shared/DataTable.D1CtxNOO.js",
     "name": "DataTable",
     "imports": [
       "_app.ClV2Hp3n.js",
@@ -100,7 +100,7 @@
     ]
   },
   "src/classified_ads/main.tsx": {
-    "file": "classified_ads/classified_ads.BLcrfuKM.js",
+    "file": "classified_ads/classified_ads.7BhjzsNW.js",
     "name": "classified_ads",
     "src": "src/classified_ads/main.tsx",
     "isEntry": true,
@@ -108,7 +108,7 @@
       "_app.ClV2Hp3n.js",
       "_Card.Czz1n7K-.js",
       "_useUrlFilters.Cwqq-hra.js",
-      "_DataTable.t5jsYZe1.js",
+      "_DataTable.D1CtxNOO.js",
       "_FilterBar.BzWhKH4J.js",
       "_CheckboxList.EWSZnF_-.js",
       "_Checkbox.DD4UfFMw.js",
@@ -117,26 +117,26 @@
     ]
   },
   "src/dashboard/main.tsx": {
-    "file": "dashboard/dashboard.CurpzGjQ.js",
+    "file": "dashboard/dashboard.DJBydtE6.js",
     "name": "dashboard",
     "src": "src/dashboard/main.tsx",
     "isEntry": true,
     "imports": [
       "_app.ClV2Hp3n.js",
       "_useUrlFilters.Cwqq-hra.js",
-      "_DataTable.t5jsYZe1.js",
+      "_DataTable.D1CtxNOO.js",
       "_FilterBar.BzWhKH4J.js"
     ]
   },
   "src/receipts/main.tsx": {
-    "file": "receipts/receipts.BNHyj173.js",
+    "file": "receipts/receipts.xrep5wSt.js",
     "name": "receipts",
     "src": "src/receipts/main.tsx",
     "isEntry": true,
     "imports": [
       "_app.ClV2Hp3n.js",
       "_Card.Czz1n7K-.js",
-      "_DataTable.t5jsYZe1.js",
+      "_DataTable.D1CtxNOO.js",
       "_FilterBar.BzWhKH4J.js",
       "_StatCard.ChsB3qZp.js"
     ]
@@ -165,7 +165,7 @@
     ]
   },
   "src/vacancies/main.tsx": {
-    "file": "vacancies/vacancies.CsdSGH5x.js",
+    "file": "vacancies/vacancies.ByKH2YOI.js",
     "name": "vacancies",
     "src": "src/vacancies/main.tsx",
     "isEntry": true,
@@ -174,7 +174,7 @@
       "_CheckboxList.EWSZnF_-.js",
       "_Checkbox.DD4UfFMw.js",
       "_Card.Czz1n7K-.js",
-      "_DataTable.t5jsYZe1.js",
+      "_DataTable.D1CtxNOO.js",
       "_FilterBar.BzWhKH4J.js",
       "_thumbs-up.Bn3rVISG.js",
       "_DescriptionList.Cp2zPK5d.js"
