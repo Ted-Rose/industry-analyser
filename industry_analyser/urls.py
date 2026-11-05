@@ -30,18 +30,6 @@ from industry_analyser import views as project_views
 from industry_analyser.api import api
 from industry_analyser.views import react_app, react_app_public
 
-api.add_router('/vacancies/', vacancies_router)
-api.add_router('/tv/', tv_router)
-# The classified_ads SPA's URL base is hyphenated /classified-ads/;
-# the router mount follows it so spa_url_for's /api/<x>/ → /<x>/
-# login-next rewrite stays correct.
-api.add_router('/classified-ads/', classified_ads_router)
-# The dashboard SPA mounts at /dashboard/ — SPA_BASES maps
-# /api/dashboard/* 401 login_urls back to it.
-api.add_router('/dashboard/', dashboard_router)
-api.add_router('/receipts/', receipts_router)
-api.add_router('/accounts/', accounts_router)
-
 # The vacancies SPA owns both /vacancies/* and /companies/* — the
 # company pages are routes of the same React app (entry
 # 'vacancies'). Every GET/HEAD path renders the shell and React
@@ -71,17 +59,41 @@ react_app_accounts = partial(
     react_app_public, entry='accounts', title='Sign in'
 )
 
-# include() imports its urlconf eagerly — resolve every include
-# BEFORE urlpatterns touches api.urls below. api.urls freezes the
-# shared NinjaAPI (add_router starts raising ConfigError), so a
-# crash inside an include import would leave api frozen and make
-# every re-import of this module fail at the add_router calls with
-# a masking ConfigError instead of the real exception.
+# This module can be imported more than once in a process: a
+# failed first import is evicted from sys.modules but the api
+# object in industry_analyser.api survives with whatever was
+# already mutated — ninja then answers every retry with a
+# frozen-API or duplicate-router ConfigError that masks the real
+# exception. So every fallible import (include() resolves its
+# urlconf eagerly via import_module()) runs BEFORE any api
+# mutation, and router mounting below is idempotent: a retry
+# either completes or fails on the real error.
 _tv_include = include('tv_programs.urls', namespace='tv_programs')
 _receipts_include = include('receipts.urls', namespace='receipts')
 _classified_ads_include = include(
     'classified_ads.urls', namespace='classified_ads')
 _news_include = include('news.urls', namespace='news')
+
+# Mount only routers not already registered by an earlier partial
+# import (see above). api._routers already holds the default
+# router from NinjaAPI.__init__ — our six are what varies.
+_mounted = {router for _, router in api._routers}
+for _prefix, _router in (
+    ('/vacancies/', vacancies_router),
+    ('/tv/', tv_router),
+    # The classified_ads SPA's URL base is hyphenated
+    # /classified-ads/; the router mount follows it so
+    # spa_url_for's /api/<x>/ → /<x>/ login-next rewrite stays
+    # correct.
+    ('/classified-ads/', classified_ads_router),
+    # The dashboard SPA mounts at /dashboard/ — SPA_BASES maps
+    # /api/dashboard/* 401 login_urls back to it.
+    ('/dashboard/', dashboard_router),
+    ('/receipts/', receipts_router),
+    ('/accounts/', accounts_router),
+):
+    if _router not in _mounted:
+        api.add_router(_prefix, _router)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
