@@ -535,10 +535,12 @@ Universal rules (apply to every task):
    `private_settings.json`, `ca.pem`, `blogs/config.yaml`,
    `fetcher/config_v2.json`, `terraform/*.tfvars|tfstate`, and
    in prod in GCP Secret Manager + GitHub Actions secrets
-   (`GCP_SA_KEY`, `TF_VAR_*`). Never commit, print, or copy them
-   into code/docs. `private_settings.json` may be READ at
-   runtime for the `ai_agent` read-only creds — never print the
-   password.
+   (`GCP_SA_KEY`, `TF_VAR_*`). Never create new Secret Manager
+   secrets — append KEY=VALUE lines to the shared `env-file`
+   secret (each extra secret adds cost). Never commit, print, or
+   copy them into code/docs. `private_settings.json` may be READ
+   at runtime for the `ai_agent` read-only creds — never print
+   the password.
 9. **Update the docs after functionality changes** — this repo's
    developer-guide equivalents are `DOCUMENTATION_INDEX.md`
    (doc map), the relevant `docs/` file, and app
