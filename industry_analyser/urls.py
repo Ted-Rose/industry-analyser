@@ -163,8 +163,8 @@ urlpatterns = [
     # 'receipts:dashboard' is kept for reverse() callers.
     path('receipts/', _receipts_include),
     path('classified-ads/', _classified_ads_include),
-    # Plain-template digest pages — must precede the terminal
-    # catch-all drains and the root SPA <path:subpath> below.
+    # News SPA shell — must precede the terminal catch-all
+    # drains and the root SPA <path:subpath> below.
     path('news/', _news_include),
 ]
 
