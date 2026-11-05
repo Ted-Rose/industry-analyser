@@ -155,6 +155,20 @@ resource "google_secret_manager_secret_iam_member" "env_file_accessor" {
   member    = "serviceAccount:${google_service_account.job_runtime.email}"
 }
 
+# The CI deployer SA runs terraform plan/apply, which reads the
+# env-file payload to extract ALERT_EMAIL (see monitoring.tf).
+# Bootstrap caveat: a fresh plan reads the data source before this
+# binding exists — if it fails, grant once by hand:
+#   gcloud secrets add-iam-policy-binding env-file \
+#     --member=serviceAccount:industry-analyser-deployer@<project>.iam.gserviceaccount.com \
+#     --role=roles/secretmanager.secretAccessor
+resource "google_secret_manager_secret_iam_member" "deployer_env_file_accessor" {
+  project   = var.project_id
+  secret_id = "env-file"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${local.deployer_sa_email}"
+}
+
 # Master job: runs `python manage.py run_all_jobs`, which executes the
 # enabled sub-jobs in scrape_jobs/management/commands/run_all_jobs.py
 # sequentially. Timeout covers the worst-case scheduled pass —

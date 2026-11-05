@@ -20,16 +20,20 @@ The monitoring setup includes:
 
 ## Configuration
 
-### 1. Store your email in Secret Manager
+### 1. Set `ALERT_EMAIL` in the `env-file` secret
 
-Your email address is stored securely in Google Secret Manager (not in terraform.tfvars or git):
+The alert email lives inside the consolidated `env-file` secret
+(the `.env` payload Cloud Run injects as `DOTENV`) —
+`monitoring.tf` parses `ALERT_EMAIL` out of it at plan time:
 
 ```bash
-# Create the secret with your email
-echo "your-email@example.com" | gcloud secrets create industry-analyser-alert-email \
+# Patch the current payload and push a new version
+gcloud secrets versions access latest --secret=env-file \
+  --project=gen-lang-client-0833674612 > /tmp/env-file.txt
+printf '\nALERT_EMAIL=your-email@example.com\n' >> /tmp/env-file.txt
+gcloud secrets versions add env-file \
   --project=gen-lang-client-0833674612 \
-  --replication-policy="automatic" \
-  --data-file=-
+  --data-file=/tmp/env-file.txt
 ```
 
 **Security Benefits:**
@@ -37,7 +41,10 @@ echo "your-email@example.com" | gcloud secrets create industry-analyser-alert-em
 - ✅ Encrypted at rest by Google
 - ✅ Access controlled via IAM
 
-**Note:** If the secret doesn't exist or is empty, no monitoring resources will be created.
+**Note:** If `ALERT_EMAIL` is missing or empty, no monitoring
+resources will be created. The identity running terraform needs
+`roles/secretmanager.secretAccessor` on `env-file` (CI deployer
+SA: granted via `deployer_env_file_accessor` in `main.tf`).
 
 ### 2. Apply the Terraform configuration
 
@@ -202,27 +209,31 @@ resource "google_monitoring_alert_policy" "job_duration" {
 
 If you're getting alerts for expected failures (e.g., during testing):
 - Temporarily disable the alert policy in the GCP Console
-- Or remove the `alert_email` from `terraform.tfvars` and re-apply
+- Or empty the `ALERT_EMAIL` line in the `env-file` secret and re-apply
 
 ### Want to disable monitoring?
 
-Delete the secret:
+Empty or remove `ALERT_EMAIL` in the `env-file` payload, push a
+new secret version, then:
 
 ```bash
-gcloud secrets delete industry-analyser-alert-email --project=gen-lang-client-0833674612
 terraform apply
 ```
 
-This will destroy all monitoring resources.
+An empty `ALERT_EMAIL` destroys all monitoring resources.
 
 ### Want to update your email?
 
-Add a new version to the secret:
+Edit the `ALERT_EMAIL=` line in the `env-file` payload and push a
+new version:
 
 ```bash
-echo "new-email@example.com" | gcloud secrets versions add industry-analyser-alert-email \
+gcloud secrets versions access latest --secret=env-file \
+  --project=gen-lang-client-0833674612 > /tmp/env-file.txt
+# edit the ALERT_EMAIL= line in /tmp/env-file.txt
+gcloud secrets versions add env-file \
   --project=gen-lang-client-0833674612 \
-  --data-file=-
+  --data-file=/tmp/env-file.txt
 
 terraform apply
 ```

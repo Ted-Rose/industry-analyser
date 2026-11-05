@@ -1,17 +1,30 @@
-# Data source to read alert email from Secret Manager
-data "google_secret_manager_secret_version" "alert_email" {
-  secret  = "industry-analyser-alert-email"
+# Alert email ships inside the consolidated `env-file` secret
+# (payload = the full .env file injected into Cloud Run as
+# DOTENV). Parse ALERT_EMAIL out of it at plan time; an empty or
+# missing value disables every monitoring resource below.
+data "google_secret_manager_secret_version" "env_file" {
+  secret  = "env-file"
   project = var.project_id
+}
+
+locals {
+  alert_email = try(
+    regexall(
+      "(?m)^[ \t]*ALERT_EMAIL[ \t]*=[ \t]*\"?([^\" \t\r\n]+)",
+      data.google_secret_manager_secret_version.env_file.secret_data,
+    )[0][0],
+    "",
+  )
 }
 
 # Email notification channel for Cloud Run job failures
 resource "google_monitoring_notification_channel" "email" {
-  count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
+  count = local.alert_email != "" ? 1 : 0
 
   display_name = "Cloud Run Job Failure Alerts"
   type         = "email"
   labels = {
-    email_address = trimspace(data.google_secret_manager_secret_version.alert_email.secret_data)
+    email_address = local.alert_email
   }
 
   depends_on = [google_project_service.apis]
@@ -24,7 +37,7 @@ resource "google_monitoring_notification_channel" "email" {
 # Per-item failures inside a scrape still alert via the
 # SCRAPE_ITEM_FAILED log-based policy below.
 resource "google_monitoring_alert_policy" "all_jobs_failure" {
-  count = data.google_secret_manager_secret_version.alert_email.secret_data != "" ? 1 : 0
+  count = local.alert_email != "" ? 1 : 0
 
   display_name = "Cloud Run Job Failure: all-jobs"
   combiner     = "OR"

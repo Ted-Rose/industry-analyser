@@ -55,7 +55,7 @@ output "notification_channel_email" {
   value = (
     length(google_monitoring_notification_channel.email) > 0
     ? google_monitoring_notification_channel.email[0].name
-    : "Not configured (create secret: industry-analyser-alert-email)"
+    : "Not configured (set ALERT_EMAIL in the env-file secret)"
   )
   description = "Email notification channel for Cloud Run job alerts"
 }
