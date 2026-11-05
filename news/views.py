@@ -11,7 +11,6 @@ from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET
 
-from .audio import AudioGenerationError, text_to_audio
 from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsArticle,
@@ -152,6 +151,12 @@ def audio(request):
     stays unauthenticated — abuse is bounded by
     content-addressed dedup, the text length cap and ~1s gTTS
     latency per genuinely new text."""
+    # Lazy import: news.audio pulls optional media deps (gTTS,
+    # langdetect, google-cloud-storage). Kept off the module path
+    # so a missing dep 500s this endpoint only — module-level, it
+    # would break include('news.urls') and take the whole urlconf
+    # down with it.
+    from .audio import AudioGenerationError, text_to_audio
     text = request.GET.get('text', '')
     lang = request.GET.get('lang') or None
     filename = request.GET.get('filename') or None
