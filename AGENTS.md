@@ -590,7 +590,7 @@ Universal rules (apply to every task):
 capability specs — **current behavior as source of truth**
 (code wins over docs; verify claims against source):
 `scraper-pipeline`, `ai-jobs`, `spa-api-contract`,
-`data-layer`, `user-auth` (run `openspec spec list` for the
+`data-layer`, `user-auth` (run `openspec list --specs` for the
 current set). `openspec/changes/` +
 `changes/archive/` hold
 the change lifecycle; `openspec/config.yaml` carries project
