@@ -35,7 +35,9 @@ def digest_list(request):
     it). No params — or a malformed `date` — falls back to the
     7-day window ending on the newest digest in the DB, so an
     empty today never blanks the page; period=all ignores the
-    anchor and lists everything."""
+    anchor and lists everything. ?period=day with no `date`
+    anchors on the newest digest too, so it renders just that
+    single day rather than the default week window."""
     bounds = NewsDigest.objects.aggregate(
         first=Min('date'), last=Max('date'),
     )

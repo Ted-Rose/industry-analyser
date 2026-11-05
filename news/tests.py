@@ -2050,6 +2050,13 @@ class DigestListViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._dates(response), [anchor])
 
+    def test_day_period_without_date_shows_latest_day(self):
+        # With no anchor, period=day pins the newest digest —
+        # just that single day, not the week window.
+        response = self.client.get('/news/', {'period': 'day'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._dates(response), [self.latest])
+
     def test_week_period_inclusive_edges(self):
         anchor = self.first + timedelta(days=7)
         response = self.client.get(
@@ -2110,6 +2117,15 @@ class DigestListViewTests(TestCase):
         content = response.content.decode()
         self.assertIn('Šajā periodā nav neviena', content)
         self.assertNotIn('Vēl nav neviena', content)
+
+    def test_empty_db_shows_global_empty_state(self):
+        NewsDigest.objects.all().delete()
+        response = self.client.get('/news/')
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        self.assertIn('Vēl nav neviena kopsavilkuma.', content)
+        # Nothing to anchor on — the filter form is hidden.
+        self.assertNotIn('<form class="digest-filter"', content)
 
     def test_filter_form_and_range_line_render(self):
         response = self.client.get('/news/')

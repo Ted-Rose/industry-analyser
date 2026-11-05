@@ -10,6 +10,8 @@
     return;
   }
   form.addEventListener('change', function () {
-    form.submit();
+    // requestSubmit (unlike submit) runs native min/max
+    // constraint validation and fires a real submit event.
+    form.requestSubmit();
   });
 })();

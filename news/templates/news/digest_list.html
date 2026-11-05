@@ -21,19 +21,22 @@
   <span class="digest-filter-periods" role="group"
         aria-label="Periods">
     <label{% if period == 'day' %}
-           class="period-active" aria-current="true"{% endif %}>
+           class="period-active"{% endif %}>
       <input type="radio" name="period" value="day"
-             {% if period == 'day' %}checked{% endif %}>
+             {% if period == 'day' %}checked
+             aria-current="true"{% endif %}>
       Diena</label>
     <label{% if period == 'week' %}
-           class="period-active" aria-current="true"{% endif %}>
+           class="period-active"{% endif %}>
       <input type="radio" name="period" value="week"
-             {% if period == 'week' %}checked{% endif %}>
+             {% if period == 'week' %}checked
+             aria-current="true"{% endif %}>
       7 dienas</label>
     <label{% if period == 'all' %}
-           class="period-active" aria-current="true"{% endif %}>
+           class="period-active"{% endif %}>
       <input type="radio" name="period" value="all"
-             {% if period == 'all' %}checked{% endif %}>
+             {% if period == 'all' %}checked
+             aria-current="true"{% endif %}>
       Visi</label>
   </span>
   <button type="submit">Rādīt</button>
