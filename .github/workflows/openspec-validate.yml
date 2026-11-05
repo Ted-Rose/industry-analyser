@@ -1,0 +1,28 @@
+name: OpenSpec validate
+
+# Validates the repo-root openspec/ specs and change proposals on
+# every PR and every push to master — strict mode fails on
+# requirement-format and spec/delta drift.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  openspec-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Install OpenSpec CLI
+        run: npm i -g @fission-ai/openspec@1.14.3
+
+      - name: Validate specs
+        run: openspec validate --all --strict
