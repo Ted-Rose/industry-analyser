@@ -71,6 +71,18 @@ react_app_accounts = partial(
     react_app_public, entry='accounts', title='Sign in'
 )
 
+# include() imports its urlconf eagerly — resolve every include
+# BEFORE urlpatterns touches api.urls below. api.urls freezes the
+# shared NinjaAPI (add_router starts raising ConfigError), so a
+# crash inside an include import would leave api frozen and make
+# every re-import of this module fail at the add_router calls with
+# a masking ConfigError instead of the real exception.
+_tv_include = include('tv_programs.urls', namespace='tv_programs')
+_receipts_include = include('receipts.urls', namespace='receipts')
+_classified_ads_include = include(
+    'classified_ads.urls', namespace='classified_ads')
+_news_include = include('news.urls', namespace='news')
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('manifest.json', fetcher.pwa_manifest, name='pwa_manifest'),
@@ -131,18 +143,15 @@ urlpatterns = [
         fetcher.add_keyword_redirect,
         name='add_keyword',
     ),
-    path('tv/', include('tv_programs.urls', namespace='tv_programs')),
+    path('tv/', _tv_include),
     # Receipts spending dashboard — SPA cutover like /tv/: the
     # shell serves every GET/HEAD path; the name
     # 'receipts:dashboard' is kept for reverse() callers.
-    path('receipts/', include('receipts.urls', namespace='receipts')),
-    path(
-        'classified-ads/',
-        include('classified_ads.urls', namespace='classified_ads'),
-    ),
+    path('receipts/', _receipts_include),
+    path('classified-ads/', _classified_ads_include),
     # Plain-template digest pages — must precede the terminal
     # catch-all drains and the root SPA <path:subpath> below.
-    path('news/', include('news.urls', namespace='news')),
+    path('news/', _news_include),
 ]
 
 if settings.DEBUG:
