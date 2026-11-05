@@ -590,7 +590,8 @@ Universal rules (apply to every task):
 capability specs — **current behavior as source of truth**
 (code wins over docs; verify claims against source):
 `scraper-pipeline`, `ai-jobs`, `spa-api-contract`,
-`data-layer`, `user-auth`. `openspec/changes/` +
+`data-layer`, `user-auth` (run `openspec list --specs` for the
+current set). `openspec/changes/` +
 `changes/archive/` hold
 the change lifecycle; `openspec/config.yaml` carries project
 context.
@@ -611,6 +612,11 @@ context.
   copies in `.devin/skills/openspec-*/` are the same files with
   frontmatter stripped to `name`/`description` — **re-copy and
   re-strip after every `openspec update`**.
+- **Archive timing**: archive a change in the implementing PR
+  when feasible — specs, code and history land atomically.
+  Otherwise archive immediately after merge in a follow-up
+  PR; never leave a merged change unarchived, because
+  unsynced deltas leave `specs/` stale.
 - `tasks.md` items MUST be prefixed `backend:` / `frontend:` /
   `both:` to name the layer they touch.
 - **`docs/plans/` is frozen for NEW feature plans** — new

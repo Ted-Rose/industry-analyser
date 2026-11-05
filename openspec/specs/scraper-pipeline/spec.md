@@ -7,7 +7,9 @@ implements by subclassing `core_scraper.base.BaseScraper`: the
 `run()` → `scrape_portal()` → `create_or_update_resources()`
 pipeline, the shared HTTP layer (retries, per-domain
 throttling), pagination/sighting behavior, and the subclass
-flag surface.
+flag surface. It also covers the news backfill mode, which
+reuses the pipeline to walk historical sitemap/archive
+listings instead of polling feeds.
 
 ## Requirements
 
@@ -138,3 +140,46 @@ without a `link` attribute or a failed fetch return `None`.
   downloads
 - **THEN** `refetch_single()` returns the parsed field dict
   the caller can bulk-update from
+
+### Requirement: News backfill mode
+
+`scrape_news --backfill` SHALL run `NewsBackfillScraper` (a
+`NewsScraper` subclass) under job slug `news.backfill` with
+the constant cycle key `backfill`, so re-invocations resume
+the DONE partition set across days. It SHALL branch before
+the daily cooldown gate — backfill is a deliberate manual
+operation — and SHALL checkpoint one job item per
+(source, listing-partition) instead of one per RSS feed.
+
+#### Scenario: The synced item set is always the full range
+
+- **WHEN** a backfill run is bounded by `--since`/`--until`
+- **THEN** partitions are still enumerated for each source's
+  full archive range (against today) so `sync_items` does
+  not deactivate out-of-range items; only in-range pending
+  partitions are processed and the rest stay pending
+
+#### Scenario: Wall-clock budget exhausts mid-walk
+
+- **WHEN** the `--max-minutes` deadline passes during a run
+- **THEN** no further partitions are dispatched, an
+  in-flight partition stays pending rather than DONE, and
+  the run ends PARTIAL so the next invocation resumes the
+  remaining items
+
+#### Scenario: Two-key dedup with a mandatory publish date
+
+- **WHEN** a partition's listing URLs are processed
+- **THEN** each URL gets `external_id = sha256(link)[:32]`,
+  rows matching the hash or the raw/normalized `link` only
+  bump `last_seen`, and created rows carry
+  `is_backfill=True` plus a resolved `published_at` —
+  undateable articles are skipped
+
+#### Scenario: A dead listing is retried, not completed
+
+- **WHEN** a partition's listing fetch exhausts its retries
+- **THEN** that partition's item fails and retries on the
+  next run instead of completing on an empty listing; a
+  source whose sitemap-index enumeration fails keeps its
+  existing items pending and the run still ends FAILED
