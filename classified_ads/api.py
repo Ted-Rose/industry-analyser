@@ -1413,31 +1413,35 @@ def region_ads_list(
             days_active_count=Count('sightings', distinct=True)
         )
 
+    # '-pk' tiebreaks equal first_seen so pagination can't
+    # duplicate/drop a tied row across page boundaries.
     if deal_type == 'RENT':
         ads_qs = active_ads(rent_model, rent_sightings).order_by(
-            '-first_seen'
+            '-first_seen', '-pk'
         )
     elif deal_type == 'SELL':
         ads_qs = active_ads(sale_model, sale_sightings).order_by(
-            '-first_seen'
+            '-first_seen', '-pk'
         )
     elif deal_type == 'ALL':
         # Both deals merged — the rent-vs-buy ranked rows link here.
         # The two tables can't merge in one queryset, so each is
         # evaluated and the rows sorted in Python; Paginator accepts
         # a plain list.
-        ads_qs = sorted(
+        ads_list = sorted(
             [
                 *active_ads(rent_model, rent_sightings),
                 *active_ads(sale_model, sale_sightings),
             ],
-            key=lambda ad: ad.first_seen,
+            key=lambda ad: (ad.first_seen, ad.pk),
             reverse=True,
         )
     else:
         ads_qs = rent_model.objects.none()
 
-    paginator = Paginator(ads_qs, ADS_PER_PAGE)
+    paginator = Paginator(
+        ads_list if deal_type == 'ALL' else ads_qs, ADS_PER_PAGE
+    )
     ads = paginator.get_page(page)
 
     return RegionAdsOut(

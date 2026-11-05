@@ -658,6 +658,30 @@ class ClassifiedAdsApiTests(TestCase):
             deals, {rent_ad.ad_id: 'Rent', sale_ad.ad_id: 'Sell'}
         )
 
+    def test_region_ads_list_all_orders_by_first_seen(self):
+        """The merged list interleaves both tables by -first_seen
+        (auto_now_add can't be set at create → direct UPDATE)."""
+        old_sale = self._sale_ad(region=self.region)
+        new_rent = self._rent_ad(region=self.region)
+        today = date.today()
+        for model, ad in (
+            (ApartmentForSaleSighting, old_sale),
+            (ApartmentForRentSighting, new_rent),
+        ):
+            model.objects.create(ad=ad, seen_on=today)
+        ApartmentForSale.objects.filter(pk=old_sale.pk).update(
+            first_seen=timezone.now() - timedelta(days=10)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        ads = resp.json()['ads']
+        self.assertEqual(
+            [a['ad_id'] for a in ads],
+            [new_rent.ad_id, old_sale.ad_id],
+        )
+
     def test_region_ads_list_all_deal_type_respects_window(self):
         """deal_type=ALL keeps the F5 active-in-window filter —
         ads sighted only outside the window are dropped."""

@@ -201,7 +201,12 @@ export default function RentVsBuy() {
   // custom-days report would otherwise land on the wrong 30-day
   // window). The per-deal count cells pass RENT/SELL instead.
   const regionAdsUrl = (regionId: number, dealType = 'ALL') => {
-    if (!data) return urls.regionAds(regionId);
+    // deal_type must ride every variant — a bare link hits the
+    // API's empty-on-missing-deal_type behavior (the 0-results
+    // bug this drill-down exists to fix).
+    if (!data) {
+      return `${urls.regionAds(regionId)}?deal_type=${dealType}`;
+    }
     return (
       `${urls.regionAds(regionId)}?date_from=${data.date_from}` +
       `&date_to=${data.date_to}&deal_type=${dealType}`

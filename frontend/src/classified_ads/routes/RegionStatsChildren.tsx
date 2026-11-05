@@ -19,7 +19,11 @@ import FilterBar from '../../shared/ui/FilterBar';
 import Input from '../../shared/ui/Input';
 import Select from '../../shared/ui/Select';
 import { LoadingState } from '../../shared/ui/Skeleton';
-import { NoDealTypeNote, statsColumns } from './RegionStats';
+import {
+  NoDealTypeNote,
+  statsColumns,
+  statsDealType,
+} from './RegionStats';
 import useErrorToast from '../useErrorToast';
 
 interface Draft {
@@ -41,7 +45,7 @@ export default function RegionStatsChildren({ kind }: { kind: Kind }) {
       fromParams: (p) => ({
         dateFrom: p.get('date_from') ?? '',
         dateTo: p.get('date_to') ?? '',
-        dealType: p.get('deal_type') ?? '',
+        dealType: statsDealType(p.get('deal_type')),
       }),
       toParams: (d) => {
         const next = new URLSearchParams();
@@ -76,7 +80,7 @@ export default function RegionStatsChildren({ kind }: { kind: Kind }) {
   const activeCount =
     (params.dateFrom ? 1 : 0) +
     (params.dateTo ? 1 : 0) +
-    (params.dealType ? 1 : 0);
+    (statsDealType(params.dealType) ? 1 : 0);
 
   return (
     <PageContainer width="page">
