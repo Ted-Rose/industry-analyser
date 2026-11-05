@@ -2205,6 +2205,11 @@ class DigestListApiTests(TestCase):
         for params in (
             {'date': 'garbage'},
             {'date': '2026-13-40'},
+            # Over-length values must also fall back — the
+            # params carry no max_length, so they reach the
+            # strptime/membership guards instead of a 422.
+            {'date': '2026-10-29xx'},
+            {'period': 'bogus-but-over-ten-chars'},
             {'period': 'bogus'},
             {'date': 'garbage', 'period': 'bogus'},
         ):

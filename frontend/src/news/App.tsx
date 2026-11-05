@@ -10,9 +10,11 @@ import Preferences from './routes/Preferences';
  * '/preferences' the outlet ranking form (session-auth at
  * the API layer — anonymous readers bounce to
  * /accounts/login/ via the 401 handshake); '/:date' the
- * digest detail. Unknown paths — including the retired
- * /news/audio/ and /news/story/<pk>/fragment/ endpoints —
- * land back on the digest index.
+ * digest detail. The retired /news/audio/ endpoint gets an
+ * explicit redirect — it's single-segment, so it would
+ * otherwise match '/:date' and 404 as a bogus digest. Other
+ * unknown paths — /news/story/<pk>/fragment/ and junk —
+ * land back on the digest index via '*'.
  *
  * AppShell owns the global chrome — TopNav with the NavTabs
  * sections below and the Toasts mount.
@@ -29,6 +31,9 @@ export default function App() {
       <Routes>
         <Route path="/" element={<DigestList />} />
         <Route path="/preferences" element={<Preferences />} />
+        {/* Retired GET /news/audio/ — single-segment, so it
+            needs its own redirect or '/:date' swallows it. */}
+        <Route path="/audio" element={<Navigate to="/" replace />} />
         <Route path="/:date" element={<DigestDetail />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

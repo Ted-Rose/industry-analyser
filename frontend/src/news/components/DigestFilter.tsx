@@ -57,7 +57,10 @@ export default function DigestFilter({
           onChange={(event) => onApply(event.target.value, period)}
         />
       </Field>
-      <Field label="Periods" htmlFor="id_digest_period">
+      {/* No htmlFor — the SegmentedControl is a role=radio
+          group labelled by its own ariaLabel; no element owns
+          a digest-period id. */}
+      <Field label="Periods">
         <SegmentedControl
           ariaLabel="Periods"
           value={period}

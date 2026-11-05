@@ -194,8 +194,11 @@ class PreferencesSavedOut(Schema):
 @router.get('/digests/', auth=None, response=DigestListOut)
 def list_digests(
     request,
-    date: Optional[str] = Query(None, max_length=10),
-    period: Optional[str] = Query(None, max_length=10),
+    # No max_length — over-length garbage must hit the
+    # strptime/membership fallbacks below (200 default window),
+    # not pydantic's 422.
+    date: Optional[str] = Query(None),
+    period: Optional[str] = Query(None),
 ):
     """Digest index — verbatim port of the retired digest_list
     view: ?date=YYYY-MM-DD anchors a window, ?period=day|week|all

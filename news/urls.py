@@ -4,8 +4,8 @@ view. Mounted at /news/ in industry_analyser/urls.py.
 Every GET/HEAD path under /news/ serves the shared SPA shell
 (Vite entry 'news') and React Router resolves the page
 client-side. The route names stay so reverse() callers keep
-working ('news:digest-detail' is reversed in the story-card
-API op; 'news:article-audio' serves the binary FileResponse).
+working ('news:article-audio' is reversed in the story-card
+API op and serves the binary FileResponse).
 
 Retired: GET /news/audio/ and /news/story/<pk>/fragment/ —
 the SPA calls /api/news/audio/ and /api/news/stories/<id>/
