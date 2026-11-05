@@ -9,12 +9,17 @@ on:
     branches: [master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   openspec-validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -22,7 +27,9 @@ jobs:
           node-version: 22
 
       - name: Install OpenSpec CLI
-        run: npm i -g @fission-ai/openspec@1.14.3
+        run: >-
+          npm install -g --ignore-scripts --no-audit --no-fund
+          @fission-ai/openspec@1.14.3
 
       - name: Validate specs
         run: openspec validate --all --strict
