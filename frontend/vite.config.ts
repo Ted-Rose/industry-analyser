@@ -25,6 +25,7 @@ export default defineConfig({
         dashboard: 'src/dashboard/main.tsx',
         receipts: 'src/receipts/main.tsx',
         accounts: 'src/accounts/main.tsx',
+        news: 'src/news/main.tsx',
       },
       output: {
         entryFileNames: '[name]/[name].[hash].js',

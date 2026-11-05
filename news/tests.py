@@ -822,12 +822,17 @@ class DigestTests(TestCase):
         )
         build_digest(self.today, top_n=5)
         response = self.client.get(
-            f'/news/{self.today.isoformat()}/'
+            f'/api/news/digests/{self.today.isoformat()}/'
         )
         self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn('Ziņa viens', content)
-        self.assertNotIn(cand.title, content)
+        items = response.json()['items']
+        self.assertEqual(items[0]['headline'], 'Ziņa viens')
+        titles = [
+            article['title']
+            for item in items
+            for article in item['articles']
+        ]
+        self.assertNotIn(cand.title, titles)
 
 
 class StemClassificationTests(TestCase):
@@ -1453,8 +1458,9 @@ class OrderedStoryArticlesTests(TestCase):
         )
 
 
-class StoryFragmentViewTests(TestCase):
-    """GET /news/story/<pk>/fragment/ — the inline reader card."""
+class StoryCardApiTests(TestCase):
+    """GET /api/news/stories/<pk>/ — the inline reader card as
+    JSON (the retired /news/story/<pk>/fragment/ partial)."""
 
     def setUp(self):
         self.a = _source('a', importance_weight=3.0)
@@ -1474,37 +1480,51 @@ class StoryFragmentViewTests(TestCase):
             self.b, 'Stāsts B', story=self.story,
             story_match_status='auto',
         )
-        self.url = f'/news/story/{self.story.pk}/fragment/'
+        self.url = f'/api/news/stories/{self.story.pk}/'
+
+    def _slugs(self, payload):
+        return [
+            ref['source_slug'] for ref in payload['other_articles']
+        ]
 
     def test_renders_default_weight_pick(self):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['article'], self.art_a)
-        self.assertEqual(
-            response.context['other_articles'], [self.art_b],
-        )
-        self.assertIn('Stāsts A', response.content.decode())
+        payload = response.json()
+        self.assertEqual(payload['story_id'], self.story.pk)
+        self.assertEqual(payload['article']['id'], self.art_a.pk)
+        self.assertEqual(payload['article']['title'], 'Stāsts A')
+        self.assertEqual(payload['article']['source_slug'], 'a')
+        self.assertEqual(self._slugs(payload), ['b'])
+        # No ready audio on disk — the card renders the
+        # disabled Klausīties button off this field.
+        self.assertIsNone(payload['audio_url'])
 
     def test_renders_preferred_article_when_logged_in(self):
+        # auth=None still reads the session — logged-in
+        # readers keep preference-ordered picks.
         NewsSourcePreference.objects.create(
             user=self.user, source=self.b, rank=1,
         )
         self.client.force_login(self.user)
         response = self.client.get(self.url)
-        self.assertEqual(response.context['article'], self.art_b)
+        self.assertEqual(
+            response.json()['article']['id'], self.art_b.pk,
+        )
 
     def test_source_override_picks_that_outlet(self):
         response = self.client.get(self.url, {'source': 'b'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['article'], self.art_b)
-        self.assertEqual(
-            response.context['other_articles'], [self.art_a],
-        )
+        payload = response.json()
+        self.assertEqual(payload['article']['id'], self.art_b.pk)
+        self.assertEqual(self._slugs(payload), ['a'])
 
     def test_unknown_source_slug_falls_back(self):
         response = self.client.get(self.url, {'source': 'nope'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['article'], self.art_a)
+        self.assertEqual(
+            response.json()['article']['id'], self.art_a.pk,
+        )
 
     def test_source_with_only_candidate_member_falls_back(self):
         # A 'candidate' link is not confirmed coverage, so the
@@ -1517,7 +1537,9 @@ class StoryFragmentViewTests(TestCase):
         )
         response = self.client.get(self.url, {'source': 'c'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context['article'], self.art_a)
+        self.assertEqual(
+            response.json()['article']['id'], self.art_a.pk,
+        )
 
     def test_no_confirmed_members_404s(self):
         NewsArticle.objects.filter(story=self.story).update(
@@ -1527,8 +1549,10 @@ class StoryFragmentViewTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
 
-class PreferencesViewTests(TestCase):
-    """GET|POST /news/preferences/ — the outlet ranking form."""
+class PreferencesApiTests(TestCase):
+    """GET|POST /api/news/preferences/ — the outlet ranking
+    form behind django_auth (the retired /news/preferences/
+    view). Presence in `rows` is the include checkbox."""
 
     def setUp(self):
         self.a = _source('a', importance_weight=3.0)
@@ -1537,14 +1561,36 @@ class PreferencesViewTests(TestCase):
         self.user = get_user_model().objects.create_user(
             username='reader', password='x',
         )
-        self.url = '/news/preferences/'
+        self.url = '/api/news/preferences/'
 
-    def test_anonymous_get_redirects_to_login(self):
-        """Plain login_required follows LOGIN_URL — the public
-        accounts SPA login page (per-user feature, not staff)."""
+    def _prefs(self):
+        return list(
+            NewsSourcePreference.objects
+            .filter(user=self.user)
+            .order_by('rank')
+            .values_list('source__slug', 'rank')
+        )
+
+    def test_anonymous_get_401s_with_login_url(self):
+        """Anonymous GET answers the JSON 401 handshake — the
+        login_url's `next` rewrites to the SPA page, the same
+        bounce the old @login_required 302 performed."""
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, 302)
-        self.assertIn('/accounts/login/', response['Location'])
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload['error'], 'unauthenticated')
+        self.assertIn('/accounts/login/', payload['login_url'])
+        self.assertIn(
+            'next=%2Fnews%2Fpreferences%2F',
+            payload['login_url'],
+        )
+
+    def test_anonymous_post_401s(self):
+        response = self.client.post(
+            self.url, {'rows': []},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 401)
 
     def test_get_prefills_existing_ranks(self):
         NewsSourcePreference.objects.create(
@@ -1552,61 +1598,96 @@ class PreferencesViewTests(TestCase):
         )
         self.client.force_login(self.user)
         response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
         rows = {
-            row['source'].slug: row
-            for row in response.context['rows']
+            row['slug']: row
+            for row in response.json()['rows']
         }
+        # Enabled sources in the canonical
+        # (-importance_weight, pk) order.
+        self.assertEqual(list(rows), ['a', 'b', 'c'])
         self.assertTrue(rows['b']['checked'])
         self.assertEqual(rows['b']['rank'], 1)
         self.assertFalse(rows['a']['checked'])
+        self.assertIsNone(rows['a']['rank'])
 
     def test_post_writes_rows_in_submitted_rank_order(self):
         self.client.force_login(self.user)
         response = self.client.post(self.url, {
-            'include-a': 'on', 'rank-a': '5',
-            'include-b': 'on', 'rank-b': '1',
-        })
-        self.assertEqual(response.status_code, 302)
-        prefs = list(
-            NewsSourcePreference.objects
-            .filter(user=self.user)
-            .order_by('rank')
-            .values_list('source__slug', 'rank')
-        )
+            'rows': [
+                {'slug': 'a', 'rank': 5},
+                {'slug': 'b', 'rank': 1},
+            ],
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['success'])
+        self.assertEqual(payload['saved'], 2)
         # Submitted ranks (b=1, a=5) decide, not input order.
-        self.assertEqual(prefs, [('b', 1), ('a', 2)])
+        self.assertEqual(self._prefs(), [('b', 1), ('a', 2)])
 
     def test_second_post_replaces_rows(self):
         self.client.force_login(self.user)
         self.client.post(self.url, {
-            'include-a': 'on', 'rank-a': '1',
-            'include-b': 'on', 'rank-b': '2',
-        })
+            'rows': [
+                {'slug': 'a', 'rank': 1},
+                {'slug': 'b', 'rank': 2},
+            ],
+        }, content_type='application/json')
         self.client.post(self.url, {
-            'include-c': 'on', 'rank-c': '1',
-        })
-        prefs = list(
-            NewsSourcePreference.objects
-            .filter(user=self.user)
-            .values_list('source__slug', 'rank')
-        )
-        self.assertEqual(prefs, [('c', 1)])
+            'rows': [{'slug': 'c', 'rank': 1}],
+        }, content_type='application/json')
+        self.assertEqual(self._prefs(), [('c', 1)])
 
     def test_post_ignores_disabled_and_unknown_slugs(self):
         self.c.is_enabled = False
         self.c.save()
         self.client.force_login(self.user)
         self.client.post(self.url, {
-            'include-a': 'on', 'rank-a': '1',
-            'include-c': 'on', 'rank-c': '2',
-            'include-ghost': 'on', 'rank-ghost': '3',
-        })
-        prefs = list(
-            NewsSourcePreference.objects
-            .filter(user=self.user)
-            .values_list('source__slug', 'rank')
-        )
-        self.assertEqual(prefs, [('a', 1)])
+            'rows': [
+                {'slug': 'a', 'rank': 1},
+                {'slug': 'c', 'rank': 2},
+                {'slug': 'ghost', 'rank': 3},
+            ],
+        }, content_type='application/json')
+        self.assertEqual(self._prefs(), [('a', 1)])
+
+    def test_checked_but_unranked_sinks_below_numbered(self):
+        self.client.force_login(self.user)
+        self.client.post(self.url, {
+            'rows': [
+                {'slug': 'a', 'rank': 3},
+                {'slug': 'b', 'rank': None},
+            ],
+        }, content_type='application/json')
+        self.assertEqual(self._prefs(), [('a', 1), ('b', 2)])
+
+
+class NewsShellTests(TestCase):
+    """The /news/ SPA shell contract — retired form-action and
+    fragment URLs can't answer, client routes render."""
+
+    def test_post_on_spa_path_404s(self):
+        # The retired POST /news/preferences/ form action —
+        # mutations live under /api/ now.
+        response = self.client.post('/news/preferences/')
+        self.assertEqual(response.status_code, 404)
+
+    def test_retired_fragment_get_serves_shell(self):
+        # GET /news/story/<pk>/fragment/ — falls into the
+        # catch-all; React Router's '*' navigates to /news/.
+        response = self.client.get('/news/story/1/fragment/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_retired_audio_get_serves_shell(self):
+        # 'audio' resolves through the <str:date>/ pattern —
+        # a single-segment str — into the shell either way.
+        response = self.client.get('/news/audio/')
+        self.assertEqual(response.status_code, 200)
+
+    def test_digest_detail_route_serves_shell(self):
+        response = self.client.get('/news/2026-10-29/')
+        self.assertEqual(response.status_code, 200)
 
 
 class ArticleAudioViewTests(TestCase):
@@ -1890,8 +1971,10 @@ class TextToAudioTests(TestCase):
 
 
 class AudioEndpointTests(TestCase):
-    """GET /news/audio/ — the public JSON contract behind the
-    digest page's audio buttons."""
+    """GET /api/news/audio/ — the public JSON contract behind
+    the digest page's audio buttons (the retired /news/audio/
+    view). Schema bounds 422 the malformed cases the view
+    400ed — uniform with the rest of the API."""
 
     def test_anonymous_get_returns_audio_url(self):
         with patch(
@@ -1899,7 +1982,7 @@ class AudioEndpointTests(TestCase):
             return_value='https://signed.example/clip.mp3',
         ):
             response = self.client.get(
-                '/news/audio/', {'text': 'Sveiki'}
+                '/api/news/audio/', {'text': 'Sveiki'}
             )
         # 200 for an anonymous request — /news/ is public, so
         # the endpoint must not bounce to the login page.
@@ -1909,37 +1992,42 @@ class AudioEndpointTests(TestCase):
             {'audio_url': 'https://signed.example/clip.mp3'},
         )
 
-    def test_missing_oversized_text_and_bad_lang_400(self):
+    def test_missing_oversized_text_422_and_bad_lang_400(self):
+        # Missing/oversized text is a schema bound — 422.
         self.assertEqual(
-            self.client.get('/news/audio/').status_code, 400
+            self.client.get('/api/news/audio/').status_code, 422
         )
         self.assertEqual(
             self.client.get(
-                '/news/audio/', {'text': 'x' * 6001}
+                '/api/news/audio/', {'text': 'x' * 6001}
             ).status_code,
-            400,
+            422,
         )
+        # 'english' fails the manual _LANG_RE shape check —
+        # still 400 like the view, not a 422.
         self.assertEqual(
             self.client.get(
-                '/news/audio/',
+                '/api/news/audio/',
                 {'text': 'hi', 'lang': 'english'},
             ).status_code,
             400,
         )
 
-    def test_oversized_filename_and_unsupported_lang_400(self):
+    def test_oversized_filename_422_and_unsupported_lang_400(
+        self,
+    ):
         self.assertEqual(
             self.client.get(
-                '/news/audio/',
+                '/api/news/audio/',
                 {'text': 'hi', 'filename': 'f' * 201},
             ).status_code,
-            400,
+            422,
         )
-        # 'zz' passes the view's shape regex but is not a gTTS
-        # voice — bad input (400), not a pipeline failure (502).
+        # 'zz' passes the shape regex but is not a gTTS
+        # voice — bad input (400), not a pipeline failure.
         self.assertEqual(
             self.client.get(
-                '/news/audio/', {'text': 'hi', 'lang': 'zz'}
+                '/api/news/audio/', {'text': 'hi', 'lang': 'zz'}
             ).status_code,
             400,
         )
@@ -1949,34 +2037,37 @@ class AudioEndpointTests(TestCase):
             'news.audio.text_to_audio',
             side_effect=ValueError('bad input'),
         ):
-            self.assertEqual(
-                self.client.get(
-                    '/news/audio/', {'text': 'x'}
-                ).status_code,
-                400,
+            response = self.client.get(
+                '/api/news/audio/', {'text': 'x'}
             )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'bad_request')
         with patch(
             'news.audio.text_to_audio',
             side_effect=AudioGenerationError('down'),
         ):
             response = self.client.get(
-                '/news/audio/', {'text': 'x'}
+                '/api/news/audio/', {'text': 'x'}
             )
         self.assertEqual(response.status_code, 502)
-        self.assertEqual(response.json(), {'error': 'down'})
+        payload = response.json()
+        self.assertEqual(payload['error'], 'upstream_error')
+        self.assertEqual(payload['detail'], 'down')
 
     def test_post_is_405(self):
         self.assertEqual(
             self.client.post(
-                '/news/audio/', {'text': 'x'}
+                '/api/news/audio/', {'text': 'x'}
             ).status_code,
             405,
         )
 
 
-class DigestListAudioRenderTests(TestCase):
-    """GET /news/ renders the audio controls wired to each
-    item's spoken text (headline + representative lead)."""
+class DigestListAudioPayloadTests(TestCase):
+    """GET /api/news/digests/ carries each item's spoken text
+    (headline + representative lead) — the audio buttons in
+    the SPA synthesize from these fields (the DOM contract of
+    the retired template moves to Vitest)."""
 
     def setUp(self):
         self.today = timezone.localdate()
@@ -1995,29 +2086,37 @@ class DigestListAudioRenderTests(TestCase):
                 headline=title,
             )
 
-    def test_audio_controls_render_with_text_attrs(self):
-        response = self.client.get('/news/')
+    def test_items_carry_spoken_text_fields(self):
+        response = self.client.get('/api/news/digests/')
         self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn('data-audio-all', content)
-        self.assertIn('data-audio-date', content)
-        self.assertIn('data-audio-newest', content)
-        self.assertIn('news/audio.js', content)
-        self.assertEqual(content.count('data-audio-item'), 2)
-        for item in self.digest.items.order_by('rank'):
-            self.assertIn(f'data-title="{item.headline}"', content)
-            self.assertIn(
-                f'data-desc="{item.story.representative_lead}"',
-                content,
-            )
+        digests = response.json()['digests']
+        self.assertEqual(len(digests), 1)
+        items = digests[0]['items']
+        self.assertEqual(
+            [
+                (i['story_id'], i['headline'],
+                 i['representative_lead'])
+                for i in items
+            ],
+            [
+                (
+                    item.story_id,
+                    item.headline,
+                    item.story.representative_lead,
+                )
+                for item in self.digest.items.order_by('rank')
+            ],
+        )
 
 
-class DigestListViewTests(TestCase):
-    """GET /news/ — the ?date/?period filter contract: default
-    is a 7-day window ending on the latest digest, period=day
-    pins the anchor, period=all lists everything, and malformed
-    params fall back to the default window (never 400/500 on a
-    public page)."""
+class DigestListApiTests(TestCase):
+    """GET /api/news/digests/ — the ?date/?period filter
+    contract: default is a 7-day window ending on the latest
+    digest, period=day pins the anchor, period=all lists
+    everything, and malformed params fall back to the default
+    window (never 400/500 on a public page — `date` stays a
+    str parsed by strptime inside the op so garbage never
+    422s)."""
 
     def setUp(self):
         # Ten consecutive digest days: 2026-10-20 .. 2026-10-29.
@@ -2029,13 +2128,16 @@ class DigestListViewTests(TestCase):
         self.latest = self.first + timedelta(days=9)
 
     def _dates(self, response):
-        return [d.date for d in response.context['digests']]
+        return [d['date'] for d in response.json()['digests']]
 
     def _week_ending(self, anchor):
-        return [anchor - timedelta(days=i) for i in range(7)]
+        return [
+            (anchor - timedelta(days=i)).isoformat()
+            for i in range(7)
+        ]
 
     def test_defaults_to_week_ending_on_latest_digest(self):
-        response = self.client.get('/news/')
+        response = self.client.get('/api/news/digests/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             self._dates(response), self._week_ending(self.latest)
@@ -2044,23 +2146,29 @@ class DigestListViewTests(TestCase):
     def test_day_period_filters_to_anchor(self):
         anchor = self.first + timedelta(days=3)
         response = self.client.get(
-            '/news/',
+            '/api/news/digests/',
             {'date': anchor.isoformat(), 'period': 'day'},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self._dates(response), [anchor])
+        self.assertEqual(
+            self._dates(response), [anchor.isoformat()]
+        )
 
     def test_day_period_without_date_shows_latest_day(self):
         # With no anchor, period=day pins the newest digest —
         # just that single day, not the week window.
-        response = self.client.get('/news/', {'period': 'day'})
+        response = self.client.get(
+            '/api/news/digests/', {'period': 'day'}
+        )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self._dates(response), [self.latest])
+        self.assertEqual(
+            self._dates(response), [self.latest.isoformat()]
+        )
 
     def test_week_period_inclusive_edges(self):
         anchor = self.first + timedelta(days=7)
         response = self.client.get(
-            '/news/',
+            '/api/news/digests/',
             {'date': anchor.isoformat(), 'period': 'week'},
         )
         self.assertEqual(response.status_code, 200)
@@ -2071,7 +2179,7 @@ class DigestListViewTests(TestCase):
     def test_date_without_period_means_week(self):
         anchor = self.first + timedelta(days=7)
         response = self.client.get(
-            '/news/', {'date': anchor.isoformat()}
+            '/api/news/digests/', {'date': anchor.isoformat()}
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -2083,24 +2191,29 @@ class DigestListViewTests(TestCase):
             {'period': 'all'},
             {'date': self.first.isoformat(), 'period': 'all'},
         ):
-            response = self.client.get('/news/', params)
+            response = self.client.get('/api/news/digests/', params)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(self._dates(response)), 10)
             self.assertEqual(
-                self._dates(response)[0], self.latest
+                self._dates(response)[0], self.latest.isoformat()
             )
             self.assertEqual(
-                self._dates(response)[-1], self.first
+                self._dates(response)[-1], self.first.isoformat()
             )
 
     def test_malformed_params_fall_back_to_default(self):
         for params in (
             {'date': 'garbage'},
             {'date': '2026-13-40'},
+            # Over-length values must also fall back — the
+            # params carry no max_length, so they reach the
+            # strptime/membership guards instead of a 422.
+            {'date': '2026-10-29xx'},
+            {'period': 'bogus-but-over-ten-chars'},
             {'period': 'bogus'},
             {'date': 'garbage', 'period': 'bogus'},
         ):
-            response = self.client.get('/news/', params)
+            response = self.client.get('/api/news/digests/', params)
             self.assertEqual(response.status_code, 200, params)
             self.assertEqual(
                 self._dates(response),
@@ -2108,37 +2221,55 @@ class DigestListViewTests(TestCase):
                 params,
             )
 
-    def test_anchor_on_empty_range_shows_range_message(self):
+    def test_anchor_on_empty_range_returns_empty_list(self):
+        # A valid anchor over an empty window still 200s with
+        # the filter state echoed — the SPA renders the
+        # 'Šajā periodā nav neviena' empty state because
+        # max_date is set.
         response = self.client.get(
-            '/news/', {'date': '2030-01-01', 'period': 'week'}
+            '/api/news/digests/',
+            {'date': '2030-01-01', 'period': 'week'},
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self._dates(response), [])
-        content = response.content.decode()
-        self.assertIn('Šajā periodā nav neviena', content)
-        self.assertNotIn('Vēl nav neviena', content)
+        payload = response.json()
+        self.assertEqual(payload['digests'], [])
+        self.assertEqual(payload['max_date'], self.latest.isoformat())
 
-    def test_empty_db_shows_global_empty_state(self):
+    def test_empty_db_returns_null_bounds(self):
         NewsDigest.objects.all().delete()
-        response = self.client.get('/news/')
+        response = self.client.get('/api/news/digests/')
         self.assertEqual(response.status_code, 200)
-        content = response.content.decode()
-        self.assertIn('Vēl nav neviena kopsavilkuma.', content)
-        # Nothing to anchor on — the filter form is hidden.
-        self.assertNotIn('<form class="digest-filter"', content)
+        payload = response.json()
+        self.assertEqual(payload['digests'], [])
+        # Nothing to anchor on — the SPA hides the filter and
+        # shows the global empty state off these nulls.
+        self.assertIsNone(payload['min_date'])
+        self.assertIsNone(payload['max_date'])
+        self.assertIsNone(payload['anchor_date'])
 
-    def test_filter_form_and_range_line_render(self):
-        response = self.client.get('/news/')
-        content = response.content.decode()
-        self.assertIn('<form class="digest-filter"', content)
-        self.assertIn('type="date"', content)
-        self.assertIn('name="date"', content)
-        self.assertIn('Diena', content)
-        self.assertIn('7 dienas', content)
-        self.assertIn('Visi', content)
-        self.assertIn('Rādīt', content)
-        # The range line names the visible window.
-        self.assertIn('2026-10-23 – 2026-10-29', content)
+    def test_filter_state_echoes(self):
+        # The SPA renders the filter inputs and the range line
+        # from the echoed effective state.
+        response = self.client.get('/api/news/digests/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['period'], 'week')
+        self.assertEqual(
+            payload['anchor_date'], self.latest.isoformat()
+        )
+        self.assertEqual(
+            payload['range_start'],
+            (self.latest - timedelta(days=6)).isoformat(),
+        )
+        self.assertEqual(
+            payload['range_end'], self.latest.isoformat()
+        )
+        self.assertEqual(
+            payload['min_date'], self.first.isoformat()
+        )
+        self.assertEqual(
+            payload['max_date'], self.latest.isoformat()
+        )
 
 
 BACKFILL_URLSET = b"""<?xml version="1.0" encoding="UTF-8"?>

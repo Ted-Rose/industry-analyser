@@ -168,9 +168,12 @@ page.
 #### Scenario: Plain login_required surfaces use LOGIN_URL
 
 - **WHEN** an anonymous user hits a per-user login-required
-  page outside the SPA shell (e.g. news preferences)
+  page outside the SPA shell
 - **THEN** ordinary `login_required` redirects to `LOGIN_URL`
-  (`/accounts/login/`), not the admin login
+  (`/accounts/login/`), not the admin login; equivalently, a
+  per-user `django_auth` API op (e.g. `/api/news/preferences/`)
+  answers the 401 `login_url` handshake that lands on the same
+  login surface
 
 #### Scenario: Auth flags ride the bootstrap payload
 

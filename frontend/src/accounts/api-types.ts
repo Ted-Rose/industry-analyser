@@ -641,6 +641,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/news/digests/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Digests
+         * @description Digest index — verbatim port of the retired digest_list
+         *     view: ?date=YYYY-MM-DD anchors a window, ?period=day|week|all
+         *     picks its size, malformed values fall back to the 7-day
+         *     window ending on the newest digest (never a 4xx/5xx).
+         */
+        get: operations["news_api_list_digests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digests/{date}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Digest Detail
+         * @description One digest day — verbatim port of the retired
+         *     digest_detail view (strptime guard → 'Invalid date format'
+         *     404, confirmed members only via the to_attr prefetch).
+         */
+        get: operations["news_api_digest_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/stories/{story_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Story Card
+         * @description Story card for the inline reader — verbatim port of the
+         *     retired story_fragment view: the confirmed member article
+         *     from the reader's favorite covering outlet, or a
+         *     `?source=<slug>` override when that outlet covered it.
+         *     request.user rides the session even with auth=None, so
+         *     logged-in readers keep preference-ordered picks.
+         */
+        get: operations["news_api_story_card"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/audio/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audio
+         * @description Public gTTS->GCS clip generator behind the digest page's
+         *     audio buttons — port of the retired audio view. Stays
+         *     unauthenticated: /news/ itself is public and the pre-warm
+         *     fan-out must work for anonymous readers; abuse is bounded
+         *     by content-addressed dedup, the text length cap and ~1s
+         *     gTTS latency per genuinely new text. Schema bounds 422 the
+         *     malformed cases the view 400ed (uniform with the rest of
+         *     the API); the `lang` shape check stays manual so 'english'
+         *     still 400s rather than 422ing.
+         */
+        get: operations["news_api_audio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/preferences/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Preferences
+         * @description Enabled sources (-importance_weight, pk) joined to the
+         *     user's NewsSourcePreference rank map — the rows the retired
+         *     preferences form rendered.
+         */
+        get: operations["news_api_get_preferences"];
+        put?: never;
+        /**
+         * Save Preferences
+         * @description Replace the user's outlet ranking — verbatim port of the
+         *     retired preferences view's POST: presence in `rows` is the
+         *     include checkbox, checked-but-unranked sinks below every
+         *     numbered pick (canonical source order breaks the tie),
+         *     saved rows renumber 1..N, disabled/unknown slugs ignored.
+         */
+        post: operations["news_api_save_preferences"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1999,6 +2127,164 @@ export interface components {
             /** Is Authenticated */
             is_authenticated: boolean;
         };
+        /** DigestListItemOut */
+        DigestListItemOut: {
+            /** Story Id */
+            story_id: number;
+            /** Rank */
+            rank: number;
+            /** Headline */
+            headline: string;
+            /** Representative Lead */
+            representative_lead: string;
+        };
+        /**
+         * DigestListOut
+         * @description The whole digest_list page payload — digests plus the
+         *     effective filter state (the old template's context).
+         */
+        DigestListOut: {
+            /** Digests */
+            digests: components["schemas"]["DigestOut"][];
+            /** Period */
+            period: string;
+            /** Anchor Date */
+            anchor_date: string | null;
+            /** Range Start */
+            range_start: string | null;
+            /** Range End */
+            range_end: string | null;
+            /** Min Date */
+            min_date: string | null;
+            /** Max Date */
+            max_date: string | null;
+        };
+        /** DigestOut */
+        DigestOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Items */
+            items: components["schemas"]["DigestListItemOut"][];
+        };
+        /** ArticleRef */
+        ArticleRef: {
+            /** Title */
+            title: string;
+            /** Link */
+            link: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /** DigestDetailItemOut */
+        DigestDetailItemOut: {
+            /** Rank */
+            rank: number;
+            /** Headline */
+            headline: string;
+            /** Rationale */
+            rationale: string;
+            /** Topic Name */
+            topic_name: string | null;
+            /** Articles */
+            articles: components["schemas"]["ArticleRef"][];
+        };
+        /** DigestDetailOut */
+        DigestDetailOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Items */
+            items: components["schemas"]["DigestDetailItemOut"][];
+        };
+        /** StoryArticleOut */
+        StoryArticleOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Lead */
+            lead: string;
+            /** Link */
+            link: string;
+            /** Image Url */
+            image_url: string;
+            /** Published At */
+            published_at: string | null;
+            /** Source Slug */
+            source_slug: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /**
+         * StoryCardOut
+         * @description The _story_card.html context as JSON.
+         */
+        StoryCardOut: {
+            /** Story Id */
+            story_id: number;
+            article: components["schemas"]["StoryArticleOut"];
+            /** Audio Url */
+            audio_url: string | null;
+            /** Other Articles */
+            other_articles: components["schemas"]["StorySourceRef"][];
+        };
+        /** StorySourceRef */
+        StorySourceRef: {
+            /** Source Slug */
+            source_slug: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /** AudioOut */
+        AudioOut: {
+            /** Audio Url */
+            audio_url: string;
+        };
+        /** PreferenceRowOut */
+        PreferenceRowOut: {
+            /** Slug */
+            slug: string;
+            /** Name */
+            name: string;
+            /** Checked */
+            checked: boolean;
+            /** Rank */
+            rank: number | null;
+        };
+        /** PreferencesOut */
+        PreferencesOut: {
+            /** Rows */
+            rows: components["schemas"]["PreferenceRowOut"][];
+        };
+        /** PreferencesSavedOut */
+        PreferencesSavedOut: {
+            /** Success */
+            success: boolean;
+            /** Saved */
+            saved: number;
+            /** Message */
+            message: string;
+        };
+        /** PreferenceRowIn */
+        PreferenceRowIn: {
+            /** Slug */
+            slug: string;
+            /** Rank */
+            rank?: number | null;
+        };
+        /**
+         * PreferencesIn
+         * @description Presence in `rows` = the include-<slug> checkbox.
+         */
+        PreferencesIn: {
+            /** Rows */
+            rows: components["schemas"]["PreferenceRowIn"][];
+        };
     };
     responses: never;
     parameters: never;
@@ -2735,6 +3021,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    news_api_list_digests: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                period?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestListOut"];
+                };
+            };
+        };
+    };
+    news_api_digest_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestDetailOut"];
+                };
+            };
+        };
+    };
+    news_api_story_card: {
+        parameters: {
+            query?: {
+                source?: string | null;
+            };
+            header?: never;
+            path: {
+                story_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryCardOut"];
+                };
+            };
+        };
+    };
+    news_api_audio: {
+        parameters: {
+            query: {
+                text: string;
+                lang?: string | null;
+                filename?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioOut"];
+                };
+            };
+        };
+    };
+    news_api_get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesOut"];
+                };
+            };
+        };
+    };
+    news_api_save_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesSavedOut"];
                 };
             };
         };
