@@ -22,6 +22,7 @@ from django.urls import path, include
 from accounts.api import router as accounts_router
 from fetcher import views as fetcher
 from fetcher.api import router as vacancies_router
+from news.api import router as news_router
 from tv_programs.api import router as tv_router
 from classified_ads.api import router as classified_ads_router
 from scrape_jobs.api import router as dashboard_router
@@ -76,7 +77,7 @@ _news_include = include('news.urls', namespace='news')
 
 # Mount only routers not already registered by an earlier partial
 # import (see above). api._routers already holds the default
-# router from NinjaAPI.__init__ — our six are what varies.
+# router from NinjaAPI.__init__ — the app routers are what varies.
 _mounted = {router for _, router in api._routers}
 for _prefix, _router in (
     ('/vacancies/', vacancies_router),
@@ -91,6 +92,7 @@ for _prefix, _router in (
     ('/dashboard/', dashboard_router),
     ('/receipts/', receipts_router),
     ('/accounts/', accounts_router),
+    ('/news/', news_router),
 ):
     if _router not in _mounted:
         api.add_router(_prefix, _router)

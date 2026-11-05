@@ -172,7 +172,7 @@ if SENTRY_DSN:
     )
 
 # The public accounts SPA is the login UI — plain login_required
-# surfaces (news:preferences) bounce there. Staff-only pages use
+# surfaces bounce there. Staff-only pages use
 # staff_member_required, which short-circuits to the admin login
 # and never consults LOGIN_URL.
 LOGIN_URL = '/accounts/login/'

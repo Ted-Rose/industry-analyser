@@ -14,9 +14,8 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Tailwind must also see the class names used by the
-   Django-rendered templates (landing, _topbar, news). */
+   Django-rendered templates (landing, _topbar). */
 @source "../../../../industry_analyser/templates";
-@source "../../../../news/templates";
 
 @theme {
   /* Inter Variable, self-hosted via @fontsource-variable/inter —
