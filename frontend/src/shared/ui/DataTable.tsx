@@ -335,7 +335,12 @@ export function DataTable<T>({
           // opaque bg even when stickyHeader is off.
           (stickyHeader || (stickyFirstColumn && index === 0)) &&
             'sticky bg-surface-2',
-          stickyHeader && 'top-14 z-10',
+          // In 'scroll' mode the th's scrollport is the overflow
+          // container, not the viewport — a top-14 offset would
+          // push the header 56px down over the first rows, and
+          // page-scroll sticking can't work there anyway.
+          stickyHeader &&
+            (mobile === 'scroll' ? 'top-0 z-10' : 'top-14 z-10'),
           stickyFirstColumn &&
             index === 0 &&
             // With a leading chevron column (renderExpanded) the
@@ -554,7 +559,8 @@ export function DataTable<T>({
                 'w-10 px-2 py-2',
                 (stickyHeader || stickyFirstColumn) &&
                   'sticky bg-surface-2',
-                stickyHeader && 'top-14',
+                stickyHeader &&
+                  (mobile === 'scroll' ? 'top-0' : 'top-14'),
                 // With stickyFirstColumn the chevron column pins
                 // at the left edge and the first data column pins
                 // beside it at left-10 — z-30 keeps this header
