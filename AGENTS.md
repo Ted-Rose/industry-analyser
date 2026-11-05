@@ -619,6 +619,12 @@ context.
   Otherwise archive immediately after merge in a follow-up
   PR; never leave a merged change unarchived, because
   unsynced deltas leave `specs/` stale.
+- **Update specs in the same PR as the code.** Any change that
+  alters behavior covered by `openspec/specs/` MUST update the
+  affected spec in the same PR — whether it came through
+  `openspec changes` (that update is the archive) or not (edit
+  the spec directly). A spec that no longer matches shipped
+  behavior is a bug, not documentation drift.
 - `tasks.md` items MUST be prefixed `backend:` / `frontend:` /
   `both:` to name the layer they touch.
 - **`docs/plans/` is frozen for NEW feature plans** — new
