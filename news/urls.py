@@ -19,12 +19,15 @@ from django.urls import path
 
 from industry_analyser.views import react_app_public
 from . import views
+from .syndication import NewsDigestFeed
 
 app_name = 'news'
 
 react_app_news = partial(
     react_app_public, entry='news', title='News',
     landing_desc='Daily digest of Latvian news across outlets.',
+    feed_url='/news/rss.xml',
+    feed_title='Industry Analyser — Latvian news digest',
 )
 
 urlpatterns = [
@@ -35,6 +38,10 @@ urlpatterns = [
     # static /preferences route above /:date client-side, so
     # the client needs no extra care).
     path('preferences/', react_app_news, name='preferences'),
+    # Outgoing RSS feed — the crawlable digest. MUST precede
+    # '<str:date>/' the same way 'preferences/' does: 'str'
+    # would swallow 'rss.xml' as a date.
+    path('rss.xml', NewsDigestFeed(), name='rss'),
     # Binary FileResponse stays a Django view. Multi-segment —
     # '<str:date>/' can't collide; must precede <path:subpath>.
     path(

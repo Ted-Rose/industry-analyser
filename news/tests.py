@@ -3239,3 +3239,105 @@ class BackfillCommandTests(TestCase):
                 status=ScrapeJobRunItem.DONE
             ).exists()
         )
+
+
+class RobotSurfaceTests(TestCase):
+    """Crawler surface: /news/rss.xml, /sitemap.xml and /llms.txt
+    must expose the digest with its URLs — the /news/ SPA shell
+    serves a robot that can't run JavaScript no content at all."""
+
+    def setUp(self):
+        self.source = _source('a')
+        self.topic = NewsTopic.objects.create(
+            slug='politics', name='Politika', weight=1.0,
+            keywords=['Saeima'],
+        )
+        self.today = timezone.localdate()
+
+    def _digest(self, day, headline='Ziņa viens'):
+        """A digest row with one ranked item whose story has one
+        confirmed member article — the minimum a robot-facing
+        surface needs to render a headline + URL."""
+        story = NewsStory.objects.create(
+            title=headline, topic=self.topic,
+            published_date=day, importance_score=1.0,
+            source_count=1,
+        )
+        article = _article(
+            self.source, headline, topic=self.topic,
+            story=story, story_match_status='auto',
+        )
+        digest = NewsDigest.objects.create(date=day)
+        NewsDigestItem.objects.create(
+            digest=digest, story=story, rank=1,
+            headline=headline, rationale='1 outlet: a',
+        )
+        return article
+
+    def test_rss_feed_lists_recent_digest_with_article_urls(self):
+        article = self._digest(self.today)
+        response = self.client.get('/news/rss.xml')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/rss+xml', response['Content-Type'])
+        body = response.content.decode()
+        self.assertIn('Ziņa viens', body)
+        # Both URL kinds a robot needs: the digest-day page and
+        # the member article link.
+        self.assertIn(f'/news/{self.today.isoformat()}/', body)
+        self.assertIn(article.link, body)
+
+    def test_rss_feed_window_is_last_7_days(self):
+        article = self._digest(
+            self.today - timedelta(days=10), headline='Ziņa vecā'
+        )
+        self._digest(self.today)
+        body = self.client.get('/news/rss.xml').content.decode()
+        self.assertIn('Ziņa viens', body)
+        self.assertNotIn('Ziņa vecā', body)
+        self.assertNotIn(article.link, body)
+
+    def test_rss_feed_empty_when_no_digests(self):
+        response = self.client.get('/news/rss.xml')
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b'<item>', response.content)
+
+    def test_news_shell_emits_rss_autodiscovery_link(self):
+        response = self.client.get('/news/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'rel="alternate"', response.content)
+        self.assertIn(b'/news/rss.xml', response.content)
+
+    def test_sitemap_indexes_every_digest_day(self):
+        old = self.today - timedelta(days=30)
+        self._digest(old, headline='Ziņa vecā')
+        self._digest(self.today)
+        response = self.client.get('/sitemap.xml')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('application/xml', response['Content-Type'])
+        body = response.content.decode()
+        # The sitemap is an exhaustive inventory — even the
+        # month-old digest day is listed with a lastmod.
+        self.assertIn(f'/news/{old.isoformat()}/', body)
+        self.assertIn(f'/news/{self.today.isoformat()}/', body)
+        self.assertIn('<lastmod>', body)
+        self.assertIn('/news/', body)
+
+    def test_llms_lists_recent_digests_with_urls(self):
+        article = self._digest(self.today)
+        response = self.client.get('/llms.txt')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('text/plain', response['Content-Type'])
+        body = response.content.decode()
+        self.assertIn(f'/news/{self.today.isoformat()}/', body)
+        self.assertIn('Ziņa viens', body)
+        self.assertIn(article.link, body)
+        self.assertIn('/news/rss.xml', body)
+
+    def test_llms_window_is_last_7_days(self):
+        self._digest(
+            self.today - timedelta(days=10), headline='Ziņa vecā'
+        )
+        self._digest(self.today)
+        body = self.client.get('/llms.txt').content.decode()
+        self.assertIn('Ziņa viens', body)
+        self.assertNotIn('Ziņa vecā', body)

@@ -22,6 +22,7 @@ from django.urls import path, include
 from accounts.api import router as accounts_router
 from fetcher import views as fetcher
 from fetcher.api import router as vacancies_router
+from news import views as news_views
 from news.api import router as news_router
 from tv_programs.api import router as tv_router
 from classified_ads.api import router as classified_ads_router
@@ -101,6 +102,13 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('manifest.json', fetcher.pwa_manifest, name='pwa_manifest'),
     path('sw.js', fetcher.pwa_service_worker, name='pwa_service_worker'),
+    # Robot-facing files — crawler policy, the digest URL
+    # inventory and the llms.txt agent index. All public; the
+    # digest content itself lives under /news/rss.xml and the
+    # /api/news/ ops.
+    path('robots.txt', project_views.robots_txt, name='robots_txt'),
+    path('sitemap.xml', news_views.sitemap_xml, name='sitemap_xml'),
+    path('llms.txt', news_views.llms_txt, name='llms_txt'),
     # Shared ninja API — mounted before the app routes so /api/* can
     # never be swallowed by the terminal catch-all.
     path('api/', api.urls),

@@ -16,12 +16,30 @@ from django.contrib.admin.views.decorators import (
 )
 from django.http import (
     Http404,
+    HttpResponse,
     HttpResponsePermanentRedirect,
     JsonResponse,
 )
 from django.shortcuts import redirect, render
 from django.urls import URLPattern, get_resolver, is_valid_path
 from django.views.decorators.csrf import ensure_csrf_cookie
+
+
+def robots_txt(request):
+    """Crawler policy at /robots.txt — the public app pages and
+    the digest API stay crawlable; only the auth/admin plumbing
+    is disallowed. The Sitemap line points robots at the digest
+    URL inventory."""
+    sitemap_url = request.build_absolute_uri('/sitemap.xml')
+    body = '\n'.join([
+        'User-agent: *',
+        'Disallow: /admin/',
+        'Disallow: /accounts/',
+        '',
+        f'Sitemap: {sitemap_url}',
+        '',
+    ])
+    return HttpResponse(body, content_type='text/plain')
 
 
 def chrome_devtools_probe(request):
@@ -86,7 +104,7 @@ def _manifest_has_entry(manifest_path, entry_key):
         return False
 
 
-def _spa_shell(request, entry, title=''):
+def _spa_shell(request, entry, title='', feed_url='', feed_title=''):
     """Undecorated core: render the shared React SPA shell.
 
     `entry` is the app folder under frontend/src/ (e.g. 'vacancies' →
@@ -95,7 +113,9 @@ def _spa_shell(request, entry, title=''):
     (VITE_DEV=1, where django-vite hits the dev server and never reads
     the manifest), or in prod only when manifest.json exists and
     contains the entry key. Otherwise the page shows a diagnostic
-    instead of crashing.
+    instead of crashing. `feed_url`/`feed_title` emit a
+    <link rel="alternate"> RSS autodiscovery tag for apps that
+    publish a feed (news).
     """
     if not SPA_ENTRY_RE.fullmatch(entry):
         raise Http404(f'Unknown SPA entry: {entry}')
@@ -109,6 +129,8 @@ def _spa_shell(request, entry, title=''):
     return render(request, 'spa_shell.html', {
         'title': title,
         'vite_entry': vite_entry,
+        'feed_url': feed_url,
+        'feed_title': feed_title,
         'manifest_ready': (
             vite_config.get('dev_mode')
             or _manifest_has_entry(manifest_path, vite_entry)
@@ -136,22 +158,30 @@ def _spa_shell(request, entry, title=''):
 
 @staff_member_required
 @ensure_csrf_cookie
-def spa_shell(request, entry, title=''):
+def spa_shell(request, entry, title='', feed_url='', feed_title=''):
     """Staff-required shell — for apps whose pages are staff-only
     (the dashboard and receipts SPAs). staff_member_required
     bounces anonymous AND authenticated non-staff visitors to the
     admin login, which explains the missing staff rights."""
-    return _spa_shell(request, entry, title=title)
+    return _spa_shell(
+        request, entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
 @ensure_csrf_cookie
-def spa_shell_public(request, entry, title=''):
+def spa_shell_public(request, entry, title='', feed_url='',
+                     feed_title=''):
     """Public shell — most industry-analyser pages are public today,
     so their SPA mounts must not bounce anonymous visitors to login."""
-    return _spa_shell(request, entry, title=title)
+    return _spa_shell(
+        request, entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
-def react_app(request, entry, title='', subpath='', **kwargs):
+def react_app(request, entry, title='', subpath='', feed_url='',
+              feed_title='', **kwargs):
     """React SPA shell shared by every staff-required app mount.
 
     Mount with functools.partial (or a thin wrapper) binding `entry`
@@ -172,10 +202,14 @@ def react_app(request, entry, title='', subpath='', **kwargs):
     """
     if request.method not in ('GET', 'HEAD'):
         raise Http404
-    return spa_shell(request, entry=entry, title=title)
+    return spa_shell(
+        request, entry=entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
-def react_app_public(request, entry, title='', subpath='', **kwargs):
+def react_app_public(request, entry, title='', subpath='', feed_url='',
+                     feed_title='', **kwargs):
     """Same contract as `react_app` but without staff_member_required
     — for apps whose pages are public today (vacancies, tv,
     classified-ads, accounts). Mutations still require auth at the
@@ -184,11 +218,15 @@ def react_app_public(request, entry, title='', subpath='', **kwargs):
     `subpath` is captured by <path:subpath> catch-alls; `kwargs`
     swallows any named converters (e.g. <uuid:pk> on a named route
     kept for reverse() callers) — React Router resolves the page
-    either way.
+    either way. `feed_url`/`feed_title` bind an RSS autodiscovery
+    link into the shell <head> (the news digest feed).
     """
     if request.method not in ('GET', 'HEAD'):
         raise Http404
-    return spa_shell_public(request, entry=entry, title=title)
+    return spa_shell_public(
+        request, entry=entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
 # --- Landing page ---

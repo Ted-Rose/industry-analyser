@@ -380,3 +380,20 @@ class UnhandledApiErrorTests(SimpleTestCase):
             },
         )
         capture.assert_called_once_with(exc)
+
+
+class RobotsTxtTests(TestCase):
+    """robots.txt keeps the public app pages and digest API
+    crawlable and points robots at the sitemap."""
+
+    def test_robots_allows_public_and_points_to_sitemap(self):
+        resp = self.client.get('/robots.txt')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('text/plain', resp['Content-Type'])
+        body = resp.content.decode()
+        self.assertIn('User-agent: *', body)
+        self.assertIn('Disallow: /admin/', body)
+        self.assertIn('Sitemap: ', body)
+        self.assertIn('/sitemap.xml', body)
+        self.assertNotIn('Disallow: /news/', body)
+        self.assertNotIn('Disallow: /api/', body)
