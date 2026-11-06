@@ -2,12 +2,12 @@
 
 ## 1. Dependencies and settings
 
-- [ ] 1.1 backend: Add `google-api-python-client`,
+- [x] 1.1 backend: Add `google-api-python-client`,
       `google-auth-oauthlib` and an explicit `google-auth` pin to
       `requirements.txt` (google-auth is imported directly but
       currently only transitive); `pip install -r
       requirements.txt` in the venv succeeds.
-- [ ] 1.2 backend: In `industry_analyser/settings.py` add
+- [x] 1.2 backend: In `industry_analyser/settings.py` add
       `GOOGLE_OAUTH_CLIENT_JSON` materialization to a
       `GOOGLE_APP_SECRETS_PATH` file (port of
       `django_apps/settings.py` ~167-170/221-232),
@@ -16,7 +16,7 @@
       `INSTALLED_APPS`, and a `'google_api'` entry in `LOGGING`
       following the per-app logger pattern; `python manage.py
       check` passes.
-- [ ] 1.3 backend: Mount `path('google/',
+- [x] 1.3 backend: Mount `path('google/',
       include('google_api.urls'))` in
       `industry_analyser/urls.py` before the terminal SPA
       catch-all drains; `reverse`/`/google/login` route resolves
@@ -24,13 +24,13 @@
 
 ## 2. `google_api` platform app
 
-- [ ] 2.1 backend: Scaffold `google_api/` (`apps.py`,
+- [x] 2.1 backend: Scaffold `google_api/` (`apps.py`,
       `models.py`, `utils.py`, `views.py`, `urls.py`, `admin.py`,
       `migrations/`); port `GoogleOAuthCredentials` verbatim from
       `django-apps/google_api/models.py` plus
       `db_table='google_oauth_credentials'`; `makemigrations
       google_api` produces a migration (do not apply to prod).
-- [ ] 2.2 backend: Port `utils.py`: module-level
+- [x] 2.2 backend: Port `utils.py`: module-level
       `OAUTHLIB_RELAX_TOKEN_SCOPE`/`OAUTHLIB_INSECURE_TRANSPORT`
       env hacks, `get_user_credentials` **verbatim including the
       naive-UTC↔aware expiry conversions**, trimmed `google_auth`
@@ -41,27 +41,27 @@
       `get_user_credentials` happy path, expired-refresh and
       `RefreshError → None` with `unittest.mock` in
       `google_api/tests.py`.
-- [ ] 2.3 backend: Port views — `login_view` (session-stashed
+- [x] 2.3 backend: Port views — `login_view` (session-stashed
       `state`/`next`, scope `auth/tasks`, 503 when
       `GOOGLE_APP_SECRETS_PATH` is unconfigured) and `callback`
       (`@login_required`, `flow.fetch_token`, `update_or_create`
       on `request.user`, denied/invalid grant → redirect to
       `/google/login`); `@login_required` on both. Test the
       anonymous-redirect and unconfigured-503 paths.
-- [ ] 2.4 backend: `google_api/admin.py` — list display
+- [x] 2.4 backend: `google_api/admin.py` — list display
       user/expiry/scopes only, all fields read-only, tokens never
       rendered; verify no token text reaches the admin page in a
       `TestCase` asserting field exclusions.
 
 ## 3. `news` app feature
 
-- [ ] 3.1 backend: Add `NewsDigestTask` to `news/models.py`
+- [x] 3.1 backend: Add `NewsDigestTask` to `news/models.py`
       (`OneToOneField(NewsDigest)`, `task_id`, `task_list_id`,
       `status` choices pending/created/failed, `error`,
       timestamps, `db_table='news_digest_task'`), register it in
       `news/admin.py` read-only; `makemigrations news` produces
       the migration.
-- [ ] 3.2 backend: New `news/tasks.py` —
+- [x] 3.2 backend: New `news/tasks.py` —
       `create_digest_task(digest)`: early-return when feature
       settings are unset or a `created` link row exists; resolve
       `GOOGLE_TASKS_USERNAME` → `get_user_credentials` →
@@ -74,11 +74,11 @@
       can never raise; failures log via `logging.getLogger('news')`
       and mark the link row `failed` (missing creds → warning
       naming `{BASE_URL}/google/login`).
-- [ ] 3.3 backend: Call `create_digest_task(digest)` in
+- [x] 3.3 backend: Call `create_digest_task(digest)` in
       `news/digest.py` after the `transaction.atomic()` block
       inside `if not dry_run:`; verify `--dry-run` performs no
       Google call.
-- [ ] 3.4 backend: Tests in `news/tests.py` (`DigestTests`-style
+- [x] 3.4 backend: Tests in `news/tests.py` (`DigestTests`-style
       class): mock `googleapiclient.discovery.build` — assert
       insert body (title/notes, **no `due`**), `News` list
       auto-creation when absent, dedup on rebuild, `dry_run`
@@ -89,7 +89,7 @@
 
 ## 4. Docs and rollout prep
 
-- [ ] 4.1 backend: Update `.env.example` (new vars, commented,
+- [x] 4.1 backend: Update `.env.example` (new vars, commented,
       no values) and `AGENTS.md`/app docs (`google_api` in the
       layout, env vars, `/google/login` reauth path); keep every
       line ≤79 chars (`awk 'length > 79 {print
@@ -101,7 +101,7 @@
       credentials row in admin; run `build_news_digest` → task
       appears in the `News` list in Google Tasks, link row is
       `created`.
-- [ ] 4.3 backend: `DATABASE_URL=sqlite:///db.sqlite3 python
+- [x] 4.3 backend: `DATABASE_URL=sqlite:///db.sqlite3 python
       manage.py migrate` locally; hand the maintainer the prod
       `migrate` command (prod apply is manual).
 

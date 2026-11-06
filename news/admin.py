@@ -7,6 +7,7 @@ from .models import (
     NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
+    NewsDigestTask,
     NewsSource,
     NewsSourcePreference,
     NewsStory,
@@ -87,6 +88,21 @@ class NewsDigestItemInline(admin.TabularInline):
 class NewsDigestAdmin(admin.ModelAdmin):
     list_display = ('date', 'created_at')
     inlines = [NewsDigestItemInline]
+
+
+@admin.register(NewsDigestTask)
+class NewsDigestTaskAdmin(admin.ModelAdmin):
+    # Audit trail written by create_digest_task — read-only.
+    list_display = (
+        'digest', 'status', 'task_id', 'task_list_id', 'updated_at',
+    )
+    readonly_fields = (
+        'digest', 'task_id', 'task_list_id', 'status', 'error',
+        'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(NewsSourcePreference)

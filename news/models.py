@@ -201,6 +201,41 @@ class NewsDigestItem(models.Model):
         return f'#{self.rank} {self.headline}'
 
 
+class NewsDigestTask(models.Model):
+    """Link row: the Google task created for a digest. One row
+    per digest gives rebuild dedup (skip when status='created')
+    plus an audit trail for failed attempts."""
+
+    STATUSES = [
+        ('pending', 'Pending'),
+        ('created', 'Created'),
+        ('failed', 'Failed'),
+    ]
+
+    digest = models.OneToOneField(
+        NewsDigest,
+        on_delete=models.CASCADE,
+        related_name='google_task',
+    )
+    task_id = models.CharField(max_length=200, blank=True)
+    task_list_id = models.CharField(max_length=200, blank=True)
+    status = models.CharField(
+        max_length=8,
+        choices=STATUSES,
+        default='pending',
+        db_index=True,
+    )
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'news_digest_task'
+
+    def __str__(self):
+        return f'{self.digest} -> {self.status}'
+
+
 class NewsSourcePreference(models.Model):
     """A user's ranked favorite news outlets — rank 1 is tried
     first when picking which member article a story shows."""

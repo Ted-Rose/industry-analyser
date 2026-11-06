@@ -109,6 +109,27 @@ RECEIPTS_IMAP_PASSWORD = env('RECEIPTS_IMAP_PASSWORD', default='')
 # GCS bucket for /news/ digest audio clips (gTTS -> signed
 # URL). Empty disables the feature — the endpoint answers 502.
 GCS_AUDIO_BUCKET = env('GCS_AUDIO_BUCKET', default='')
+# Google OAuth client secrets document ({"web": {...}} JSON,
+# delivered by .env locally / the env-file secret on Cloud Run),
+# materialized to a file because google-auth-oauthlib flows read
+# a path. Empty disables /google/login (503) and the news-digest
+# Google task. Per-user filename — django-apps shares /tmp and
+# must not read this file.
+GOOGLE_OAUTH_CLIENT_JSON = env('GOOGLE_OAUTH_CLIENT_JSON', default='')
+GOOGLE_APP_SECRETS_PATH = ''
+if GOOGLE_OAUTH_CLIENT_JSON:
+    GOOGLE_APP_SECRETS_PATH = (
+        f'/tmp/industry-analyser-google-secrets-'
+        f'{getpass.getuser()}.json'
+    )
+    with open(GOOGLE_APP_SECRETS_PATH, 'w') as f:
+        f.write(GOOGLE_OAUTH_CLIENT_JSON)
+# News digest -> Google Tasks (news/tasks.py). The digest task
+# lands in the list titled GOOGLE_TASKS_LIST_TITLE (auto-created
+# when absent) on behalf of the Django user GOOGLE_TASKS_USERNAME;
+# empty username disables the feature.
+GOOGLE_TASKS_LIST_TITLE = env('GOOGLE_TASKS_LIST_TITLE', default='News')
+GOOGLE_TASKS_USERNAME = env('GOOGLE_TASKS_USERNAME', default='')
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or
@@ -225,6 +246,7 @@ INSTALLED_APPS = [
     'scrape_jobs',
     'receipts',
     'news',
+    'google_api',
     'django_vite',
     'ninja',
     # The project package itself must be installed so APP_DIRS finds
@@ -500,6 +522,11 @@ LOGGING = {
             'propagate': True,
         },
         'news': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'google_api': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,

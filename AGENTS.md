@@ -42,6 +42,7 @@ doc map but partly stale (see preamble).
 | `accounts/` | `/accounts/` auth SPA + `/api/accounts/` | — |
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
+| `google_api/` | Google OAuth2 credential store + `/google/` flow | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
 | `frontend/` | React/Vite SPA sources, per-app dirs | — |
 | `frontend_dist/` | Committed build output (see Known gaps) | — |
@@ -450,6 +451,16 @@ schedule, `--dry-run` prints the plan.
   `use_cheap_tier`; its legacy `max_api_requests` key only seeds
   the `AIJob` row once (the live cap is
   `AIJob.max_requests_per_run`).
+- News digest → Google task (`news/tasks.py`, runs inside
+  `build_digest` after commit; best-effort, dedup via the
+  `NewsDigestTask` link row): `GOOGLE_OAUTH_CLIENT_JSON` (the
+  `{"web": {...}}` client secrets doc, materialized to
+  `GOOGLE_APP_SECRETS_PATH` at settings import) and
+  `GOOGLE_TASKS_USERNAME` must BOTH be set or the feature no-ops;
+  `GOOGLE_TASKS_LIST_TITLE` defaults to `News`. Re-auth after a
+  revoked grant is `GET {BASE_URL}/google/login` — the
+  `/google/callback` redirect URI must be registered on the
+  shared `django-apps-7345` OAuth client.
 - React/Vite serving (detail: `docs/plans/react_frontend_migration/`):
   `DJANGO_VITE.dev_mode = DEBUG and VITE_DEV=1` → SPA asset URLs
   point at the vite dev server (`VITE_PORT`, default **5274**;
