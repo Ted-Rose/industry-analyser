@@ -120,7 +120,8 @@ an `/api/` path.
 
 ### Requirement: Shared SPA shell
 
-Every SPA mount SHALL serve `react_app` (staff-required) or
+Except for the `/news/` SSR carve-out below, every SPA mount
+SHALL serve `react_app` (staff-required) or
 `react_app_public`: GET/HEAD renders `spa_shell.html` with
 `vite_entry = src/<entry>/main.tsx`; any other method 404s.
 `entry` must match `[a-z0-9_]+` and maps to a
@@ -183,6 +184,32 @@ page.
   (true), `is_staff` (true) and
   `sentry.{dsn,environment,release}`; anonymous renders carry
   false for both flags
+
+### Requirement: News server-rendered digest routes
+
+The `/news/` mount SHALL keep four Django routes outside the
+plain shell while sharing `_spa_shell_context` and the
+GET/HEAD-only contract (non-GET → 404): `''` and
+`'<str:date>/'` render `news/digest_shell.html` (extends
+`spa_shell.html`) with digest markup inside `#root` — a
+non-date `date` serves the plain shell, a date with no
+`NewsDigest` 404s; `'rss.xml'` serves the `NewsDigestFeed`
+XML; `'article/<int:pk>/audio/'` serves the audio binary.
+
+#### Scenario: Digest pages server-render inside the shell
+
+- **WHEN** a GET hits `/news/` or `/news/<YYYY-MM-DD>/` and
+  the digest exists
+- **THEN** `news/digest_shell.html` renders the digest markup
+  inside `#root` — React replaces it on mount, crawlers read
+  the HTML
+
+#### Scenario: Non-date subpath falls back to the plain shell
+
+- **WHEN** a GET hits `/news/<subpath>` where the segment is
+  not a parseable date (typos, retired client routes)
+- **THEN** the plain `spa_shell.html` renders and React
+  Router's `*` route owns the page
 
 ### Requirement: Frontend client honors the contract
 

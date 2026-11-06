@@ -166,7 +166,9 @@ Per-user surfaces SHALL remain reachable by any authenticated
 user regardless of staff status: `PUT
 /api/vacancies/companies/<pk>/preference/`, the
 `/api/vacancies/filters/` CRUD, the TV reaction POSTs and the
-`news:preferences` page. Public reads stay `auth=None` for
+`/api/news/preferences/` GET/POST ops (the `/news/preferences/`
+SPA page itself is a public `react_app_public` mount — only
+its API calls are gated). Public reads stay `auth=None` for
 everyone including anonymous.
 
 #### Scenario: Registered user uses a per-user feature
