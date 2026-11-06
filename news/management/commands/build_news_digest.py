@@ -22,9 +22,9 @@ class Command(BaseCommand):
         parser.add_argument(
             '--top-n',
             type=int,
-            default=5,
+            default=20,
             dest='top_n',
-            help='Number of stories in the digest (default: 5)',
+            help='Number of stories in the digest (default: 20)',
         )
         parser.add_argument(
             '--dry-run',

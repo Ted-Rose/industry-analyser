@@ -57,7 +57,7 @@ def _rationale(story):
     return f"{len(slugs)} outlet{plural}: {', '.join(slugs)}"
 
 
-def build_digest(date, top_n=5, dry_run=False):
+def build_digest(date, top_n=20, dry_run=False):
     """Build/rebuild the digest for ``date`` (datetime.date).
 
     Stories: published_date == date and either an enabled topic
