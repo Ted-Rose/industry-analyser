@@ -309,6 +309,74 @@ class ShowDedupTests(TestCase):
         kept = self.scraper.remove_redundant_results([parsed])
         self.assertEqual(kept, [])
 
+    def test_taken_slot_is_dropped_regardless_of_show(self):
+        # Dedup-key drift resolved the stored airing to a
+        # different Show — the slot is still taken.
+        parsed = self._parsed("Sirds robeža", event_id="e9")
+        other_show = Show.objects.create(
+            title_lv="Cits šovs",
+            dedup_key=compute_dedup_key("Cits šovs", "cits", None, None),
+        )
+        Program.objects.create(
+            show=other_show,
+            channel=self.channel,
+            start_time=parsed["start_time"],
+            title_lv="Cits šovs",
+        )
+        kept = self.scraper.remove_redundant_results([parsed])
+        self.assertEqual(kept, [])
+
+    def test_taken_slot_null_show_row_is_dropped(self):
+        parsed = self._parsed("Jauns šovs", event_id="e10")
+        Program.objects.create(
+            show=None,
+            channel=self.channel,
+            start_time=parsed["start_time"],
+            title_lv="Veca rinda",
+        )
+        kept = self.scraper.remove_redundant_results([parsed])
+        self.assertEqual(kept, [])
+
+    def test_create_or_update_skips_taken_slots(self):
+        parsed = self._parsed("Sirds robeža", event_id="e11")
+        Program.objects.create(
+            show=None,
+            channel=self.channel,
+            start_time=parsed["start_time"],
+            title_lv="Sirds robeža",
+        )
+        resource = self.scraper.initiate_resource(
+            self.scraper.enrich_result(parsed)
+        )
+        # Only the slot query — nothing left to insert.
+        with self.assertNumQueries(1):
+            self.scraper.create_or_update_resources([resource])
+        self.assertEqual(
+            Program.objects.filter(
+                channel=self.channel,
+                start_time=parsed["start_time"],
+            ).count(),
+            1,
+        )
+
+    def test_create_or_update_dedups_within_batch(self):
+        p1 = self._parsed("Šovs A", hour=21, event_id="b1")
+        p2 = self._parsed("Šovs B", hour=21, event_id="b2")
+        resources = [
+            self.scraper.initiate_resource(
+                self.scraper.enrich_result(p)
+            )
+            for p in (p1, p2)
+        ]
+        self.scraper.create_or_update_resources(resources)
+        self.assertEqual(
+            Program.objects.filter(
+                channel=self.channel,
+                start_time=p1["start_time"],
+            ).count(),
+            1,
+        )
+
 
 class OMDbClientTests(TestCase):
     @staticmethod
