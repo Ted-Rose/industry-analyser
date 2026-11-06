@@ -22,8 +22,10 @@ context: |
       files exempt).
     - Commit messages use "Type: Capitalized message"
       (Feat:/Fix:/Docs:/Refactor:/Test:/Chore:); commit on
-      feature branches only, never master; stage only files you
-      changed this session, by path.
+      feature branches only, never master, named <type>/<slug>
+      with the same type set (feat/, fix/, docs/, refactor/,
+      test/, chore/); stage only files you changed this session,
+      by path.
     - Agents generate migration FILES freely (makemigrations
       touches no DB) but NEVER run migrate/sqlmigrate — the
       default .env DATABASE_URL points at production Postgres;

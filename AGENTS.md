@@ -509,12 +509,16 @@ Universal rules (apply to every task):
 1. **Commit format**: `Type: Capitalized message` — `Feat:` /
    `Fix:` / `Docs:` / `Refactor:` / `Test:` / `Chore:`.
 2. **Branching/staging**: commit on feature branches only, never
-   `master`. Stage ONLY files created or modified this session,
-   by path — never `git add -A`, `git add .`, or `git commit -a`;
-   confirm the staged set with `git status` first. Leave the
-   user's own dirty files alone. Never commit plan/scratch
-   markdown (`*-plan.md` drafts outside `docs/plans/`,
-   `PR_DESCRIPTION.md`, `pr-body.md`).
+   `master`. Name the branch `<type>/<slug>` with the same type
+   set as commits (`feat/`, `fix/`, `docs/`, `refactor/`,
+   `test/`, `chore/`) — `feat/news-spa`, not
+   `add-news-spa`; issue-fix branches keep the skill's
+   `fix/issue-<N>-<slug>` form. Stage ONLY files created or
+   modified this session, by path — never `git add -A`,
+   `git add .`, or `git commit -a`; confirm the staged set with
+   `git status` first. Leave the user's own dirty files alone.
+   Never commit plan/scratch markdown (`*-plan.md` drafts outside
+   `docs/plans/`, `PR_DESCRIPTION.md`, `pr-body.md`).
 3. **Dangerous commands — never run** (see Guardrails for why):
    `python manage.py migrate`/`sqlmigrate` against the default
    `DATABASE_URL` (prod), `python manage.py test` against the
