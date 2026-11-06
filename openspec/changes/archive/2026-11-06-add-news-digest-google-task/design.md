@@ -58,16 +58,23 @@ Porting ~400 lines is the only viable path.
 Keeps Google auth reusable for future features and makes the port
 a near-verbatim copy:
 
-| Source (django-apps) | Target | Change |
-|---|---|---|
-| `google_api/models.py` | `google_api/models.py` | Verbatim + `db_table` |
-| `utils.py` env hacks 43-47 | `google_api/utils.py` top | Verbatim |
-| `utils.py` `get_user_credentials` | same | Verbatim — **keep naive-UTC↔aware conversions** |
-| `utils.py` `google_auth` | same | Drop legacy session-dict branch; keep DB path + `{authorization_url, state, scopes}` return |
-| `utils.py` `build_google_service` | same | Verbatim |
-| `utils.py` `callback` | `google_api/views.py` | `@login_required`, `request.user`; drop userinfo→User creation; keep `update_or_create` |
-| `views.py` `login_view` | `google_api/views.py` | Scope = `auth/tasks` only |
-| `google_api/urls.py` | `google_api/urls.py` | `login/` + `google/callback` |
+- `google_api/models.py` → `google_api/models.py` — verbatim +
+  `db_table`.
+- `utils.py` env hacks 43-47 → `google_api/utils.py` top —
+  verbatim.
+- `utils.py` `get_user_credentials` → same — verbatim; **keep
+  naive-UTC↔aware conversions**.
+- `utils.py` `google_auth` → same — drop the legacy session-dict
+  branch; keep the DB path + `{authorization_url, state,
+  scopes}` return.
+- `utils.py` `build_google_service` → same — verbatim.
+- `utils.py` `callback` → `google_api/views.py` —
+  `@login_required`, `request.user`; drop userinfo→User
+  creation; keep `update_or_create`.
+- `views.py` `login_view` → `google_api/views.py` — scope =
+  `auth/tasks` only.
+- `google_api/urls.py` → `google_api/urls.py` — `login/` +
+  `google/callback`.
 
 Mount under `path('google/', include('google_api.urls'))` in
 `industry_analyser/urls.py`, before the terminal SPA catch-all.
