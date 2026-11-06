@@ -13,7 +13,12 @@ trigger: always_on
   with rotating file handlers.
 - Django style: function-based views, app-level `urls.py` with
   `app_name`, explicit `db_table`/`unique_together` on models.
-- `requirements.txt` is the canonical dependency list (not
-  `pyproject.toml`); pin new deps.
+- Dependencies live in TWO places that MUST stay in sync:
+  `requirements.txt` (canonical — local venv, Dockerfile/Cloud
+  Run) and `pyproject.toml` `dependencies` + `uv.lock` (what
+  the Vercel serverless deploy installs). A requirements-only
+  addition 500s every Vercel route — the root urlconf imports
+  app urlconfs eagerly. Pin new deps in both files, then
+  regenerate the lockfile with `uv lock`.
 - Verify changes with `python manage.py check`; run tests only for the
   app you touched (`python manage.py test <app>`).

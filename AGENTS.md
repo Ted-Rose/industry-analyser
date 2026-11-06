@@ -322,7 +322,10 @@ ids to `Industry.name` (e.g. `"10"` → `"it"`). The legacy
 ```bash
 # Setup (venv at ./venv, not .venv)
 source venv/bin/activate
-pip install -r requirements.txt   # requirements.txt is canonical
+pip install -r requirements.txt   # local/Docker deps — new deps
+                                  # must ALSO go in pyproject.toml
+                                  # + `uv lock` (Vercel installs
+                                  # from the lockfile, see below)
 
 # Verify
 python manage.py check
@@ -500,8 +503,17 @@ Repo conventions:
   concrete rent/sale models.
 - Views are function-based; URLs live in each app's `urls.py`
   with an `app_name` namespace.
-- `requirements.txt` is the canonical dependency list (not
-  `pyproject.toml`); pin new deps.
+- Dependencies live in TWO places that MUST stay in sync:
+  `requirements.txt` (canonical — local venv, Dockerfile/Cloud
+  Run) and `pyproject.toml` `dependencies` + the committed
+  `uv.lock` (what the Vercel serverless deploy actually
+  installs — see Known gaps). A requirements-only addition
+  ships a Vercel bundle missing the package, and since the
+  root urlconf imports app urlconfs eagerly, one missing dep
+  500s EVERY route on Vercel (this exact outage happened:
+  `ModuleNotFoundError: google_auth_oauthlib`). Pin new deps
+  in both files, then regenerate the lockfile with `uv lock`
+  (`--system-certs` behind TLS-intercepting proxies).
 - More detail: `.devin/rules/` (`code-style.md`,
   `django-model-conventions.md`, `migrations.md`,
   `scraping-pipeline.md`, `secrets-and-local-files.md`).
@@ -674,10 +686,17 @@ context.
 - `db.sqlite3` exists but is dormant — the default
   `DATABASE_URL` is prod; SQLite is used only via explicit
   override.
-- `vercel.json`, `cloudbuild.yaml`, `deploy-cloudrun.sh`,
-  `build_files.sh`, and the `pyproject.toml` deps list are
-  legacy artifacts; the live pipeline is `.github/workflows/` +
-  `Dockerfile`, and `requirements.txt` is canonical.
+- TWO deploy targets are live: Cloud Run
+  (`.github/workflows/` + `Dockerfile`, pip-installs
+  `requirements.txt`) and a Vercel serverless deployment
+  (`vercel.json` catch-all rewrite → `api/index.py`, which
+  installs deps from `pyproject.toml`/`uv.lock` into
+  `/var/task/_vendor` and runs `build_files.sh` at build
+  time). Only `cloudbuild.yaml` and `deploy-cloudrun.sh` are
+  legacy artifacts. Keep both dependency lists in sync — a
+  requirements-only addition ships a Vercel bundle missing
+  the package, and the eager root-urlconf imports turn it
+  into a site-wide 500.
 - `blogs/config.yaml`'s `max_api_requests` still exists but only
   seeds the `AIJob` row once — the live cap is in admin.
 - Thin test coverage is a known state: many `tests.py` are
