@@ -67,7 +67,13 @@ TOPICS = (
         'name': 'Valsts finansējums',
         'weight': 1.3,
         'keywords': [
-            'budžets', 'finansējums', 'subsīdij*', 'dotācija',
+            'budžets',
+            # 'finansējum*' not 'finansējums' — a plain word
+            # 4-char-stems to 'fina' and matched every
+            # 'finanšu …' phrase (sanctions, parenting
+            # features); the prefix still catches all real
+            # declensions ('finansējums'/'finansējuma').
+            'finansējum*', 'subsīdij*', 'dotācija',
             'līdzfinansējum*',
             # 'ES fondi' needs the 'es' stem — also the
             # pronoun — plus 'fond'. Both stems must hit,
@@ -97,10 +103,13 @@ TOPICS = (
             'karavīr*', 'karaspēk*', 'karadarb*',
             # 'uzbrukum*'/'pretuzbrukum*' are also sports
             # terms (attack phase/counter-attack) and
-            # 'raķeš*' covers space launches — accepted
-            # ambiguity, war usage dominates. 'dron*' even
-            # hits 'dronlaps'.
-            'uzbrukum*', 'pretuzbrukum*', 'raķeš*', 'dron*',
+            # 'raķeš*'/'raķet*' cover space launches too —
+            # accepted ambiguity, war usage dominates.
+            # 'raķeš*' alone misses the nominative
+            # 'raķete'/'raķetes', so both prefixes are seeded.
+            # 'dron*' even hits 'dronlaps'.
+            'uzbrukum*', 'pretuzbrukum*', 'raķeš*', 'raķet*',
+            'dron*',
             'sprādzi*', 'apšaud*', 'bruņot*', 'militā*',
             'armij*', 'kauj*',
             'okupācij*', 'aneksij*', 'mobilizācij*',

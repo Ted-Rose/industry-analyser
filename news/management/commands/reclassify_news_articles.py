@@ -30,7 +30,9 @@ from news.models import (
 
 def _member_topic_id(story, overrides):
     """Most common non-null topic_id across confirmed ('auto' /
-    'manual') member articles; None when they are all
+    'manual') member articles — the same modal-topic rule
+    clustering._refresh_story applies, including its
+    lowest-topic-pk tie-break; None when they are all
     untopicked. ``overrides`` maps article pk -> pending
     topic_id so --dry-run can preview post-update values
     without writing."""
@@ -46,7 +48,8 @@ def _member_topic_id(story, overrides):
             counts[topic_id] += 1
     if not counts:
         return None
-    return counts.most_common(1)[0][0]
+    top = max(counts.values())
+    return min(tid for tid, n in counts.items() if n == top)
 
 
 class Command(BaseCommand):

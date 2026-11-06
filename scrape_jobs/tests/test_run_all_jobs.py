@@ -168,7 +168,7 @@ class RunAllJobsTests(SimpleTestCase):
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'link_ads_to_properties',
              'scrape_news', 'link_news_stories',
-             'build_news_digest'],
+             'reclassify_news_articles', 'build_news_digest'],
         )
 
     def test_dry_run_prints_plan_and_runs_nothing(self):
@@ -186,6 +186,7 @@ class RunAllJobsTests(SimpleTestCase):
         self.assertIn('RUN  link_ads_to_properties', out)
         self.assertIn('RUN  scrape_news', out)
         self.assertIn('RUN  link_news_stories', out)
+        self.assertIn('RUN  reclassify_news_articles', out)
         self.assertIn('RUN  build_news_digest', out)
         self.assertIn('skip sync_receipt_emails', out)
         self.assertIn('skip scrape_vacancy', out)
@@ -215,13 +216,14 @@ class RunAllJobsTests(SimpleTestCase):
             ['sync_receipt_emails', 'scrape_tv_programs',
              'scrape_housing_ads', 'scrape_apartment_ads',
              'link_ads_to_properties', 'scrape_news',
-             'link_news_stories', 'build_news_digest'],
+             'link_news_stories', 'reclassify_news_articles',
+             'build_news_digest'],
         )
 
     def test_failure_continues_and_exits_nonzero(self):
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom')] + [None] * 6
+                run.side_effect = [RuntimeError('boom')] + [None] * 7
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
@@ -229,7 +231,7 @@ class RunAllJobsTests(SimpleTestCase):
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'link_ads_to_properties',
              'scrape_news', 'link_news_stories',
-             'build_news_digest'],
+             'reclassify_news_articles', 'build_news_digest'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -239,7 +241,7 @@ class RunAllJobsTests(SimpleTestCase):
         # so the loop is unaffected either way.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom')] + [None] * 6
+                run.side_effect = [RuntimeError('boom')] + [None] * 7
                 with mock.patch(
                     f'{MODULE}.capture_internal_exception'
                 ) as capture:
@@ -255,7 +257,7 @@ class RunAllJobsTests(SimpleTestCase):
         # not allowed to abort the remaining entries.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [SystemExit(1)] + [None] * 6
+                run.side_effect = [SystemExit(1)] + [None] * 7
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
@@ -263,7 +265,7 @@ class RunAllJobsTests(SimpleTestCase):
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'link_ads_to_properties',
              'scrape_news', 'link_news_stories',
-             'build_news_digest'],
+             'reclassify_news_articles', 'build_news_digest'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -368,7 +370,7 @@ class RunAllJobsTests(SimpleTestCase):
         self.assertEqual(
             self._labels(run),
             ['scrape_news', 'link_news_stories',
-             'build_news_digest'],
+             'reclassify_news_articles', 'build_news_digest'],
         )
 
     def test_gcp_pass_skips_news_jobs(self):
@@ -391,6 +393,7 @@ class RunAllJobsTests(SimpleTestCase):
         self.assertIn('executor: gcp_cloud_run', out)
         self.assertIn('skip scrape_news', out)
         self.assertIn('skip link_news_stories', out)
+        self.assertIn('skip reclassify_news_articles', out)
         self.assertIn('skip build_news_digest', out)
 
     def test_force_still_skips_local_jobs_on_gcp(self):
@@ -403,6 +406,9 @@ class RunAllJobsTests(SimpleTestCase):
             run, _ = self._handle(force=True)
         self.assertNotIn('scrape_news', self._labels(run))
         self.assertNotIn('link_news_stories', self._labels(run))
+        self.assertNotIn(
+            'reclassify_news_articles', self._labels(run)
+        )
         self.assertNotIn('build_news_digest', self._labels(run))
 
     def test_only_still_overrides_the_gate(self):

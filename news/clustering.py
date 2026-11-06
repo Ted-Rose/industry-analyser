@@ -22,6 +22,7 @@ budž+gada alone).
 import logging
 import re
 import unicodedata
+from collections import Counter
 from datetime import timedelta
 
 from django.db.models import Q
@@ -31,6 +32,7 @@ from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsArticle,
     NewsStory,
+    NewsTopic,
 )
 
 logger = logging.getLogger('news')
@@ -145,17 +147,34 @@ def _best_story(article_tokens, stories):
 
 
 def _refresh_story(story, dry_run=False):
-    """Recompute source_count and importance_score from member
-    articles; save() bumps last_seen via auto_now.
+    """Recompute topic, source_count and importance_score from
+    member articles; save() bumps last_seen via auto_now.
 
     Only confirmed members ('auto'/'manual') count — 'candidate'
     links await admin review and must not inflate the digest.
     A story with zero confirmed members degrades to
-    source_count/importance_score 0."""
+    source_count/importance_score 0.
+
+    The topic is re-derived on every refresh as the modal
+    non-NULL topic across confirmed members, ties broken by the
+    lowest topic pk — so a story picks up a topic as tagged
+    members accrue (article topics can be retagged after the
+    story was created) and falls back to NULL only when every
+    confirmed member is untopicked."""
     members = [
         a for a in story.articles.select_related('source')
         if a.story_match_status in CONFIRMED_MATCH_STATUSES
     ]
+    counts = Counter(
+        a.topic_id for a in members if a.topic_id is not None
+    )
+    if counts:
+        top = max(counts.values())
+        story.topic = NewsTopic.objects.get(
+            pk=min(t for t, n in counts.items() if n == top)
+        )
+    else:
+        story.topic = None
     sources = {a.source_id for a in members}
     story.source_count = len(sources)
     weight = story.topic.weight if story.topic_id else 1.0
@@ -232,11 +251,13 @@ def link_unmatched_articles(days=2, dry_run=False):
         elif story is not None and score >= CANDIDATE_THRESHOLD:
             status = 'candidate'
         else:
-            # No story close enough — start a new cluster.
+            # No story close enough — start a new cluster. The
+            # topic is left for _refresh_story to derive from
+            # confirmed members — a single code path, so the
+            # story topic is never a frozen creation-time value.
             story = NewsStory(
                 title=article.title[:500],
                 representative_lead=article.lead,
-                topic=article.topic,
                 published_date=day,
             )
             status = 'auto'
