@@ -104,8 +104,11 @@ def _manifest_has_entry(manifest_path, entry_key):
         return False
 
 
-def _spa_shell(request, entry, title='', feed_url='', feed_title=''):
-    """Undecorated core: render the shared React SPA shell.
+def _spa_shell_context(request, entry, title='', feed_url='',
+                       feed_title=''):
+    """The spa_shell.html context, factored out so an app can
+    render a template that extends the shell with extra context
+    (news SSRs the digest inside #root — see news/views.py).
 
     `entry` is the app folder under frontend/src/ (e.g. 'vacancies' →
     src/vacancies/main.tsx). `manifest_ready` tells the template
@@ -126,7 +129,7 @@ def _spa_shell(request, entry, title='', feed_url='', feed_title=''):
         os.path.join(settings.BASE_DIR, 'frontend_dist',
                      'manifest.json'),
     )
-    return render(request, 'spa_shell.html', {
+    return {
         'title': title,
         'vite_entry': vite_entry,
         'feed_url': feed_url,
@@ -153,7 +156,18 @@ def _spa_shell(request, entry, title='', feed_url='', feed_title=''):
                 'release': settings.SENTRY_RELEASE,
             },
         },
-    })
+    }
+
+
+def _spa_shell(request, entry, title='', feed_url='', feed_title=''):
+    """Undecorated core: render the shared React SPA shell."""
+    return render(
+        request, 'spa_shell.html',
+        _spa_shell_context(
+            request, entry, title=title,
+            feed_url=feed_url, feed_title=feed_title,
+        ),
+    )
 
 
 @staff_member_required

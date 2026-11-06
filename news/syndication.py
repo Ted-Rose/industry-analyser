@@ -31,23 +31,13 @@ logger = logging.getLogger('news')
 DIGEST_WINDOW_DAYS = 7
 
 
-def recent_digest_items():
-    """Digest items from the 7-day window ending on the newest
-    digest, oldest-window boundaries included. Confirmed member
-    articles are prefetched onto each story as
-    ``confirmed_articles`` (same contract as api.digest_detail).
-    Empty queryset when no digest exists yet."""
-    latest = (
-        NewsDigest.objects.order_by('-date')
-        .values_list('date', flat=True)
-        .first()
-    )
-    if latest is None:
-        return NewsDigestItem.objects.none()
-    window_start = latest - timedelta(days=DIGEST_WINDOW_DAYS - 1)
+def _digest_items_with_articles():
+    """Digest items with confirmed member articles prefetched
+    onto each story as ``confirmed_articles`` (same contract as
+    api.digest_detail) — the shared base for the RSS feed, the
+    llms.txt index and the server-rendered digest pages."""
     return (
         NewsDigestItem.objects
-        .filter(digest__date__range=(window_start, latest))
         .select_related('digest', 'story__topic')
         .prefetch_related(Prefetch(
             'story__articles',
@@ -60,7 +50,35 @@ def recent_digest_items():
             ),
             to_attr='confirmed_articles',
         ))
+    )
+
+
+def recent_digest_items():
+    """Digest items from the 7-day window ending on the newest
+    digest, oldest-window boundaries included.
+    Empty queryset when no digest exists yet."""
+    latest = (
+        NewsDigest.objects.order_by('-date')
+        .values_list('date', flat=True)
+        .first()
+    )
+    if latest is None:
+        return NewsDigestItem.objects.none()
+    window_start = latest - timedelta(days=DIGEST_WINDOW_DAYS - 1)
+    return (
+        _digest_items_with_articles()
+        .filter(digest__date__range=(window_start, latest))
         .order_by('-digest__date', 'rank')
+    )
+
+
+def digest_items_for(digest):
+    """One digest's items in rank order — any age, so archived
+    days stay readable to crawlers hitting /news/<date>/."""
+    return (
+        _digest_items_with_articles()
+        .filter(digest=digest)
+        .order_by('rank')
     )
 
 

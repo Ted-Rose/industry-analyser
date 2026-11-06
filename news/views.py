@@ -1,21 +1,29 @@
-"""news Django views — article_audio plus the robot-facing
-digest surface (sitemap_xml, llms_txt); every other page is the
-/news/ SPA backed by /api/news/ ops in news/api.py.
+"""news Django views — article_audio, the server-rendered digest
+pages and the robot-facing surface (sitemap_xml, llms_txt).
 
-The SPA shell serves no content to crawlers that don't run
-JavaScript, so the digest's discovery surface is server-rendered
-here: sitemap.xml indexes every digest day and llms.txt hands
-LLM agents the last 7 days of digests with their URLs.
+The /news/ index and /news/<date>/ pages render the digest
+inside #root of the shared SPA shell (news/digest_shell.html):
+React replaces it on mount so human readers keep the full app,
+while crawlers and agents that never run JavaScript (e.g.
+Gemini's fetcher) read the rendered HTML at the same canonical
+URLs. Every other page is the /news/ SPA backed by /api/news/
+ops in news/api.py.
 """
 import os
+from datetime import datetime
 
 from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import get_object_or_404, render
 from django.utils.html import escape
+from django.views.decorators.csrf import ensure_csrf_cookie
+
+from industry_analyser.views import _spa_shell_context
 
 from .models import NewsArticleAudio, NewsDigest
 from .syndication import (
     DIGEST_WINDOW_DAYS,
     digest_day_url,
+    digest_items_for,
     recent_digest_items,
 )
 
@@ -36,6 +44,75 @@ def article_audio(request, pk):
     if audio is None or not os.path.isfile(audio.file_path):
         raise Http404('No ready audio for this article')
     return FileResponse(open(audio.file_path, 'rb'))
+
+
+# --- Server-rendered digest pages ---
+
+# feed_url/feed_title mirror the react_app_news partial in
+# urls.py — every /news/ page advertises the RSS feed.
+_FEED_KWARGS = {
+    'feed_url': '/news/rss.xml',
+    'feed_title': 'Industry Analyser — Latvian news digest',
+}
+
+
+def _digest_groups(items):
+    """Items queryset -> [{'date', 'url', 'items'}] newest first,
+    the context news/digest_shell.html renders."""
+    by_day = {}
+    for item in items:
+        by_day.setdefault(item.digest.date, []).append(item)
+    return [
+        {'date': day, 'url': digest_day_url(day), 'items': group}
+        for day, group in by_day.items()
+    ]
+
+
+def _news_shell_context(request, title='News'):
+    return _spa_shell_context(
+        request, 'news', title=title, **_FEED_KWARGS,
+    )
+
+
+@ensure_csrf_cookie
+def digest_list_page(request):
+    """GET /news/ — the last 7 days of digests server-rendered
+    inside the SPA shell's #root (the same window the RSS feed
+    and llms.txt expose)."""
+    if request.method not in ('GET', 'HEAD'):
+        raise Http404
+    context = _news_shell_context(request)
+    context['digest_groups'] = _digest_groups(
+        recent_digest_items()
+    )
+    return render(request, 'news/digest_shell.html', context)
+
+
+@ensure_csrf_cookie
+def digest_detail_page(request, date):
+    """GET /news/<date>/ — one digest day server-rendered at any
+    age, so the sitemap's full history is readable HTML.
+
+    Two audiences shape the contract: a string that parses as a
+    date is a digest page — missing digests 404 rather than
+    soft-404 an empty shell across infinite date space. Anything
+    else ('audio', typos, retired client routes) is not our
+    page at all — serve the plain shell and let React Router's
+    '*' handle it, exactly as before the SSR cutover."""
+    if request.method not in ('GET', 'HEAD'):
+        raise Http404
+    context = _news_shell_context(
+        request, title=f'News {date}'
+    )
+    try:
+        day = datetime.strptime(date, '%Y-%m-%d').date()
+    except ValueError:
+        return render(request, 'spa_shell.html', context)
+    digest = get_object_or_404(NewsDigest, date=day)
+    context['digest_groups'] = _digest_groups(
+        digest_items_for(digest)
+    )
+    return render(request, 'news/digest_shell.html', context)
 
 
 def sitemap_xml(request):

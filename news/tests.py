@@ -1685,9 +1685,13 @@ class NewsShellTests(TestCase):
         response = self.client.get('/news/audio/')
         self.assertEqual(response.status_code, 200)
 
-    def test_digest_detail_route_serves_shell(self):
+    def test_digest_detail_route_serves_page(self):
+        # The day page is server-rendered — it needs a digest
+        # row for the date, otherwise it's an honest 404.
+        NewsDigest.objects.create(date=date(2026, 10, 29))
         response = self.client.get('/news/2026-10-29/')
         self.assertEqual(response.status_code, 200)
+        self.assertIn(b'spa-bootstrap', response.content)
 
 
 class ArticleAudioViewTests(TestCase):
@@ -3341,3 +3345,52 @@ class RobotSurfaceTests(TestCase):
         body = self.client.get('/llms.txt').content.decode()
         self.assertIn('Ziņa viens', body)
         self.assertNotIn('Ziņa vecā', body)
+
+    def test_digest_day_page_is_server_rendered(self):
+        """/news/<date>/ ships the digest inside #root — a robot
+        reads the HTML while React replaces it on mount."""
+        article = self._digest(self.today)
+        response = self.client.get(
+            f'/news/{self.today.isoformat()}/'
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn('Ziņa viens', body)
+        self.assertIn(article.link, body)
+        # The SPA bootstrap still ships — React takes over #root.
+        self.assertIn('spa-bootstrap', body)
+        self.assertIn('news-ssr', body)
+
+    def test_index_page_renders_last_7_days(self):
+        self._digest(
+            self.today - timedelta(days=10), headline='Ziņa vecā'
+        )
+        self._digest(self.today)
+        body = self.client.get('/news/').content.decode()
+        self.assertIn('Ziņa viens', body)
+        self.assertNotIn('Ziņa vecā', body)
+
+    def test_old_digest_day_stays_readable(self):
+        """History beyond the 7-day window keeps a live page —
+        the sitemap's full archive resolves to real HTML."""
+        old = self.today - timedelta(days=30)
+        self._digest(old, headline='Ziņa vecā')
+        response = self.client.get(f'/news/{old.isoformat()}/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Ziņa vecā', response.content.decode())
+
+    def test_digest_page_date_contract(self):
+        # A non-date segment is not our page — the plain shell
+        # hands it to React Router (retired client routes).
+        self.assertEqual(
+            self.client.get('/news/not-a-date/').status_code, 200
+        )
+        # A parseable date IS a digest page: no row, honest 404 —
+        # otherwise every YYYY-MM-DD is a soft-404 shell.
+        missing = self.today - timedelta(days=3)
+        self.assertEqual(
+            self.client.get(
+                f'/news/{missing.isoformat()}/'
+            ).status_code,
+            404,
+        )

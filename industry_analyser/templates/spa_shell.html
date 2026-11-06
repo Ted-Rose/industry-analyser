@@ -30,6 +30,7 @@
 </head>
 <body>
     <div id="root">
+        {% block ssr_content %}
         <div class="ia-boot" role="status">
             <span class="ia-boot__spinner" aria-hidden="true">
             </span>
@@ -37,6 +38,7 @@
             <p class="ia-boot__hint">Taking too long?
                 <a href="">Reload the page</a>.</p>
         </div>
+        {% endblock %}
     </div>
     <noscript>
         <div class="ia-boot">
