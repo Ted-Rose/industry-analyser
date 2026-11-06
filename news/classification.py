@@ -40,6 +40,12 @@ from .clustering import STEM_LEN, text_stems, text_words
 
 logger = logging.getLogger('news')
 
+# Minimum score an article must reach to earn a topic — a
+# single title hit (the hit plus the title bonus) or two
+# lead-only hits. A lone lead hit is too weak a signal and
+# leaves the article untopicked.
+MIN_TOPIC_SCORE = 2
+
 
 def _parse_keyword(keyword):
     """Split a keyword into (kind, value) word-specs.
@@ -80,7 +86,13 @@ def _spec_hits(specs, words, stems):
 
 def classify_topic(title, lead, topics):
     """Return the enabled NewsTopic with the most keyword hits
-    in ``title + lead``, or None when nothing matches.
+    in ``title + lead``, or None when nothing reaches
+    MIN_TOPIC_SCORE.
+
+    Each hit scores 1, doubled when the keyword also matches
+    inside the title — so MIN_TOPIC_SCORE = 2 means a single
+    title hit or two lead-only hits; a lone lead hit leaves
+    the article untopicked.
 
     ``topics`` is an iterable of objects with ``keywords``
     (list of strings) and ``is_enabled``. Score ties resolve
@@ -125,7 +137,7 @@ def classify_topic(title, lead, topics):
             score += 1
             if _spec_hits(spec, title_words, title_stems):
                 score += 1
-        if score > best_score:
+        if score >= MIN_TOPIC_SCORE and score > best_score:
             best_topic = topic
             best_score = score
     return best_topic

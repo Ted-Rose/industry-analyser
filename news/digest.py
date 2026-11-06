@@ -8,6 +8,7 @@ here — the MVP deliberately ships zero paid AI calls.
 import logging
 
 from django.db import transaction
+from django.db.models import Q
 
 from .models import (
     CONFIRMED_MATCH_STATUSES,
@@ -59,21 +60,28 @@ def _rationale(story):
 def build_digest(date, top_n=5, dry_run=False):
     """Build/rebuild the digest for ``date`` (datetime.date).
 
-    Stories: published_date == date with an enabled topic, ranked
-    by importance_score then recency, top_n taken. Rebuild is
-    idempotent — old items are replaced wholesale.
+    Stories: published_date == date and either an enabled topic
+    or a NULL topic with source_count >= 2 — multi-outlet
+    coverage is itself strong importance evidence, while
+    single-source untopicked singletons (sports/celebrity noise)
+    stay excluded. Ranked by importance_score then recency,
+    top_n taken. Rebuild is idempotent — old items are replaced
+    wholesale.
     Returns {'date': date, 'items': [(rank, headline, rationale)]}.
     """
     stories = (
         NewsStory.objects.filter(
             published_date=date,
-            topic__is_enabled=True,
             # At least one confirmed member — an all-'candidate'
             # story is admin-review material, not published
             # coverage.
             articles__story_match_status__in=(
                 CONFIRMED_MATCH_STATUSES
             ),
+        )
+        .filter(
+            Q(topic__is_enabled=True)
+            | Q(topic__isnull=True, source_count__gte=2)
         )
         .distinct()
         .prefetch_related('articles__source')

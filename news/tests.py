@@ -46,7 +46,7 @@ from .backfill import (
     parse_sitemap_xml,
 )
 from .classification import classify_topic
-from .clustering import link_unmatched_articles
+from .clustering import _refresh_story, link_unmatched_articles
 from .digest import build_digest
 from .models import (
     NewsArticle,
@@ -581,6 +581,26 @@ class ClassificationTests(TestCase):
         )
         self.assertIsNone(topic)
 
+    def test_single_lead_hit_below_min_score_stays_null(self):
+        # A lone lead hit scores 1 < MIN_TOPIC_SCORE — the
+        # article stays untopicked.
+        topic = classify_topic(
+            'Mūzikas festivāls noslēdzas',
+            'Saeima debatēs par likumu.',
+            self.topics,
+        )
+        self.assertIsNone(topic)
+
+    def test_single_title_hit_reaches_min_score(self):
+        # The same keyword inside the title scores 2 (hit +
+        # title bonus) — enough to classify on its own.
+        topic = classify_topic(
+            'Saeima debatēs par likumu',
+            'Mūzikas festivāls noslēdzas.',
+            self.topics,
+        )
+        self.assertEqual(topic, self.politics)
+
 
 def _article(source, title, topic=None, published=None, **kw):
     return NewsArticle.objects.create(
@@ -727,6 +747,89 @@ class ClusteringTests(TestCase):
         self.assertEqual(article.story_match_status, 'auto')
         self.assertEqual(stats['new_stories'], 1)
 
+    def test_story_topic_rederived_as_members_accrue(self):
+        # a1 is untopicked, so the story starts NULL; when a2 —
+        # a war-tagged member — auto-merges on the next pass,
+        # the refresh re-derives the topic instead of keeping
+        # the creation-time NULL.
+        war = NewsTopic.objects.create(
+            slug='war', name='Karš', weight=1.1, keywords=[],
+        )
+        a1 = _article(
+            self.a, 'Krievija izsviež raķetes pret pilsētu',
+            published=self.now,
+        )
+        link_unmatched_articles(days=2)
+        a1.refresh_from_db()
+        story = a1.story
+        self.assertIsNone(story.topic_id)
+        a2 = _article(
+            self.b,
+            'Krievija izsviež raķetes pret pilsētu atkal',
+            published=self.now, topic=war,
+        )
+        link_unmatched_articles(days=2)
+        a2.refresh_from_db()
+        story.refresh_from_db()
+        self.assertEqual(a2.story_id, story.id)
+        self.assertEqual(a2.story_match_status, 'auto')
+        self.assertEqual(story.topic_id, war.id)
+
+    def test_story_topic_ignores_candidate_members(self):
+        # a2 links as 'candidate' (shared stems are 'budž' plus
+        # date boilerplate) — its tag must not vote, so the
+        # story topic stays NULL while the link awaits review.
+        war = NewsTopic.objects.create(
+            slug='war', name='Karš', weight=1.1, keywords=[],
+        )
+        a1 = _article(
+            self.a, 'Valsts budžets 2027. gadam',
+            published=self.now,
+        )
+        a2 = _article(
+            self.b, 'Pašvaldību budžets 2027. gadam',
+            published=self.now, topic=war,
+        )
+        link_unmatched_articles(days=2)
+        a1.refresh_from_db()
+        a2.refresh_from_db()
+        story = a1.story
+        story.refresh_from_db()
+        self.assertEqual(a2.story_id, story.id)
+        self.assertEqual(a2.story_match_status, 'candidate')
+        self.assertIsNone(story.topic_id)
+
+    def test_story_topic_modal_with_pk_tie_break(self):
+        # Confirmed members vote on the story topic: a 1-1 tie
+        # resolves to the lowest topic pk, and a third member
+        # breaks the tie outright — NULL members never vote.
+        t1 = NewsTopic.objects.create(
+            slug='one', name='Tēma 1', keywords=[],
+        )
+        t2 = NewsTopic.objects.create(
+            slug='two', name='Tēma 2', keywords=[],
+        )
+        story = NewsStory.objects.create(
+            title='Stāsts', published_date=timezone.localdate(),
+        )
+        _article(
+            self.a, 'Stāsts', topic=t2, story=story,
+            story_match_status='auto',
+        )
+        _article(
+            self.b, 'Stāsts', topic=t1, story=story,
+            story_match_status='auto',
+        )
+        _refresh_story(story)
+        self.assertEqual(story.topic_id, t1.id)
+        c = _source('c')
+        _article(
+            c, 'Stāsts', topic=t2, story=story,
+            story_match_status='auto',
+        )
+        _refresh_story(story)
+        self.assertEqual(story.topic_id, t2.id)
+
 
 class DigestTests(TestCase):
     def setUp(self):
@@ -812,6 +915,28 @@ class DigestTests(TestCase):
             self.a, 'Tikai kandidāti', topic=self.topic,
             story=story, story_match_status='candidate',
         )
+        result = build_digest(self.today, top_n=5)
+        self.assertEqual(result['items'], [])
+
+    def test_multi_source_untopicked_story_is_eligible(self):
+        # A NULL-topic story with multi-outlet coverage is
+        # itself strong importance evidence — it must not lose
+        # the digest to a weaker keyword-matched story.
+        story = self._story('Bez tēmas', 3.0, topic=None)
+        _article(
+            self.b, 'Bez tēmas (B)', topic=None,
+            story=story, story_match_status='auto',
+        )
+        story.source_count = 2
+        story.save()
+        result = build_digest(self.today, top_n=5)
+        headlines = [h for _, h, _ in result['items']]
+        self.assertEqual(headlines, ['Bez tēmas'])
+
+    def test_single_source_untopicked_story_stays_excluded(self):
+        # One outlet and no topic is still noise — the digest
+        # keeps it out even at the top importance score.
+        self._story('Bez tēmas', 99.0, topic=None)
         result = build_digest(self.today, top_n=5)
         self.assertEqual(result['items'], [])
 
@@ -1077,6 +1202,36 @@ class StemClassificationTests(TestCase):
         self.assertEqual(topic, self.economics)
 
 
+class SeedKeywordTests(TestCase):
+    """Regression tests against the TOPICS seed lists themselves
+    — the false-positive/miss curation lives in the data, so it
+    is exercised through unsaved NewsTopic instances."""
+
+    def setUp(self):
+        self.topics = [NewsTopic(**t) for t in TOPICS]
+
+    def test_rakete_headline_classifies_as_war(self):
+        # 'raķeš*' could not reach the nominative 'raķete'/
+        # 'raķetes' — the 'raķet*' prefix covers it.
+        topic = classify_topic(
+            'Krievija izsviež raķetes uz pilsētu',
+            '',
+            self.topics,
+        )
+        self.assertIsNotNone(topic)
+        self.assertEqual(topic.slug, 'war')
+
+    def test_finansu_phrase_not_government_funding(self):
+        # Plain 'finansējums' stemmed to 'fina' and matched any
+        # 'finanšu …' phrase; 'finansējum*' must not.
+        topic = classify_topic(
+            'Finanšu prasmes: ko māca skolās bērniem',
+            '',
+            self.topics,
+        )
+        self.assertIsNone(topic)
+
+
 class ReclassifyCommandTests(TestCase):
     def setUp(self):
         self.source = _source('a')
@@ -1119,6 +1274,27 @@ class ReclassifyCommandTests(TestCase):
         self.assertEqual(article.topic_id, self.politics.id)
         # The story adopts the member topic and its refreshed
         # importance uses that weight (1 source x 2.0 x 1.0).
+        self.assertEqual(story.topic_id, self.politics.id)
+        self.assertEqual(story.importance_score, 2.0)
+
+    def test_untopicked_story_with_topiced_members_refreshes(self):
+        # Defect: a story created untopicked keeps topic=NULL
+        # even after members are retagged by the scraper's
+        # update path. No member's topic changes here, so the
+        # story must reach _refresh_story off the scanned-member
+        # bookkeeping alone (--all scans topiced articles).
+        story = NewsStory.objects.create(
+            title='Ziņa', published_date=timezone.localdate(),
+        )
+        _article(
+            self.source, 'Saeimas deputāti pieņem likumu',
+            topic=self.politics, story=story,
+            story_match_status='auto',
+        )
+        call_command(
+            'reclassify_news_articles', '--all', stdout=StringIO(),
+        )
+        story.refresh_from_db()
         self.assertEqual(story.topic_id, self.politics.id)
         self.assertEqual(story.importance_score, 2.0)
 
@@ -1193,9 +1369,16 @@ class KeywordMarkerTests(TestCase):
     def test_title_double_count_applies_to_marked_specs(self):
         topic = self._topic(['grant*'])
         in_title = classify_topic('Grantu konkursā uzvar', '', [topic])
+        # A lone lead hit is below MIN_TOPIC_SCORE — the title
+        # bonus or a second keyword is what reaches the gate.
         in_lead = classify_topic('Ziņa', 'Grantu konkursā.', [topic])
+        two_hits = classify_topic(
+            'Ziņa', 'Grantu konkursā.',
+            [NewsTopic(keywords=['grant*', 'konkurs*'])],
+        )
         self.assertEqual(in_title, topic)
-        self.assertEqual(in_lead, topic)
+        self.assertIsNone(in_lead)
+        self.assertIsNotNone(two_hits)
 
 
 class CuratedSeedKeywordTests(TestCase):
