@@ -4,8 +4,9 @@ different outlets covering the same story.
 Blocking precedent: classified_ads/property_matcher.py —
 candidate stories are narrowed to published_date +- 1 day, then
 scored by token-set Jaccard against member article titles
-(fallback: the story title). Outcomes: 'auto' link, 'candidate'
-link (admin-reviewable) or a fresh NewsStory.
+(fallback: the story title). Outcomes: 'auto' link or a fresh
+NewsStory — the 'candidate' review status remains only for
+legacy rows; no new candidate links are produced.
 
 Latvian is heavily inflected ("budžetu"/"budžets",
 "Saeima"/"Saeimā"), so tokens are compared as 4-char prefix
@@ -37,8 +38,7 @@ from .models import (
 
 logger = logging.getLogger('news')
 
-AUTO_THRESHOLD = 0.45
-CANDIDATE_THRESHOLD = 0.30
+AUTO_THRESHOLD = 0.30
 # Token prefix length — collapses Latvian declension endings.
 STEM_LEN = 4
 # Auto-merge needs at least this many shared stems that are not
@@ -119,7 +119,7 @@ def _best_story(article_tokens, stories):
     stem count): a member title that clears the auto bar on its
     own beats a higher-scoring title whose overlap is date
     boilerplate — otherwise the argmax title alone would decide
-    auto-vs-candidate for the whole story.
+    auto-merge for the whole story.
     (None, best_score, frozenset()) when nothing is close."""
     best_story = None
     best_key = (False, 0.0, 0)
@@ -248,8 +248,6 @@ def link_unmatched_articles(days=2, dry_run=False):
             and len(substantive) >= MIN_SHARED_SUBSTANTIVE
         ):
             status = 'auto'
-        elif story is not None and score >= CANDIDATE_THRESHOLD:
-            status = 'candidate'
         else:
             # No story close enough — start a new cluster. The
             # topic is left for _refresh_story to derive from
