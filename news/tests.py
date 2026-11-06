@@ -3,6 +3,7 @@ keyword topic classification, story clustering, digest build."""
 import contextlib
 import hashlib
 import os
+import sys
 import tempfile
 from datetime import date, datetime, timedelta, timezone as dtz
 from io import StringIO
@@ -2407,6 +2408,20 @@ class AudioEndpointTests(TestCase):
         payload = response.json()
         self.assertEqual(payload['error'], 'upstream_error')
         self.assertEqual(payload['detail'], 'down')
+
+    def test_missing_media_deps_502_not_500(self):
+        # The lazy news.audio import pulls optional media deps
+        # (gTTS, langdetect, google-cloud-storage). A deployment
+        # without them must degrade to "pipeline down" (502 —
+        # the SPA's audio-unavailable signal), not an unhandled
+        # 500. None in sys.modules makes the import raise
+        # ImportError, like a bundle missing the deps.
+        with patch.dict(sys.modules, {'news.audio': None}):
+            response = self.client.get(
+                '/api/news/audio/', {'text': 'x'}
+            )
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()['error'], 'upstream_error')
 
     def test_post_is_405(self):
         self.assertEqual(

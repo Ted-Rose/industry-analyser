@@ -364,11 +364,20 @@ def audio(
     still 400s rather than 422ing."""
     # Lazy import: news.audio pulls optional media deps (gTTS,
     # langdetect, google-cloud-storage). Kept off the module
-    # path so a missing dep 500s this endpoint only — module-
+    # path so a missing dep hits this endpoint only — module-
     # level, it would break the router import in
     # industry_analyser/urls.py and take the whole urlconf
-    # down with it.
-    from .audio import AudioGenerationError, text_to_audio
+    # down with it. A deployment whose bundle lacks the deps
+    # (the Vercel lambda) degrades to the same 502 the SPA
+    # already treats as "audio unavailable" — not an
+    # unhandled 500.
+    try:
+        from .audio import AudioGenerationError, text_to_audio
+    except ImportError as exc:
+        logger.warning('audio media deps unavailable: %s', exc)
+        raise ApiHttpError(
+            502, 'audio generation unavailable'
+        ) from exc
     lang = lang or None
     filename = filename or None
     if lang is not None and not _LANG_RE.match(lang):
