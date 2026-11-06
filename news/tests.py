@@ -923,6 +923,10 @@ class DigestTests(TestCase):
         # itself strong importance evidence — it must not lose
         # the digest to a weaker keyword-matched story.
         story = self._story('Bez tēmas', 3.0, topic=None)
+        _article(
+            self.b, 'Bez tēmas (B)', topic=None,
+            story=story, story_match_status='auto',
+        )
         story.source_count = 2
         story.save()
         result = build_digest(self.today, top_n=5)
@@ -1270,6 +1274,27 @@ class ReclassifyCommandTests(TestCase):
         self.assertEqual(article.topic_id, self.politics.id)
         # The story adopts the member topic and its refreshed
         # importance uses that weight (1 source x 2.0 x 1.0).
+        self.assertEqual(story.topic_id, self.politics.id)
+        self.assertEqual(story.importance_score, 2.0)
+
+    def test_untopicked_story_with_topiced_members_refreshes(self):
+        # Defect: a story created untopicked keeps topic=NULL
+        # even after members are retagged by the scraper's
+        # update path. No member's topic changes here, so the
+        # story must reach _refresh_story off the scanned-member
+        # bookkeeping alone (--all scans topiced articles).
+        story = NewsStory.objects.create(
+            title='Ziņa', published_date=timezone.localdate(),
+        )
+        _article(
+            self.source, 'Saeimas deputāti pieņem likumu',
+            topic=self.politics, story=story,
+            story_match_status='auto',
+        )
+        call_command(
+            'reclassify_news_articles', '--all', stdout=StringIO(),
+        )
+        story.refresh_from_db()
         self.assertEqual(story.topic_id, self.politics.id)
         self.assertEqual(story.importance_score, 2.0)
 

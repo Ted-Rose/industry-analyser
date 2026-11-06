@@ -128,6 +128,13 @@ class Command(BaseCommand):
         batch = []
         for article in qs.iterator():
             scanned += 1
+            # Track every scanned article's story — a story
+            # created untopicked keeps topic=NULL even after its
+            # members are retagged by the scraper's update path,
+            # so it needs a refresh even when no member's topic
+            # changes here.
+            if article.story_id:
+                touched_story_ids.add(article.story_id)
             topic = classify_topic(
                 article.title, article.lead, topics,
             )
@@ -143,8 +150,6 @@ class Command(BaseCommand):
             to_slug[new_slug] += 1
             moves[f'{old_slug} -> {new_slug}'] += 1
             overrides[article.id] = new_id
-            if article.story_id:
-                touched_story_ids.add(article.story_id)
             if dry_run:
                 continue
             article.topic_id = new_id
@@ -164,9 +169,9 @@ class Command(BaseCommand):
                 # save() and bump last_seen (auto_now) for no
                 # gain.
                 continue
-            story.topic_id = new_topic_id
-            # Sets source_count + importance_score (using the new
-            # topic weight) and saves unless dry_run.
+            # _refresh_story re-derives story.topic itself (the
+            # same modal-member rule), sets source_count +
+            # importance_score and saves unless dry_run.
             _refresh_story(story, dry_run=dry_run)
             stories_refreshed += 1
 
