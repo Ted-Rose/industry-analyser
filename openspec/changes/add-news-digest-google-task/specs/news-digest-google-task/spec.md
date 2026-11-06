@@ -8,7 +8,8 @@ After `build_digest()` commits a `NewsDigest`, the system SHALL
 insert one Google task on behalf of the configured user into the
 configured Google task list. The task body SHALL contain a
 `title` naming the digest date and `notes` linking to
-`{BASE_URL}/news/<date>/` plus the ranked headlines; it SHALL
+`{GOOGLE_TASKS_LINK_BASE_URL}/news/<date>/` (defaults to
+`BASE_URL`) plus the ranked headlines; it SHALL
 NOT set a `due` field. The attempt SHALL run after the digest
 transaction commits and MUST NOT run for a `dry_run` build.
 

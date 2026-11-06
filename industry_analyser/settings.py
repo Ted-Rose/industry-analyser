@@ -130,6 +130,12 @@ if GOOGLE_OAUTH_CLIENT_JSON:
 # empty username disables the feature.
 GOOGLE_TASKS_LIST_TITLE = env('GOOGLE_TASKS_LIST_TITLE', default='News')
 GOOGLE_TASKS_USERNAME = env('GOOGLE_TASKS_USERNAME', default='')
+# The digest URL inside the task's notes — the job runs on the
+# maintainer's machine where BASE_URL is localhost, so this can
+# point at the deployed site instead.
+GOOGLE_TASKS_LINK_BASE_URL = env(
+    'GOOGLE_TASKS_LINK_BASE_URL', default=BASE_URL
+)
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or

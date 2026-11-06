@@ -86,7 +86,10 @@ def _run(digest):
     task_list_id = _resolve_task_list_id(service)
 
     date_str = digest.date.isoformat()
-    notes = [f'{settings.BASE_URL}/news/{date_str}/', '']
+    link_base = getattr(
+        settings, 'GOOGLE_TASKS_LINK_BASE_URL', settings.BASE_URL
+    )
+    notes = [f'{link_base}/news/{date_str}/', '']
     notes += [
         f'{item.rank}. {item.headline}'
         for item in digest.items.order_by('rank')
