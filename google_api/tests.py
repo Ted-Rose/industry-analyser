@@ -127,6 +127,13 @@ class OAuthFlowTests(CredentialsTestCase):
             response.url.startswith('/accounts/login/')
         )
 
+    def test_slashless_login_bounces_to_slashed(self):
+        # The landing catch-all matches /google/login before
+        # APPEND_SLASH — the explicit redirect must win instead.
+        response = self.client.get('/google/login')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/google/login/')
+
     def test_anonymous_callback_redirects_to_django_login(self):
         response = self.client.get('/google/callback')
         self.assertEqual(response.status_code, 302)
