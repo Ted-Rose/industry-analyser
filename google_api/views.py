@@ -39,6 +39,9 @@ def login_view(request):
     if isinstance(auth, dict) and 'authorization_url' in auth:
         request.session['state'] = auth['state']
         request.session['oauth_scopes'] = auth['scopes']
+        request.session['oauth_code_verifier'] = auth.get(
+            'code_verifier'
+        )
         return redirect(auth['authorization_url'])
 
     # Already authenticated, redirect to next URL
@@ -65,6 +68,12 @@ def callback(request):
         client_secrets_path,
         scopes,
         redirect_uri=redirect_uri
+    )
+    # This Flow is new — without the verifier the login view's
+    # Flow generated (and challenged), the token exchange fails
+    # with invalid_grant.
+    flow.code_verifier = request.session.pop(
+        'oauth_code_verifier', None
     )
     try:
         flow.fetch_token(

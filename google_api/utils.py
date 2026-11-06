@@ -222,7 +222,12 @@ def google_auth(scopes=None, user=None):
     return {
         "authorization_url": authorization_url,
         "state": state,
-        "scopes": scopes
+        "scopes": scopes,
+        # PKCE verifier generated inside authorization_url — the
+        # callback rebuilds the Flow in a new request, so it must
+        # ride the session like state/scopes or the token
+        # exchange fails with invalid_grant.
+        "code_verifier": flow.code_verifier,
     }
 
 
