@@ -4,9 +4,13 @@ trigger: always_on
 ---
 
 - Max line length: **79 characters** (enforced by `.flake8`).
-- Use `logging.getLogger('<app_name>')` — e.g. `logging.getLogger('fetcher')` —
-  not `__name__`. App-named loggers are pre-configured in
-  `industry_analyser/settings.py` with rotating file handlers.
+  Exemption: vendored OpenSpec skill files —
+  `.agents/skills/openspec-*/` and their `.devin/skills/`
+  copies — carry upstream >79-char prose.
+- Use `logging.getLogger('<app_name>')` — e.g.
+  `logging.getLogger('fetcher')` — not `__name__`. App-named
+  loggers are pre-configured in `industry_analyser/settings.py`
+  with rotating file handlers.
 - Django style: function-based views, app-level `urls.py` with
   `app_name`, explicit `db_table`/`unique_together` on models.
 - `requirements.txt` is the canonical dependency list (not

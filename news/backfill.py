@@ -9,8 +9,7 @@ see.
 One ScrapeJobItem per (source, listing-partition) under the
 'news.backfill' job slug with a constant 'backfill' cycle key,
 so a wall-clock-bounded execution can be re-invoked until every
-partition is DONE. Design contract: docs/plans/
-news_backfill_plan.md.
+partition is DONE.
 
 Two hard rules protect the rest of the pipeline:
 

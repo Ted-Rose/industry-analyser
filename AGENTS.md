@@ -43,6 +43,7 @@ doc map but partly stale (see preamble).
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
 | `google_api/` | Google OAuth2 credential store + `/google/` flow | — |
+| `receipts/` | Email receipt ingest; staff `/receipts/` SPA | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
 | `frontend/` | React/Vite SPA sources, per-app dirs | — |
 | `frontend_dist/` | Committed build output (see Known gaps) | — |
@@ -677,9 +678,10 @@ context.
 - Thin test coverage is a known state: many `tests.py` are
   stubs (`ai_providers`, `scrape_jobs`, `industry_analyser`
   carry the real tests).
-- Two plans are referenced but never committed:
-  `docs/plans/address_parsing_fix_plan.md` and
-  `docs/plans/ai_provider_abstraction_plan.md`; likewise
+- These plans are referenced but never committed:
+  `docs/plans/address_parsing_fix_plan.md`,
+  `docs/plans/ai_provider_abstraction_plan.md` and
+  `docs/plans/sentry-integration-plan.md`; likewise
   `docs/cvlv_api_integration_task.md` is a dead link in
   `DOCUMENTATION_INDEX.md`.
 - `HARD_CODED_PASSWORD` is still read in settings but the
@@ -727,8 +729,7 @@ JSON (`bootstrap.sentry.{dsn,environment,release}`) — no VITE_*
 build vars. Environment tag: `SENTRY_ENVIRONMENT` → `VERCEL_ENV`
 → `production` on Cloud Run (`K_SERVICE`) → `development`.
 Release: `K_REVISION` → `VERCEL_GIT_COMMIT_SHA`. Helpers live in
-`industry_analyser/sentry.py`; plan:
-`docs/plans/sentry-integration-plan.md`.
+`industry_analyser/sentry.py`.
 
 **Verified live** since the PR#33 deploy: events tagged
 `error_code:internal_error` land from Cloud Run and the
