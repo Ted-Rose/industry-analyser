@@ -64,3 +64,4 @@ so the integration must be built in this repo, not called remotely.
   OAuth client (`django-apps-7345`); `auth/tasks` scope.
 - **No API surface change** — no ninja endpoints added; the OAuth
   flow is plain Django views.
+- **Layers impacted:** backend.
