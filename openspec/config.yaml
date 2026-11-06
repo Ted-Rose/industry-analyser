@@ -10,7 +10,9 @@ context: |
   receipts, core_scraper, scrape_jobs, ai_providers, accounts,
   industry_analyser) plus a React 19 + TS + Vite SPA under
   frontend/ (one entry per app: vacancies, tv, classified_ads,
-  dashboard, receipts, accounts). The SPA talks to a single
+  news, dashboard, receipts, accounts — /news/ also
+  server-renders its digest pages inside the SPA shell). The
+  SPA talks to a single
   django-ninja API mounted at /api/; specs under
   openspec/specs/ describe CURRENT behavior — the code wins
   over docs (AGENTS.md lists known-stale docs; verify every

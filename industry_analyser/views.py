@@ -226,8 +226,8 @@ def react_app_public(request, entry, title='', subpath='', feed_url='',
                      feed_title='', **kwargs):
     """Same contract as `react_app` but without staff_member_required
     — for apps whose pages are public today (vacancies, tv,
-    classified-ads, accounts). Mutations still require auth at the
-    /api/ layer.
+    classified-ads, accounts, news). Mutations still require auth
+    at the /api/ layer.
 
     `subpath` is captured by <path:subpath> catch-alls; `kwargs`
     swallows any named converters (e.g. <uuid:pk> on a named route
