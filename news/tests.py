@@ -654,11 +654,11 @@ class ClusteringTests(TestCase):
 
     def test_generic_date_stems_do_not_auto_merge(self):
         # Shared stems are only 'budž' + 'gada' — a topic word
-        # plus year boilerplate. The Jaccard reaches the
-        # candidate band, but auto-merge requires a second
-        # substantive shared stem, so the link is held for
-        # admin review instead of auto-merging state vs
-        # municipal budgets.
+        # plus year boilerplate. The Jaccard clears the auto
+        # bar, but auto-merge also requires a second
+        # substantive shared stem, so the article starts its
+        # own story instead of gluing state vs municipal
+        # budgets together.
         a1 = _article(
             self.a, 'Valsts budžets 2027. gadam',
             published=self.now,
@@ -670,8 +670,27 @@ class ClusteringTests(TestCase):
         link_unmatched_articles(days=2)
         a1.refresh_from_db()
         a2.refresh_from_db()
-        self.assertEqual(a2.story_match_status, 'candidate')
+        self.assertEqual(a2.story_match_status, 'auto')
+        self.assertNotEqual(a2.story_id, a1.story_id)
+
+    def test_looser_threshold_merges_borderline_titles(self):
+        # Jaccard ~0.43 with three substantive shared stems —
+        # under the old 0.45 bar this queued for admin review;
+        # the candidate band is gone, so it auto-merges.
+        a1 = _article(
+            self.a, 'Saeima pieņem jauno budžetu',
+            published=self.now,
+        )
+        a2 = _article(
+            self.b,
+            'Saeima apspriež jauno budžetu komisijas sēdē',
+            published=self.now,
+        )
+        link_unmatched_articles(days=2)
+        a1.refresh_from_db()
+        a2.refresh_from_db()
         self.assertEqual(a2.story_id, a1.story_id)
+        self.assertEqual(a2.story_match_status, 'auto')
 
     def test_old_articles_are_out_of_scope(self):
         old = _article(
@@ -684,29 +703,32 @@ class ClusteringTests(TestCase):
         self.assertEqual(stats['new_stories'], 0)
 
     def test_candidate_member_does_not_inflate_story(self):
-        # Same date-boilerplate setup as the candidate test: a2
-        # links as 'candidate', so the story must keep counting
-        # only the confirmed member (a1).
+        # 'candidate' links are no longer produced, but legacy
+        # rows exist — an unreviewed member must not inflate
+        # the story's confirmed-coverage counts.
         a1 = _article(
             self.a, 'Valsts budžets 2027. gadam',
             published=self.now,
         )
-        _article(
-            self.b, 'Pašvaldību budžets 2027. gadam',
-            published=self.now,
-        )
         link_unmatched_articles(days=2)
         a1.refresh_from_db()
-        a1.story.refresh_from_db()
-        self.assertEqual(a1.story.source_count, 1)
+        story = a1.story
+        _article(
+            self.b, 'Pašvaldību budžets 2027. gadam',
+            published=self.now, story=story,
+            story_match_status='candidate',
+        )
+        _refresh_story(story)
+        story.refresh_from_db()
+        self.assertEqual(story.source_count, 1)
 
     def test_auto_merge_uses_best_qualifying_member_title(self):
         # The argmax member title scores 0.60 but shares only
         # one substantive stem (the rest is 'gada'/'gadu' date
         # boilerplate); a second member title scores 0.50 with
         # three substantive shared stems — that one clears the
-        # auto-merge bar, so the link is 'auto', not demoted to
-        # 'candidate' by the argmax title alone.
+        # auto-merge bar, so the link is 'auto', not rejected
+        # on the argmax title alone.
         story = NewsStory.objects.create(
             title='Budžetu stāsts',
             published_date=timezone.localdate(),
@@ -776,9 +798,8 @@ class ClusteringTests(TestCase):
         self.assertEqual(story.topic_id, war.id)
 
     def test_story_topic_ignores_candidate_members(self):
-        # a2 links as 'candidate' (shared stems are 'budž' plus
-        # date boilerplate) — its tag must not vote, so the
-        # story topic stays NULL while the link awaits review.
+        # A 'candidate' member's tag must not vote — the story
+        # topic stays NULL while the link is unreviewed.
         war = NewsTopic.objects.create(
             slug='war', name='Karš', weight=1.1, keywords=[],
         )
@@ -786,17 +807,16 @@ class ClusteringTests(TestCase):
             self.a, 'Valsts budžets 2027. gadam',
             published=self.now,
         )
-        a2 = _article(
-            self.b, 'Pašvaldību budžets 2027. gadam',
-            published=self.now, topic=war,
-        )
         link_unmatched_articles(days=2)
         a1.refresh_from_db()
-        a2.refresh_from_db()
         story = a1.story
+        _article(
+            self.b, 'Pašvaldību budžets 2027. gadam',
+            published=self.now, story=story,
+            story_match_status='candidate', topic=war,
+        )
+        _refresh_story(story)
         story.refresh_from_db()
-        self.assertEqual(a2.story_id, story.id)
-        self.assertEqual(a2.story_match_status, 'candidate')
         self.assertIsNone(story.topic_id)
 
     def test_story_topic_modal_with_pk_tie_break(self):
