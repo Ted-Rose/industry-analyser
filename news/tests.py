@@ -53,6 +53,7 @@ from .models import (
     NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
+    NewsDigestTask,
     NewsSource,
     NewsSourcePreference,
     NewsStory,
@@ -833,6 +834,152 @@ class DigestTests(TestCase):
             for article in item['articles']
         ]
         self.assertNotIn(cand.title, titles)
+
+
+class DigestGoogleTaskTests(TestCase):
+    """The build -> Google task hook: insert body, list
+    resolution, rebuild dedup and never-raise failure paths."""
+
+    def setUp(self):
+        self.a = _source('gta')
+        self.topic = NewsTopic.objects.create(
+            slug='politics', name='Politika', weight=1.0,
+            keywords=['Saeima'],
+        )
+        self.today = timezone.localdate()
+        self.user = get_user_model().objects.create_user('owner')
+        self._cfg = override_settings(
+            GOOGLE_OAUTH_CLIENT_JSON='{}',
+            GOOGLE_TASKS_USERNAME='owner',
+            GOOGLE_TASKS_LIST_TITLE='News',
+        )
+        self._cfg.enable()
+        self.addCleanup(self._cfg.disable)
+
+    def _story(self, title='Ziņa viens', score=5.0):
+        story = NewsStory.objects.create(
+            title=title,
+            topic=self.topic,
+            published_date=self.today,
+            importance_score=score,
+            source_count=1,
+        )
+        _article(
+            self.a, title, topic=self.topic,
+            story=story, story_match_status='auto',
+        )
+        return story
+
+    def _service(self, lists=None):
+        service = Mock()
+        service.tasklists.return_value.list\
+            .return_value.execute.return_value = {
+                'items': (
+                    [{'id': 'l1', 'title': 'News'}]
+                    if lists is None else lists
+                ),
+            }
+        service.tasklists.return_value.insert\
+            .return_value.execute.return_value = {'id': 'l1'}
+        service.tasks.return_value.insert\
+            .return_value.execute.return_value = {'id': 't1'}
+        return service
+
+    def _build(self, **kwargs):
+        service = kwargs.pop('service', self._service())
+        with (
+            patch(
+                'news.tasks.get_user_credentials',
+                return_value=kwargs.pop('creds', Mock()),
+            ),
+            patch('news.tasks.build', return_value=service),
+        ):
+            result = build_digest(self.today, **kwargs)
+        return result, service
+
+    def test_insert_body_title_notes_no_due(self):
+        self._story()
+        result, service = self._build()
+        insert = service.tasks.return_value.insert
+        insert.assert_called_once()
+        body = insert.call_args.kwargs['body']
+        date_str = self.today.isoformat()
+        self.assertEqual(body['title'], f'News digest {date_str}')
+        self.assertNotIn('due', body)
+        notes = body['notes']
+        self.assertIn(f'/news/{date_str}/', notes)
+        self.assertIn('1. Ziņa viens', notes)
+        # Each headline carries the preferred outlet's link.
+        self.assertIn('(https://gta.lv/', notes)
+        link = NewsDigestTask.objects.get()
+        self.assertEqual(link.status, 'created')
+        self.assertEqual(link.task_id, 't1')
+        self.assertEqual(link.task_list_id, 'l1')
+
+    def test_list_auto_created_when_absent(self):
+        self._story()
+        _, service = self._build(service=self._service(lists=[]))
+        service.tasklists.return_value.insert.assert_called_once_with(
+            body={'title': 'News'}
+        )
+        link = NewsDigestTask.objects.get()
+        self.assertEqual(link.task_list_id, 'l1')
+
+    def test_existing_list_reused_case_insensitive(self):
+        self._story()
+        _, service = self._build(
+            service=self._service(
+                lists=[{'id': 'l9', 'title': 'news'}]
+            )
+        )
+        service.tasklists.return_value.insert.assert_not_called()
+        insert = service.tasks.return_value.insert
+        self.assertEqual(insert.call_args.kwargs['tasklist'], 'l9')
+
+    def test_rebuild_does_not_duplicate_task(self):
+        self._story()
+        _, service = self._build()
+        self._build(service=service)
+        service.tasks.return_value.insert.assert_called_once()
+
+    def test_dry_run_touches_nothing_remote(self):
+        self._story()
+        result, service = self._build(dry_run=True)
+        self.assertEqual(len(result['items']), 1)
+        service.tasks.return_value.insert.assert_not_called()
+        self.assertEqual(NewsDigestTask.objects.count(), 0)
+
+    def test_missing_creds_failed_row_digest_intact(self):
+        self._story()
+        self._build(creds=None)
+        digest = NewsDigest.objects.get()
+        self.assertEqual(digest.items.count(), 1)
+        link = NewsDigestTask.objects.get()
+        self.assertEqual(link.status, 'failed')
+        self.assertIn('google/login', link.error)
+
+    def test_failed_row_retried_on_rebuild(self):
+        self._story()
+        self._build(creds=None)
+        _, service = self._build()
+        service.tasks.return_value.insert.assert_called_once()
+        link = NewsDigestTask.objects.get()
+        self.assertEqual(link.status, 'created')
+        self.assertEqual(link.task_id, 't1')
+
+    def test_feature_disabled_no_link_row(self):
+        self._story()
+        service = self._service()
+        with (
+            override_settings(
+                GOOGLE_OAUTH_CLIENT_JSON='',
+                GOOGLE_TASKS_USERNAME='',
+            ),
+            patch('news.tasks.build', return_value=service) as b,
+        ):
+            build_digest(self.today)
+        b.assert_not_called()
+        self.assertEqual(NewsDigestTask.objects.count(), 0)
 
 
 class StemClassificationTests(TestCase):

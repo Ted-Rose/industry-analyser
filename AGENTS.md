@@ -42,6 +42,7 @@ doc map but partly stale (see preamble).
 | `accounts/` | `/accounts/` auth SPA + `/api/accounts/` | — |
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
+| `google_api/` | Google OAuth2 credential store + `/google/` flow | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
 | `frontend/` | React/Vite SPA sources, per-app dirs | — |
 | `frontend_dist/` | Committed build output (see Known gaps) | — |
@@ -450,6 +451,16 @@ schedule, `--dry-run` prints the plan.
   `use_cheap_tier`; its legacy `max_api_requests` key only seeds
   the `AIJob` row once (the live cap is
   `AIJob.max_requests_per_run`).
+- News digest → Google task (`news/tasks.py`, runs inside
+  `build_digest` after commit; best-effort, dedup via the
+  `NewsDigestTask` link row): `GOOGLE_OAUTH_CLIENT_JSON` (the
+  `{"web": {...}}` client secrets doc, materialized to
+  `GOOGLE_APP_SECRETS_PATH` at settings import) and
+  `GOOGLE_TASKS_USERNAME` must BOTH be set or the feature no-ops;
+  `GOOGLE_TASKS_LIST_TITLE` defaults to `News`. Re-auth after a
+  revoked grant is `GET {BASE_URL}/google/login` — the
+  `/google/callback` redirect URI must be registered on the
+  shared `django-apps-7345` OAuth client.
 - React/Vite serving (detail: `docs/plans/react_frontend_migration/`):
   `DJANGO_VITE.dev_mode = DEBUG and VITE_DEV=1` → SPA asset URLs
   point at the vite dev server (`VITE_PORT`, default **5274**;
@@ -498,12 +509,16 @@ Universal rules (apply to every task):
 1. **Commit format**: `Type: Capitalized message` — `Feat:` /
    `Fix:` / `Docs:` / `Refactor:` / `Test:` / `Chore:`.
 2. **Branching/staging**: commit on feature branches only, never
-   `master`. Stage ONLY files created or modified this session,
-   by path — never `git add -A`, `git add .`, or `git commit -a`;
-   confirm the staged set with `git status` first. Leave the
-   user's own dirty files alone. Never commit plan/scratch
-   markdown (`*-plan.md` drafts outside `docs/plans/`,
-   `PR_DESCRIPTION.md`, `pr-body.md`).
+   `master`. Name the branch `<type>/<slug>` with the same type
+   set as commits (`feat/`, `fix/`, `docs/`, `refactor/`,
+   `test/`, `chore/`) — `feat/news-spa`, not
+   `add-news-spa`; issue-fix branches keep the skill's
+   `fix/issue-<N>-<slug>` form. Stage ONLY files created or
+   modified this session, by path — never `git add -A`,
+   `git add .`, or `git commit -a`; confirm the staged set with
+   `git status` first. Leave the user's own dirty files alone.
+   Never commit plan/scratch markdown (`*-plan.md` drafts outside
+   `docs/plans/`, `PR_DESCRIPTION.md`, `pr-body.md`).
 3. **Dangerous commands — never run** (see Guardrails for why):
    `python manage.py migrate`/`sqlmigrate` against the default
    `DATABASE_URL` (prod), `python manage.py test` against the

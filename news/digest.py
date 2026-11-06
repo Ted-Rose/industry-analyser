@@ -15,6 +15,7 @@ from .models import (
     NewsDigestItem,
     NewsStory,
 )
+from .tasks import create_digest_task
 
 logger = logging.getLogger('news')
 
@@ -106,6 +107,10 @@ def build_digest(date, top_n=5, dry_run=False):
         logger.info(
             'Digest %s: %d item(s) written', date, len(items)
         )
+        # Best-effort Google task — outside the atomic block so a
+        # slow remote call never holds the transaction open, and
+        # it can never fail the digest build (never raises).
+        create_digest_task(digest)
     else:
         logger.info(
             '[dry-run] digest %s: %d item(s)', date, len(items)

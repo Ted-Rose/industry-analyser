@@ -75,6 +75,7 @@ _receipts_include = include('receipts.urls', namespace='receipts')
 _classified_ads_include = include(
     'classified_ads.urls', namespace='classified_ads')
 _news_include = include('news.urls', namespace='news')
+_google_include = include('google_api.urls', namespace='google_api')
 
 # Mount only routers not already registered by an earlier partial
 # import (see above). api._routers already holds the default
@@ -174,6 +175,9 @@ urlpatterns = [
     # News SPA shell — must precede the terminal catch-all
     # drains and the root SPA <path:subpath> below.
     path('news/', _news_include),
+    # Google OAuth web flow (/google/login/, /google/callback) —
+    # plain Django views, must precede the landing catch-all.
+    path('google/', _google_include),
 ]
 
 if settings.DEBUG:
