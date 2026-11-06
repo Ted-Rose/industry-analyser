@@ -71,6 +71,23 @@ export default function DigestList() {
     placeholderData: keepPreviousData,
   });
 
+  // Echo the server-effective filter back into the URL — a
+  // bare or malformed query still lands on the default window,
+  // and the address bar should show the selected date and
+  // period the filter displays. `replace` keeps normalization
+  // out of the history stack; the isFetching gate stops the
+  // previous response's echo from clobbering a just-applied
+  // filter mid-refetch.
+  useEffect(() => {
+    if (!data || isFetching) return;
+    const next = new URLSearchParams();
+    if (data.anchor_date) next.set('date', data.anchor_date);
+    next.set('period', data.period);
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [data, isFetching, searchParams, setSearchParams]);
+
   useEffect(() => {
     document.title = 'Ziņu kopsavilkumi';
   }, []);
