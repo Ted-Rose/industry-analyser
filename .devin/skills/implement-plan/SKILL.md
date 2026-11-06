@@ -1,18 +1,22 @@
 ---
 name: implement-plan
-description: Implement a plan markdown file end-to-end with
+description: Implement a plan end-to-end with
   subagents — run an implementation agent that cuts a feature
   branch and opens a draft PR, then review the PR with fresh
   reviewer agents and iterate fix rounds until reviewers
   report no issues. Invoke when the user asks to
-  implement/execute a plan file (e.g.
-  docs/plans/*-plan.md) using agents.
+  implement/execute a plan — an OpenSpec change dir
+  (openspec/changes/<id>/ with proposal/design/tasks) or a
+  legacy docs/plans/*-plan.md — using agents.
 ---
 
 # Implement a Plan File with Subagents
 
-Orchestrate a multi-agent implementation of a plan file in
-`docs/plans/` (e.g. `docs/plans/property_linking_plan.md`).
+Orchestrate a multi-agent implementation of a plan. The plan
+is an OpenSpec change dir (`openspec/changes/<id>/` — read its
+`proposal.md`, `design.md` and `tasks.md`) or a legacy
+`docs/plans/*-plan.md` file (`docs/plans/` is frozen — no new
+plan markdown; new planning goes through `openspec changes`).
 Single repo: `Ted-Rose/industry-analyser`, default branch
 `master`, remote `origin` (user's own repo, not a fork).
 

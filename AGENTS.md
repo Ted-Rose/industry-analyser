@@ -25,9 +25,10 @@ Single git repo: `origin` is the user's own
 branch `master`. CI/deploy: `.github/workflows/` on push to
 `master` + `frontend-checks.yml` on every PR.
 
-Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for design
-plans, `docs/` for audits/reports. `DOCUMENTATION_INDEX.md` is a
-doc map but partly stale (see preamble).
+Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for
+historical design plans (frozen — see rule 10), `docs/` for
+audits/reports. `DOCUMENTATION_INDEX.md` is a doc map but
+partly stale (see preamble).
 
 ## Layout (actual)
 
@@ -518,8 +519,8 @@ Universal rules (apply to every task):
    modified this session, by path — never `git add -A`,
    `git add .`, or `git commit -a`; confirm the staged set with
    `git status` first. Leave the user's own dirty files alone.
-   Never commit plan/scratch markdown (`*-plan.md` drafts outside
-   `docs/plans/`, `PR_DESCRIPTION.md`, `pr-body.md`).
+   Never commit plan/scratch markdown (`*-plan.md` drafts,
+   `PR_DESCRIPTION.md`, `pr-body.md`).
 3. **Dangerous commands — never run** (see Guardrails for why):
    `python manage.py migrate`/`sqlmigrate` against the default
    `DATABASE_URL` (prod), `python manage.py test` against the
@@ -563,12 +564,14 @@ Universal rules (apply to every task):
    `README.md`/`ARCHITECTURE.md`/`QUICK_REFERENCE.md` where they
    exist (`fetcher/` has all three). If a change has no fitting
    doc, note it in the PR body.
-10. **Plans live in `docs/plans/`** as `<feature>-plan.md`
-    (multi-file plans get a subdirectory, e.g.
-    `docs/plans/react_frontend_migration/`), each with a status
-    header: implemented / partial / in progress / not
-    implemented / reverted. New feature plans go through
-    `openspec changes`, not `docs/plans/` (see OpenSpec).
+10. **`docs/plans/` is frozen** — existing files stay as
+    history (each carries a status header: implemented /
+    partial / in progress / not implemented / reverted), but
+    agents MUST NOT create new plan, design or investigation
+    markdown files — not in `docs/plans/` and not elsewhere.
+    All new planning goes through OpenSpec: `openspec-propose`
+    for changes, `openspec-explore`/change artifacts for
+    investigations (see OpenSpec).
 11. **Test login**: none documented — the app uses Django
     session auth; `python manage.py createsuperuser` creates a
     local admin. Ask the user whether a shared test account
@@ -587,8 +590,9 @@ Universal rules (apply to every task):
 
 - `.devin/skills/fix-good-first-issue/` — pick a "good first
   issue", fix on a branch, draft PR, iterate checks.
-- `.devin/skills/implement-plan/` — execute a
-  `docs/plans/*-plan.md` file with subagents (implement → fresh
+- `.devin/skills/implement-plan/` — execute a plan file (an
+  `openspec/changes/<id>/` change or a legacy
+  `docs/plans/*-plan.md`) with subagents (implement → fresh
   reviewers → fix rounds).
 - `.devin/skills/vercel-react-best-practices/` — vendored React
   perf rules for `frontend/` work.
@@ -643,10 +647,11 @@ context.
   behavior is a bug, not documentation drift.
 - `tasks.md` items MUST be prefixed `backend:` / `frontend:` /
   `both:` to name the layer they touch.
-- **`docs/plans/` is frozen for NEW feature plans** — new
-  feature work goes through `openspec changes`. Existing
-  `docs/plans/*` stay as history; investigation/report docs
-  (non-feature) still belong there per rule 10.
+- **`docs/plans/` is frozen** — new feature work AND
+  investigations go through `openspec changes`
+  (`openspec-propose` for changes, `openspec-explore` for
+  investigations), never new plan-MD files. Existing
+  `docs/plans/*` stay as history — see rule 10.
 - Vendored-skill files are exempt from the 79-char rule — see
   Conventions.
 
