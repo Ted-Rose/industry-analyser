@@ -94,7 +94,7 @@
       layout, env vars, `/google/login` reauth path); keep every
       line ≤79 chars (`awk 'length > 79 {print
       FILENAME":"NR}' <files>` clean).
-- [ ] 4.2 backend: Verify locally end-to-end after GCP setup:
+- [x] 4.2 backend: Verify locally end-to-end after GCP setup:
       add `GOOGLE_OAUTH_CLIENT_JSON` + `GOOGLE_TASKS_USERNAME` to
       `.env`, set `BASE_URL=http://127.0.0.1:8274` if needed, run
       dev server, visit `/google/login` → consent → callback →
