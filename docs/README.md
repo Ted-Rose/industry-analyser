@@ -16,6 +16,12 @@ Technical notes, analyses, and decision records for this project.
 |---|---|
 | [Django notes](django_notes.md) | Recurring patterns and pitfalls — includes the custom manager / Admin visibility caveat |
 
+## Pipelines
+
+| Document | Description |
+|---|---|
+| [News pipeline](news_pipeline.md) | RSS scraping, keyword topic classification, Jaccard story clustering and digest relevance scoring |
+
 ## Reference
 
 | Document | Description |
