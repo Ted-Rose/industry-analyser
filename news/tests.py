@@ -909,6 +909,8 @@ class DigestGoogleTaskTests(TestCase):
         notes = body['notes']
         self.assertIn(f'/news/{date_str}/', notes)
         self.assertIn('1. Ziņa viens', notes)
+        # Each headline carries the preferred outlet's link.
+        self.assertIn('(https://gta.lv/', notes)
         link = NewsDigestTask.objects.get()
         self.assertEqual(link.status, 'created')
         self.assertEqual(link.task_id, 't1')

@@ -9,6 +9,7 @@ from googleapiclient.discovery import build
 from google_api.utils import GOOGLE_TASKS_SCOPES, get_user_credentials
 
 from .models import NewsDigestTask
+from .preferences import ordered_story_articles
 
 logger = logging.getLogger('news')
 
@@ -90,10 +91,14 @@ def _run(digest):
         settings, 'GOOGLE_TASKS_LINK_BASE_URL', settings.BASE_URL
     )
     notes = [f'{link_base}/news/{date_str}/', '']
-    notes += [
-        f'{item.rank}. {item.headline}'
-        for item in digest.items.order_by('rank')
-    ]
+    for item in digest.items.order_by('rank').select_related('story'):
+        # The user's most preferred outlet that covered the story,
+        # in brackets after the headline.
+        article = next(
+            iter(ordered_story_articles(item.story, user)), None
+        )
+        src = f' ({article.link})' if article else ''
+        notes.append(f'{item.rank}. {item.headline}{src}')
     # No 'due' — the task is a pointer at the digest page, not a
     # deadline (explicit product decision).
     created = service.tasks().insert(
