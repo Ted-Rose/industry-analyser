@@ -59,13 +59,13 @@ operations:
       - Run `python manage.py check` after backend edits; use
         the main checkout's venv (../industry-analyser/venv) —
         worktrees have no venv.
-      - Scope tests to the app(s) changed:
+      - "Scope tests to the app(s) changed:
         DATABASE_URL=sqlite:///db.sqlite3 python manage.py test
-        <app>.
-      - After API-surface changes regenerate the schema and
+        <app>."
+      - "After API-surface changes regenerate the schema and
         client types: python manage.py export_openapi_schema
         --output frontend/openapi.json, then (cd frontend &&
-        npm run gen:types) — CI fails on drift.
+        npm run gen:types) — CI fails on drift."
       - After frontend source changes rebuild + recommit the
         tracked frontend_dist/ output.
   archive:
