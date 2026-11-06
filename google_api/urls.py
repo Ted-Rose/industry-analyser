@@ -6,6 +6,13 @@ from . import views
 app_name = 'google_api'
 
 urlpatterns = [
+    # /google/ starts the OAuth flow — the landing page's
+    # auto-discovered "Google" entry links here.
+    path(
+        '',
+        RedirectView.as_view(url='/google/login/'),
+        name='index',
+    ),
     path('login/', views.login_view, name='login'),
     # The landing <path:subpath> catch-all swallows slashless
     # requests before APPEND_SLASH can redirect — bounce

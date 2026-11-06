@@ -134,6 +134,12 @@ class OAuthFlowTests(CredentialsTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, '/google/login/')
 
+    def test_index_redirects_into_login(self):
+        # The landing page's "Google" card links to /google/.
+        response = self.client.get('/google/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/google/login/')
+
     def test_anonymous_callback_redirects_to_django_login(self):
         response = self.client.get('/google/callback')
         self.assertEqual(response.status_code, 302)
