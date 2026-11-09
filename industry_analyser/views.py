@@ -147,6 +147,12 @@ def _spa_shell_context(request, entry, title='', feed_url='',
             'apps': _landing_entries(),
             'is_authenticated': request.user.is_authenticated,
             'is_staff': getattr(request.user, 'is_staff', False),
+            # Lets the accounts SPA hide the "Sign in with
+            # Google" section when no OAuth client is configured
+            # — static config, so no API op.
+            'google_oauth_configured': bool(
+                getattr(settings, 'GOOGLE_APP_SECRETS_PATH', '')
+            ),
             # Web Sentry config ships inside the page — the SPA reads
             # it before createRoot, so no VITE_* build vars are
             # needed. Empty dsn leaves the browser SDK uninitialized.

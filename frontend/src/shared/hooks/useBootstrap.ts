@@ -32,6 +32,9 @@ export interface BootstrapPayload {
    *  tests that stub the payload don't have to set them. */
   is_authenticated?: boolean;
   is_staff?: boolean;
+  /** Whether the Google OAuth client is configured — the
+   *  accounts SPA hides "Sign in with Google" when falsy. */
+  google_oauth_configured?: boolean;
   [key: string]: unknown;
 }
 

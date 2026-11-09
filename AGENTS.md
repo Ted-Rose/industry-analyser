@@ -43,7 +43,8 @@ partly stale (see preamble).
 | `accounts/` | `/accounts/` auth SPA + `/api/accounts/` | — |
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
-| `google_api/` | Google OAuth2 credential store + `/google/` flow | — |
+| `google_api/` | Google OAuth2 credential store (`google_sub` links | — |
+| | the OIDC identity) + `/google/` connect/signin flows | |
 | `receipts/` | Email receipt ingest; staff `/receipts/` SPA | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
 | `frontend/` | React/Vite SPA sources, per-app dirs | — |
@@ -481,6 +482,14 @@ schedule, `--dry-run` prints the plan.
   Re-auth after a revoked grant is `GET {BASE_URL}/google/login`
   — the `/google/callback` redirect URI must be registered on
   the shared `django-apps-7345` OAuth client.
+- `GET /google/signin/` is the public "Sign in with Google"
+  flow — same `/google/callback` (dispatched on the session's
+  `oauth_flow` key), OIDC scopes plus `auth/tasks` when
+  `?tasks=1`. The callback resolves the user via
+  `google_api.signin.resolve_google_user` (stored `google_sub`
+  → verified `email__iexact` → new non-staff user with an
+  unusable password) and stores the grant on the same
+  `google_oauth_credentials` row the digest fan-out reads.
 - React/Vite serving (detail: `docs/plans/react_frontend_migration/`):
   `DJANGO_VITE.dev_mode = DEBUG and VITE_DEV=1` → SPA asset URLs
   point at the vite dev server (`VITE_PORT`, default **5274**;

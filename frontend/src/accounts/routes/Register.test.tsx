@@ -61,9 +61,20 @@ function fillAndSubmit() {
   );
 }
 
+/** The shell's #spa-bootstrap json_script — useBootstrap()
+ *  reads it once at mount, so it must exist before render. */
+function setBootstrap(payload: unknown) {
+  const el = document.createElement('script');
+  el.id = 'spa-bootstrap';
+  el.setAttribute('type', 'application/json');
+  el.textContent = JSON.stringify(payload);
+  document.body.appendChild(el);
+}
+
 describe('Register', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.getElementById('spa-bootstrap')?.remove();
   });
 
   it('posts the form and navigates to the sanitized ?next=',
@@ -98,5 +109,37 @@ describe('Register', () => {
       ),
     ).toBeInTheDocument();
     expect(mockedNavigate).not.toHaveBeenCalled();
+  });
+
+  it('links Google sign-in with the sanitized ?next=', () => {
+    setBootstrap({ google_oauth_configured: true });
+    renderRegister('/register?next=/news/preferences/');
+    expect(
+      screen.getByRole('link', { name: /sign in with google/i }),
+    ).toHaveAttribute(
+      'href',
+      '/google/signin/?next=%2Fnews%2Fpreferences%2F',
+    );
+  });
+
+  it('appends tasks=1 when the checkbox is ticked', () => {
+    setBootstrap({ google_oauth_configured: true });
+    renderRegister();
+    fireEvent.click(
+      screen.getByLabelText(/google tasks access/i),
+    );
+    expect(
+      screen
+        .getByRole('link', { name: /sign in with google/i })
+        .getAttribute('href'),
+    ).toContain('tasks=1');
+  });
+
+  it('hides the Google section when OAuth is unconfigured', () => {
+    setBootstrap({ google_oauth_configured: false });
+    renderRegister();
+    expect(
+      screen.queryByRole('link', { name: /google/i }),
+    ).not.toBeInTheDocument();
   });
 });
