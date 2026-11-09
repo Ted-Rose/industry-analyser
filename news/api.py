@@ -19,12 +19,15 @@ import re
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 
+from django.conf import settings
 from django.db.models import Max, Min, Prefetch
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from ninja import Field, Query, Router, Schema
 
+from google_api.models import GoogleOAuthCredentials
+from google_api.utils import GOOGLE_TASKS_SCOPES
 from industry_analyser.api import ApiHttpError
 
 from .models import (
@@ -33,6 +36,8 @@ from .models import (
     NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
+    NewsDigestSubscription,
+    NewsDigestTask,
     NewsSource,
     NewsSourcePreference,
     NewsStory,
@@ -186,6 +191,20 @@ class PreferencesSavedOut(Schema):
     success: bool
     saved: int
     message: str
+
+
+class DigestTaskLastOut(Schema):
+    digest_date: date
+    status: str            # pending | created | failed
+    error: str
+    updated_at: datetime
+
+
+class DigestTaskStatusOut(Schema):
+    oauth_configured: bool   # GOOGLE_OAUTH_CLIENT_JSON set
+    google_connected: bool   # stored grant covers tasks scope
+    subscribed: bool         # enabled NewsDigestSubscription
+    last_task: Optional[DigestTaskLastOut]
 
 
 # --- Ops ---
@@ -454,3 +473,73 @@ def save_preferences(request, payload: PreferencesIn):
         saved=len(ranked),
         message='Preferences saved.',
     )
+
+
+def _digest_task_status(user):
+    """The digest-task card payload for one user.
+    `google_connected` is a cheap row+scope check — a GET must
+    never fire a token refresh, so a revoked grant surfaces
+    later as a 'failed' last_task instead."""
+    creds = GoogleOAuthCredentials.objects.filter(
+        user=user
+    ).first()
+    last = (
+        NewsDigestTask.objects.filter(user=user)
+        .select_related('digest')
+        .order_by('-updated_at', '-pk')
+        .first()
+    )
+    return DigestTaskStatusOut(
+        oauth_configured=bool(
+            getattr(settings, 'GOOGLE_OAUTH_CLIENT_JSON', '')
+        ),
+        google_connected=bool(
+            creds and creds.has_all_scopes(GOOGLE_TASKS_SCOPES)
+        ),
+        subscribed=NewsDigestSubscription.objects.filter(
+            user=user, is_enabled=True
+        ).exists(),
+        last_task=(
+            DigestTaskLastOut(
+                digest_date=last.digest.date,
+                status=last.status,
+                error=last.error,
+                updated_at=last.updated_at,
+            )
+            if last is not None
+            else None
+        ),
+    )
+
+
+@router.get('/digest-task/', response=DigestTaskStatusOut)
+def digest_task_status(request):
+    """Google-Tasks digest subscription state for the card on
+    /news/preferences/ — session-auth; the 401 handshake's
+    `next` lands on that page via SPA_SUBPATHS."""
+    return _digest_task_status(request.user)
+
+
+@router.post('/digest-task/subscribe/', response=DigestTaskStatusOut)
+def subscribe_digest_task(request):
+    """Idempotent opt-in — creates or re-enables the caller's
+    subscription row. Succeeds (200, google_connected: false)
+    without a Google grant: tasks start on the next build once
+    the account is connected via /google/login."""
+    NewsDigestSubscription.objects.update_or_create(
+        user=request.user,
+        defaults={'is_enabled': True},
+    )
+    return _digest_task_status(request.user)
+
+
+@router.post('/digest-task/unsubscribe/',
+             response=DigestTaskStatusOut)
+def unsubscribe_digest_task(request):
+    """Idempotent opt-out — flips is_enabled off while keeping
+    the row (and all NewsDigestTask audit rows)."""
+    NewsDigestSubscription.objects.update_or_create(
+        user=request.user,
+        defaults={'is_enabled': False},
+    )
+    return _digest_task_status(request.user)

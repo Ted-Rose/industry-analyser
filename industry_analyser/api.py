@@ -106,6 +106,10 @@ SPA_BASES = {'dashboard': '/dashboard/'}
 SPA_SUBPATHS = {
     ('vacancies', 'filters'): '/vacancies/',
     ('vacancies', 'companies'): '/companies/',
+    # The digest-task ops back the Google Tasks card on the
+    # preferences page — the mechanical /news/digest-task/
+    # rewrite would hit the news router's '*' redirect.
+    ('news', 'digest-task'): '/news/preferences/',
 }
 
 

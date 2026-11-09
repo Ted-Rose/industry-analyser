@@ -124,12 +124,11 @@ if GOOGLE_OAUTH_CLIENT_JSON:
     )
     with open(GOOGLE_APP_SECRETS_PATH, 'w') as f:
         f.write(GOOGLE_OAUTH_CLIENT_JSON)
-# News digest -> Google Tasks (news/tasks.py). The digest task
-# lands in the list titled GOOGLE_TASKS_LIST_TITLE (auto-created
-# when absent) on behalf of the Django user GOOGLE_TASKS_USERNAME;
-# empty username disables the feature.
+# News digest -> Google Tasks (news/tasks.py). Each enabled
+# NewsDigestSubscription gets a task in the list titled
+# GOOGLE_TASKS_LIST_TITLE (auto-created when absent) inside
+# that subscriber's own Google account.
 GOOGLE_TASKS_LIST_TITLE = env('GOOGLE_TASKS_LIST_TITLE', default='News')
-GOOGLE_TASKS_USERNAME = env('GOOGLE_TASKS_USERNAME', default='')
 # The digest URL inside the task's notes — the job runs on the
 # maintainer's machine where BASE_URL is localhost, so this can
 # point at the deployed site instead.

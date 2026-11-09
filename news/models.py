@@ -202,9 +202,10 @@ class NewsDigestItem(models.Model):
 
 
 class NewsDigestTask(models.Model):
-    """Link row: the Google task created for a digest. One row
-    per digest gives rebuild dedup (skip when status='created')
-    plus an audit trail for failed attempts."""
+    """Link row: the Google task created for one subscriber's
+    copy of a digest. One row per (digest, user) pair gives
+    rebuild dedup (skip when status='created') plus a per-user
+    audit trail for failed attempts."""
 
     STATUSES = [
         ('pending', 'Pending'),
@@ -212,10 +213,15 @@ class NewsDigestTask(models.Model):
         ('failed', 'Failed'),
     ]
 
-    digest = models.OneToOneField(
+    digest = models.ForeignKey(
         NewsDigest,
         on_delete=models.CASCADE,
-        related_name='google_task',
+        related_name='google_tasks',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='news_digest_tasks',
     )
     task_id = models.CharField(max_length=200, blank=True)
     task_list_id = models.CharField(max_length=200, blank=True)
@@ -231,9 +237,32 @@ class NewsDigestTask(models.Model):
 
     class Meta:
         db_table = 'news_digest_task'
+        unique_together = (('digest', 'user'),)
 
     def __str__(self):
-        return f'{self.digest} -> {self.status}'
+        return f'{self.digest} -> {self.user}: {self.status}'
+
+
+class NewsDigestSubscription(models.Model):
+    """A user's opt-in to receiving the daily digest as a Google
+    task. `is_enabled=False` is an unsubscribe — the row stays
+    for admin audit and a re-subscribe flips it back."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='news_digest_subscription',
+    )
+    is_enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'news_digest_subscription'
+
+    def __str__(self):
+        state = 'on' if self.is_enabled else 'off'
+        return f'{self.user}: digest tasks {state}'
 
 
 class NewsSourcePreference(models.Model):

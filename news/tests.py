@@ -19,6 +19,8 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from google.oauth2 import service_account
+from google_api.models import GoogleOAuthCredentials
+from google_api.utils import GOOGLE_TASKS_SCOPES
 from langdetect import LangDetectException
 from langdetect.lang_detect_exception import ErrorCode
 
@@ -55,6 +57,7 @@ from .models import (
     NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
+    NewsDigestSubscription,
     NewsDigestTask,
     NewsSource,
     NewsSourcePreference,
@@ -984,20 +987,31 @@ class DigestTests(TestCase):
 
 
 class DigestGoogleTaskTests(TestCase):
-    """The build -> Google task hook: insert body, list
-    resolution, rebuild dedup and never-raise failure paths."""
+    """The build -> per-subscriber Google task fan-out: one
+    insert per enabled subscription, per-user insert bodies and
+    link rows, rebuild dedup and isolated failure paths."""
+
+    _ANY_CREDS = object()
 
     def setUp(self):
         self.a = _source('gta')
+        self.b = _source('gtb')
         self.topic = NewsTopic.objects.create(
             slug='politics', name='Politika', weight=1.0,
             keywords=['Saeima'],
         )
         self.today = timezone.localdate()
-        self.user = get_user_model().objects.create_user('owner')
+        User = get_user_model()
+        self.alice = User.objects.create_user('alice')
+        self.bob = User.objects.create_user('bob')
+        self.sub_alice = NewsDigestSubscription.objects.create(
+            user=self.alice,
+        )
+        self.sub_bob = NewsDigestSubscription.objects.create(
+            user=self.bob,
+        )
         self._cfg = override_settings(
             GOOGLE_OAUTH_CLIENT_JSON='{}',
-            GOOGLE_TASKS_USERNAME='owner',
             GOOGLE_TASKS_LIST_TITLE='News',
         )
         self._cfg.enable()
@@ -1032,23 +1046,46 @@ class DigestGoogleTaskTests(TestCase):
             .return_value.execute.return_value = {'id': 't1'}
         return service
 
-    def _build(self, **kwargs):
-        service = kwargs.pop('service', self._service())
+    def _build(self, service=None, creds=_ANY_CREDS, **kwargs):
+        """build_digest with the Google seam mocked: `creds` is a
+        Credentials stand-in, None (no grant) or a {user: creds}
+        map; `service` a Mock or a per-call list for build's
+        side_effect. The patched creds getter lands on
+        self.creds_getter for user-ordered assertions."""
+        service = self._service() if service is None else service
+        if isinstance(creds, dict):
+            self.creds_getter = Mock(
+                side_effect=lambda user, _scopes: creds.get(user)
+            )
+        else:
+            self.creds_getter = Mock(
+                return_value=(
+                    Mock() if creds is self._ANY_CREDS else creds
+                )
+            )
+        build_patch = (
+            patch('news.tasks.build', side_effect=service)
+            if isinstance(service, list)
+            else patch('news.tasks.build', return_value=service)
+        )
         with (
-            patch(
-                'news.tasks.get_user_credentials',
-                return_value=kwargs.pop('creds', Mock()),
-            ),
-            patch('news.tasks.build', return_value=service),
+            patch('news.tasks.get_user_credentials',
+                  self.creds_getter),
+            build_patch,
         ):
             result = build_digest(self.today, **kwargs)
         return result, service
 
-    def test_insert_body_title_notes_no_due(self):
+    def _link(self, user):
+        return NewsDigestTask.objects.get(
+            digest__date=self.today, user=user,
+        )
+
+    def test_task_created_per_subscriber_with_link_rows(self):
         self._story()
-        result, service = self._build()
+        _, service = self._build()
         insert = service.tasks.return_value.insert
-        insert.assert_called_once()
+        self.assertEqual(insert.call_count, 2)
         body = insert.call_args.kwargs['body']
         date_str = self.today.isoformat()
         self.assertEqual(body['title'], f'News digest {date_str}')
@@ -1058,19 +1095,55 @@ class DigestGoogleTaskTests(TestCase):
         self.assertIn('1. Ziņa viens', notes)
         # Each headline carries the preferred outlet's link.
         self.assertIn('(https://gta.lv/', notes)
-        link = NewsDigestTask.objects.get()
-        self.assertEqual(link.status, 'created')
-        self.assertEqual(link.task_id, 't1')
-        self.assertEqual(link.task_list_id, 'l1')
+        # Both subscribers asked for their own credentials and
+        # got their own (digest, user) link row.
+        self.assertEqual(self.creds_getter.call_count, 2)
+        for user in (self.alice, self.bob):
+            link = self._link(user)
+            self.assertEqual(link.status, 'created')
+            self.assertEqual(link.task_id, 't1')
+            self.assertEqual(link.task_list_id, 'l1')
 
-    def test_list_auto_created_when_absent(self):
+    def test_notes_use_subscribers_own_outlet_ranking(self):
+        # Story covered by both outlets; alice ranks gtb first,
+        # bob gta — their task notes must diverge.
+        story = self._story()
+        _article(
+            self.b, 'Ziņa viens (B)', topic=self.topic,
+            story=story, story_match_status='auto',
+        )
+        story.source_count = 2
+        story.save()
+        NewsSourcePreference.objects.create(
+            user=self.alice, source=self.b, rank=1,
+        )
+        NewsSourcePreference.objects.create(
+            user=self.bob, source=self.a, rank=1,
+        )
+        _, service = self._build()
+        inserts = service.tasks.return_value.insert.call_args_list
+        self.assertEqual(len(inserts), 2)
+        # creds resolution and the insert run in the same
+        # subscriber iteration order — pair them by index.
+        asked_users = [
+            call.args[0]
+            for call in self.creds_getter.call_args_list
+        ]
+        notes_by_user = {
+            user: inserts[i].kwargs['body']['notes']
+            for i, user in enumerate(asked_users)
+        }
+        self.assertIn('(https://gtb.lv/', notes_by_user[self.alice])
+        self.assertIn('(https://gta.lv/', notes_by_user[self.bob])
+
+    def test_list_auto_created_per_subscriber(self):
         self._story()
         _, service = self._build(service=self._service(lists=[]))
-        service.tasklists.return_value.insert.assert_called_once_with(
-            body={'title': 'News'}
-        )
-        link = NewsDigestTask.objects.get()
-        self.assertEqual(link.task_list_id, 'l1')
+        tasklists_insert = service.tasklists.return_value.insert
+        self.assertEqual(tasklists_insert.call_count, 2)
+        tasklists_insert.assert_called_with(body={'title': 'News'})
+        for user in (self.alice, self.bob):
+            self.assertEqual(self._link(user).task_list_id, 'l1')
 
     def test_existing_list_reused_case_insensitive(self):
         self._story()
@@ -1083,11 +1156,64 @@ class DigestGoogleTaskTests(TestCase):
         insert = service.tasks.return_value.insert
         self.assertEqual(insert.call_args.kwargs['tasklist'], 'l9')
 
-    def test_rebuild_does_not_duplicate_task(self):
+    def test_no_creds_subscriber_fails_connected_creates(self):
+        self._story()
+        _, service = self._build(
+            creds={self.alice: Mock(), self.bob: None},
+        )
+        # One subscriber's missing grant is invisible to the
+        # other — same build, both rows written.
+        service.tasks.return_value.insert.assert_called_once()
+        self.assertEqual(self._link(self.alice).status, 'created')
+        failed = self._link(self.bob)
+        self.assertEqual(failed.status, 'failed')
+        self.assertIn('google/login', failed.error)
+        digest = NewsDigest.objects.get()
+        self.assertEqual(digest.items.count(), 1)
+
+    def test_insert_exception_isolates_that_user(self):
+        self._story()
+        failing = self._service()
+        failing.tasks.return_value.insert\
+            .return_value.execute.side_effect = ValueError('boom')
+        ok = self._service()
+        # Fan-out order is subscription pk: alice first.
+        result, _ = self._build(service=[failing, ok])
+        self.assertEqual(len(result['items']), 1)
+        failed = self._link(self.alice)
+        self.assertEqual(failed.status, 'failed')
+        self.assertIn('boom', failed.error)
+        self.assertEqual(self._link(self.bob).status, 'created')
+        ok.tasks.return_value.insert.assert_called_once()
+
+    def test_rebuild_dedups_per_user_serves_new_subscriber(self):
+        # Second build: bob opted out, so only alice's insert —
+        # then bob subscribes and the --date rerun inserts for
+        # him alone.
+        self.sub_bob.is_enabled = False
+        self.sub_bob.save()
         self._story()
         _, service = self._build()
-        self._build(service=service)
         service.tasks.return_value.insert.assert_called_once()
+        self.sub_bob.is_enabled = True
+        self.sub_bob.save()
+        self._build(service=service)
+        insert = service.tasks.return_value.insert
+        self.assertEqual(insert.call_count, 2)
+        self.assertEqual(self._link(self.alice).status, 'created')
+        self.assertEqual(self._link(self.bob).status, 'created')
+
+    def test_failed_row_retried_on_next_build(self):
+        self.sub_bob.is_enabled = False
+        self.sub_bob.save()
+        self._story()
+        self._build(creds={self.alice: None})
+        self.assertEqual(self._link(self.alice).status, 'failed')
+        _, service = self._build()
+        service.tasks.return_value.insert.assert_called_once()
+        link = self._link(self.alice)
+        self.assertEqual(link.status, 'created')
+        self.assertEqual(link.task_id, 't1')
 
     def test_dry_run_touches_nothing_remote(self):
         self._story()
@@ -1096,32 +1222,24 @@ class DigestGoogleTaskTests(TestCase):
         service.tasks.return_value.insert.assert_not_called()
         self.assertEqual(NewsDigestTask.objects.count(), 0)
 
-    def test_missing_creds_failed_row_digest_intact(self):
-        self._story()
-        self._build(creds=None)
-        digest = NewsDigest.objects.get()
-        self.assertEqual(digest.items.count(), 1)
-        link = NewsDigestTask.objects.get()
-        self.assertEqual(link.status, 'failed')
-        self.assertIn('google/login', link.error)
-
-    def test_failed_row_retried_on_rebuild(self):
-        self._story()
-        self._build(creds=None)
-        _, service = self._build()
-        service.tasks.return_value.insert.assert_called_once()
-        link = NewsDigestTask.objects.get()
-        self.assertEqual(link.status, 'created')
-        self.assertEqual(link.task_id, 't1')
-
-    def test_feature_disabled_no_link_row(self):
+    def test_no_subscribers_touches_nothing_remote(self):
+        NewsDigestSubscription.objects.update(is_enabled=False)
         self._story()
         service = self._service()
         with (
-            override_settings(
-                GOOGLE_OAUTH_CLIENT_JSON='',
-                GOOGLE_TASKS_USERNAME='',
-            ),
+            patch('news.tasks.get_user_credentials') as creds,
+            patch('news.tasks.build', return_value=service) as b,
+        ):
+            build_digest(self.today)
+        creds.assert_not_called()
+        b.assert_not_called()
+        self.assertEqual(NewsDigestTask.objects.count(), 0)
+
+    def test_unconfigured_install_is_noop(self):
+        self._story()
+        service = self._service()
+        with (
+            override_settings(GOOGLE_OAUTH_CLIENT_JSON=''),
             patch('news.tasks.build', return_value=service) as b,
         ):
             build_digest(self.today)
@@ -2013,6 +2131,145 @@ class PreferencesApiTests(TestCase):
             ],
         }, content_type='application/json')
         self.assertEqual(self._prefs(), [('a', 1), ('b', 2)])
+
+
+class DigestTaskApiTests(TestCase):
+    """GET|POST /api/news/digest-task/… — the subscription ops
+    behind django_auth backing the preferences-page card."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='reader', password='x',
+        )
+        self.url = '/api/news/digest-task/'
+
+    def _oauth_creds(self, user, scopes=None):
+        return GoogleOAuthCredentials.objects.create(
+            user=user,
+            access_token='a',
+            refresh_token='r',
+            token_expiry=timezone.now() + timedelta(hours=1),
+            scopes=list(GOOGLE_TASKS_SCOPES) if scopes is None
+            else scopes,
+        )
+
+    def test_anonymous_get_401s_with_preferences_login_url(self):
+        """Anonymous GET answers the JSON 401 handshake whose
+        `next` lands on /news/preferences/ — the page owning
+        the card, not the nonexistent /news/digest-task/."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload['error'], 'unauthenticated')
+        self.assertIn('/accounts/login/', payload['login_url'])
+        self.assertIn(
+            'next=%2Fnews%2Fpreferences%2F',
+            payload['login_url'],
+        )
+
+    def test_anonymous_posts_401(self):
+        for op in ('subscribe', 'unsubscribe'):
+            response = self.client.post(f'{self.url}{op}/')
+            self.assertEqual(response.status_code, 401)
+            self.assertIn(
+                'next=%2Fnews%2Fpreferences%2F',
+                response.json()['login_url'],
+            )
+
+    def test_get_fresh_user_all_false(self):
+        self.client.force_login(self.user)
+        with override_settings(GOOGLE_OAUTH_CLIENT_JSON=''):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            'oauth_configured': False,
+            'google_connected': False,
+            'subscribed': False,
+            'last_task': None,
+        })
+
+    def test_google_connected_requires_tasks_scope(self):
+        self.client.force_login(self.user)
+        with override_settings(GOOGLE_OAUTH_CLIENT_JSON='{}'):
+            self._oauth_creds(self.user, scopes=['openid'])
+            response = self.client.get(self.url)
+            self.assertFalse(response.json()['google_connected'])
+            creds = self.user.google_credentials
+            creds.scopes = list(GOOGLE_TASKS_SCOPES)
+            creds.save()
+            payload = self.client.get(self.url).json()
+        self.assertTrue(payload['google_connected'])
+        self.assertTrue(payload['oauth_configured'])
+
+    def test_subscribe_without_grant_returns_200(self):
+        self.client.force_login(self.user)
+        response = self.client.post(f'{self.url}subscribe/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['subscribed'])
+        self.assertFalse(payload['google_connected'])
+        sub = NewsDigestSubscription.objects.get(user=self.user)
+        self.assertTrue(sub.is_enabled)
+
+    def test_unsubscribe_is_idempotent(self):
+        self.client.force_login(self.user)
+        # Never subscribed — still a 200, and the row lands
+        # disabled for the audit trail.
+        response = self.client.post(f'{self.url}unsubscribe/')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['subscribed'])
+        NewsDigestSubscription.objects.filter(
+            user=self.user,
+        ).update(is_enabled=True)
+        response = self.client.post(f'{self.url}unsubscribe/')
+        self.assertFalse(response.json()['subscribed'])
+        self.assertEqual(
+            NewsDigestSubscription.objects.filter(
+                user=self.user,
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            NewsDigestSubscription.objects.get(
+                user=self.user,
+            ).is_enabled
+        )
+
+    def test_resubscribe_reenables_same_row(self):
+        self.client.force_login(self.user)
+        self.client.post(f'{self.url}subscribe/')
+        self.client.post(f'{self.url}unsubscribe/')
+        response = self.client.post(f'{self.url}subscribe/')
+        self.assertTrue(response.json()['subscribed'])
+        subs = NewsDigestSubscription.objects.filter(
+            user=self.user,
+        )
+        self.assertEqual(subs.count(), 1)
+        self.assertTrue(subs.get().is_enabled)
+
+    def test_last_task_echoes_newest_link_row(self):
+        d1 = NewsDigest.objects.create(date=date(2026, 1, 1))
+        d2 = NewsDigest.objects.create(date=date(2026, 1, 2))
+        NewsDigestTask.objects.create(
+            digest=d1, user=self.user, status='created',
+            task_id='t1', task_list_id='l1',
+        )
+        NewsDigestTask.objects.create(
+            digest=d2, user=self.user, status='failed',
+            error='re-authorize at /google/login',
+        )
+        # Another user's even-newer row must not leak in.
+        other = get_user_model().objects.create_user('other')
+        NewsDigestTask.objects.create(
+            digest=d2, user=other, status='created',
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(self.url)
+        last = response.json()['last_task']
+        self.assertEqual(last['digest_date'], '2026-01-02')
+        self.assertEqual(last['status'], 'failed')
+        self.assertIn('google/login', last['error'])
+        self.assertIn('updated_at', last)
 
 
 class NewsShellTests(TestCase):
