@@ -88,8 +88,8 @@ function DigestTaskCard() {
         <Button
           as="a"
           href={
-            '/google/login/' +
-            '?next=/news/preferences/?subscribe=1'
+            '/google/login/?next=' +
+            encodeURIComponent('/news/preferences/?subscribe=1')
           }
           className="mt-2"
         >

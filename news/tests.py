@@ -2271,6 +2271,34 @@ class DigestTaskApiTests(TestCase):
         self.assertIn('google/login', last['error'])
         self.assertIn('updated_at', last)
 
+    def test_last_task_tracks_newest_digest_not_latest_touch(
+        self,
+    ):
+        """A `build_news_digest --date <old>` rerun retrying an
+        older digest's failed row bumps its updated_at — the
+        card must still report the newest digest, not the most
+        recently touched row."""
+        old = NewsDigest.objects.create(date=date(2026, 1, 1))
+        new = NewsDigest.objects.create(date=date(2026, 1, 2))
+        stale = NewsDigestTask.objects.create(
+            digest=old, user=self.user, status='failed',
+            error='transient',
+        )
+        NewsDigestTask.objects.create(
+            digest=new, user=self.user, status='created',
+            task_id='t2', task_list_id='l1',
+        )
+        # Simulate the rerun retrying the older digest's row —
+        # update() bypasses auto_now so the bump is explicit.
+        NewsDigestTask.objects.filter(pk=stale.pk).update(
+            status='created',
+            updated_at=timezone.now() + timedelta(hours=1),
+        )
+        self.client.force_login(self.user)
+        last = self.client.get(self.url).json()['last_task']
+        self.assertEqual(last['digest_date'], '2026-01-02')
+        self.assertEqual(last['status'], 'created')
+
 
 class NewsShellTests(TestCase):
     """The /news/ SPA shell contract — retired form-action and

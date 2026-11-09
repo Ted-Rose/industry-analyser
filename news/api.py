@@ -2,16 +2,16 @@
 
 Read ops are public (auth=None) — the digest pages they replace
 were public, including the gTTS clip endpoint whose pre-warm
-fan-out must work for anonymous readers. The preferences ops keep
-the default django_auth (session + CSRF) — they replaced the
-@login_required form view. View logic is ported verbatim from the
-retired views in news/views.py: `date`/`period` stay free-form
-strings parsed by strptime inside the ops so malformed params
-degrade to the default window instead of 422ing (the old page's
-"never an error page" contract), and the `news.audio` import
-stays lazy INSIDE the audio op — module-level it would take the
-whole urlconf down when the optional gTTS/langdetect/GCS deps are
-missing.
+fan-out must work for anonymous readers. The preferences and
+digest-task ops keep the default django_auth (session + CSRF) —
+they replaced the @login_required form view. View logic is
+ported verbatim from the retired views in news/views.py:
+`date`/`period` stay free-form strings parsed by strptime inside
+the ops so malformed params degrade to the default window
+instead of 422ing (the old page's "never an error page"
+contract), and the `news.audio` import stays lazy INSIDE the
+audio op — module-level it would take the whole urlconf down
+when the optional gTTS/langdetect/GCS deps are missing.
 """
 import logging
 import os
@@ -486,7 +486,7 @@ def _digest_task_status(user):
     last = (
         NewsDigestTask.objects.filter(user=user)
         .select_related('digest')
-        .order_by('-updated_at', '-pk')
+        .order_by('-digest__date', '-updated_at', '-pk')
         .first()
     )
     return DigestTaskStatusOut(

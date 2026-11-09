@@ -191,7 +191,8 @@ describe('DigestTaskCard', () => {
     });
     expect(connect).toHaveAttribute(
       'href',
-      '/google/login/?next=/news/preferences/?subscribe=1',
+      '/google/login/?next=' +
+        encodeURIComponent('/news/preferences/?subscribe=1'),
     );
   });
 
