@@ -769,6 +769,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/news/digest-task/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Digest Task Status
+         * @description Google-Tasks digest subscription state for the card on
+         *     /news/preferences/ — session-auth; the 401 handshake's
+         *     `next` lands on that page via SPA_SUBPATHS.
+         */
+        get: operations["news_api_digest_task_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digest-task/subscribe/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subscribe Digest Task
+         * @description Idempotent opt-in — creates or re-enables the caller's
+         *     subscription row. Succeeds (200, google_connected: false)
+         *     without a Google grant: tasks start on the next build once
+         *     the account is connected via /google/login.
+         */
+        post: operations["news_api_subscribe_digest_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digest-task/unsubscribe/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unsubscribe Digest Task
+         * @description Idempotent opt-out — flips is_enabled off while keeping
+         *     the row (and all NewsDigestTask audit rows).
+         */
+        post: operations["news_api_unsubscribe_digest_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2285,6 +2351,33 @@ export interface components {
             /** Rows */
             rows: components["schemas"]["PreferenceRowIn"][];
         };
+        /** DigestTaskLastOut */
+        DigestTaskLastOut: {
+            /**
+             * Digest Date
+             * Format: date
+             */
+            digest_date: string;
+            /** Status */
+            status: string;
+            /** Error */
+            error: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** DigestTaskStatusOut */
+        DigestTaskStatusOut: {
+            /** Oauth Configured */
+            oauth_configured: boolean;
+            /** Google Connected */
+            google_connected: boolean;
+            /** Subscribed */
+            subscribed: boolean;
+            last_task: components["schemas"]["DigestTaskLastOut"] | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -3158,6 +3251,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreferencesSavedOut"];
+                };
+            };
+        };
+    };
+    news_api_digest_task_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestTaskStatusOut"];
+                };
+            };
+        };
+    };
+    news_api_subscribe_digest_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestTaskStatusOut"];
+                };
+            };
+        };
+    };
+    news_api_unsubscribe_digest_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestTaskStatusOut"];
                 };
             };
         };
