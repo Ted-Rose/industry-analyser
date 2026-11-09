@@ -6,9 +6,10 @@ import {
   waitFor,
 } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import Preferences from './Preferences';
 import { apiGet, apiPost } from '../../shared/api/client';
-import type { PreferencesOut } from '../api';
+import type { DigestTaskStatusOut, PreferencesOut } from '../api';
 
 vi.mock('../../shared/api/client', () => ({
   apiGet: vi.fn(),
@@ -32,21 +33,51 @@ function makePrefs(
   };
 }
 
-function renderPrefs() {
+function makeStatus(
+  overrides: Partial<DigestTaskStatusOut> = {},
+): DigestTaskStatusOut {
+  return {
+    oauth_configured: true,
+    google_connected: true,
+    subscribed: false,
+    last_task: null,
+    ...overrides,
+  };
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="loc">{location.search}</div>;
+}
+
+function currentSearch(): string {
+  return screen.getByTestId('loc').textContent ?? '';
+}
+
+function renderPrefs(entry = '/preferences') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Preferences />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={[entry]}>
+      <QueryClientProvider client={queryClient}>
+        <Preferences />
+        <LocationProbe />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
 beforeEach(() => {
   mockedApiGet.mockReset();
   mockedApiPost.mockReset();
-  mockedApiGet.mockResolvedValue(makePrefs());
+  mockedApiGet.mockImplementation((url: string) =>
+    Promise.resolve(
+      url === '/api/news/digest-task/'
+        ? makeStatus()
+        : makePrefs(),
+    ),
+  );
   mockedApiPost.mockResolvedValue({
     success: true,
     saved: 2,
@@ -127,5 +158,87 @@ describe('Preferences', () => {
           },
         ),
       );
+    });
+});
+
+describe('DigestTaskCard', () => {
+  it('stays hidden when oauth_configured is false', async () => {
+    mockedApiGet.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/api/news/digest-task/'
+          ? makeStatus({ oauth_configured: false })
+          : makePrefs(),
+      ),
+    );
+    renderPrefs();
+    await screen.findByRole('checkbox', { name: 'B' });
+    expect(
+      screen.queryByText('Google Tasks digest'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('links Connect Google back with ?subscribe=1', async () => {
+    mockedApiGet.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/api/news/digest-task/'
+          ? makeStatus({ google_connected: false })
+          : makePrefs(),
+      ),
+    );
+    renderPrefs();
+    const connect = await screen.findByRole('link', {
+      name: 'Pievienot Google',
+    });
+    expect(connect).toHaveAttribute(
+      'href',
+      '/google/login/?next=' +
+        encodeURIComponent('/news/preferences/?subscribe=1'),
+    );
+  });
+
+  it('auto-subscribes once on ?subscribe=1 then strips it',
+    async () => {
+      renderPrefs('/preferences?subscribe=1');
+      await waitFor(() =>
+        expect(mockedApiPost).toHaveBeenCalledWith(
+          '/api/news/digest-task/subscribe/',
+        ),
+      );
+      const subscribeCalls = mockedApiPost.mock.calls.filter(
+        ([url]) => url === '/api/news/digest-task/subscribe/',
+      );
+      expect(subscribeCalls).toHaveLength(1);
+      await waitFor(() =>
+        expect(currentSearch()).not.toContain('subscribe=1'),
+      );
+    });
+
+  it('shows the subscribed state with a failed last task',
+    async () => {
+      mockedApiGet.mockImplementation((url: string) =>
+        Promise.resolve(
+          url === '/api/news/digest-task/'
+            ? makeStatus({
+                subscribed: true,
+                last_task: {
+                  digest_date: '2026-11-09',
+                  status: 'failed',
+                  error: 're-authorize at /google/login',
+                  updated_at: '2026-11-09T08:00:00Z',
+                },
+              })
+            : makePrefs(),
+        ),
+      );
+      renderPrefs();
+      await screen.findByRole('button', { name: 'Atsakties' });
+      expect(
+        screen.getByText(/re-authorize at \/google\/login/),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('link', {
+          name: 'Pievieno Google vēlreiz',
+        }),
+      ).toHaveAttribute('href', '/google/login');
     });
 });

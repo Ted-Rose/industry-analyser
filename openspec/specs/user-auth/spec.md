@@ -165,11 +165,13 @@ authenticated non-staff callers get 403
 Per-user surfaces SHALL remain reachable by any authenticated
 user regardless of staff status: `PUT
 /api/vacancies/companies/<pk>/preference/`, the
-`/api/vacancies/filters/` CRUD, the TV reaction POSTs and the
-`/api/news/preferences/` GET/POST ops (the `/news/preferences/`
-SPA page itself is a public `react_app_public` mount — only
-its API calls are gated). Public reads stay `auth=None` for
-everyone including anonymous.
+`/api/vacancies/filters/` CRUD, the TV reaction POSTs, the
+`/api/news/preferences/` GET/POST ops and the
+`/api/news/digest-task/` GET plus subscribe/unsubscribe POST
+ops (the `/news/preferences/` SPA page itself is a public
+`react_app_public` mount — only its API calls are gated).
+Public reads stay `auth=None` for everyone including
+anonymous.
 
 #### Scenario: Registered user uses a per-user feature
 
@@ -177,9 +179,17 @@ everyone including anonymous.
   preference or POSTs a TV reaction
 - **THEN** the op runs normally against their user row
 
+#### Scenario: Registered user manages a digest subscription
+
+- **WHEN** an authenticated non-staff user GETs
+  `/api/news/digest-task/` or POSTs to its subscribe op
+- **THEN** the op runs normally against their user row — no
+  staff check
+
 #### Scenario: Anonymous caller still cannot write
 
-- **WHEN** an anonymous caller PUTs a company preference
+- **WHEN** an anonymous caller PUTs a company preference or
+  POSTs to `/api/news/digest-task/subscribe/`
 - **THEN** the response is the 401 `login_url` handshake
 
 #### Scenario: Public read stays public
