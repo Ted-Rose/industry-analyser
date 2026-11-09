@@ -355,9 +355,14 @@ python manage.py scrape_apartment_ads --max-pages 10
 python manage.py scrape_housing_ads
 python manage.py scrape_blogs [--theme NAME] [--reanalyze]
 python manage.py scrape_tv_programs [--force] [--dry-run]
+python manage.py news_pipeline [--fresh] [--from PHASE] \
+  [--dry-run]
 python manage.py scrape_news \
   [--backfill] [--since YYYY-MM-DD] [--until YYYY-MM-DD] \
   [--max-minutes N]
+python manage.py link_news_stories [--days N] [--dry-run]
+python manage.py build_news_digest [--date D] [--top-n N]
+python manage.py reclassify_news_articles [--all] [--days N]
 python manage.py backfill_program_shows [--dry-run]
 python manage.py enrich_tv_shows [--status pending] [--limit N]
 python manage.py sync_apartment_regions / sync_housing_regions
@@ -373,7 +378,16 @@ python manage.py run_all_jobs \
 ```
 
 Command detail: `scrape_vacancies` runs all configured portals
-by default. `scrape_news` polls RSS feeds; `--backfill` instead
+by default. `news_pipeline` is the daily news entry point —
+one checkpointed job (`news.pipeline`, `local:daily` in
+`run_all_jobs`) that calls `scrape_news` → `link_news_stories`
+→ `reclassify_news_articles` → `build_news_digest` in order,
+resuming at the first unfinished phase; `--fresh` re-runs all
+phases (forwarded to `scrape_news`), `--from PHASE` resumes at
+a named phase. The four delegated commands stay standalone —
+`link_news_stories --days N` is the outage catch-up and
+`build_news_digest --date D` backfills a missed day.
+`scrape_news` polls RSS feeds; `--backfill` instead
 walks each enabled source's historical sitemaps/archives into
 `NewsArticle` rows (job `news.backfill`, constant `backfill`
 cycle so re-invocations resume DONE partitions; `--since`/

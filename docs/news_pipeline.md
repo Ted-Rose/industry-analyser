@@ -13,19 +13,33 @@ and clustering are pure Python heuristics, deliberately.
 
 ## Orchestration
 
-`run_all_jobs` (`scrape_jobs/management/commands/run_all_jobs.py`)
-runs the pipeline as three sequential sub-jobs, all scheduled
-`local:daily` — the feeds are scraped from the maintainer's
-machine and the pipeline **never runs on Cloud Run**:
+`news_pipeline` is the single daily entry point — one
+`local:daily` entry in `run_all_jobs`' `JOBS` list and the
+command the maintainer's schedule should fire. It runs the
+four phases in order under job slug `news.pipeline` (daily
+UTC cycle), each phase checkpointed as a `ScrapeJobItem`
+(`scrape`/`link`/`reclassify`/`digest`) so a re-invocation in
+the same cycle resumes at the first unfinished phase and a
+fully-DONE cycle is a no-op — the feeds are scraped from the
+maintainer's machine and the pipeline **never runs on Cloud
+Run**:
 
 ```
-scrape_news  →  link_news_stories  →  build_news_digest
-(articles)      (stories)             (ranked digest)
+scrape_news → link_news_stories → reclassify_news_articles
+  (articles)    (stories)           (topic retag)
+            → build_news_digest
+              (ranked digest)
 ```
 
-Each stage is also a standalone management command:
+A phase that raises is recorded FAILED, later phases do not
+run and the run ends PARTIAL — the next invocation retries
+that phase. The phases are plain `call_command` invocations,
+so each delegated command keeps its own behavior and stays
+usable standalone:
 
 ```bash
+python manage.py news_pipeline [--fresh] [--from PHASE] \
+    [--dry-run]
 python manage.py seed_news_sources [--sync] [--dry-run]
 python manage.py scrape_news [--source SLUG] [--fresh] \
     [--dry-run] [--ignore-cooldown] \
@@ -36,6 +50,16 @@ python manage.py build_news_digest [--date D] [--top-n N] \
 python manage.py reclassify_news_articles [--all] [--days N] \
     [--dry-run] [--batch-size N]
 ```
+
+`news_pipeline --fresh` re-runs every phase and forwards
+`--fresh` to `scrape_news` so feeds are re-fetched;
+`--from PHASE` resumes at a named phase; `--dry-run` prints
+the pending phases without invoking anything or writing job
+bookkeeping. After a multi-day outage, articles older than
+`link_news_stories --days 2`'s window stay unmatched — run
+`link_news_stories --days N` once to catch up, and
+`build_news_digest --date D` to backfill a missed day's
+digest.
 
 ## Data model (`news/models.py`)
 
