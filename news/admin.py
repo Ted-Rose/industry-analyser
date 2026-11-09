@@ -7,6 +7,7 @@ from .models import (
     NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
+    NewsDigestSubscription,
     NewsDigestTask,
     NewsSource,
     NewsSourcePreference,
@@ -90,15 +91,23 @@ class NewsDigestAdmin(admin.ModelAdmin):
     inlines = [NewsDigestItemInline]
 
 
+@admin.register(NewsDigestSubscription)
+class NewsDigestSubscriptionAdmin(admin.ModelAdmin):
+    # Staff can opt a user out of digest tasks via the list.
+    list_display = ('user', 'is_enabled', 'updated_at')
+    list_editable = ('is_enabled',)
+
+
 @admin.register(NewsDigestTask)
 class NewsDigestTaskAdmin(admin.ModelAdmin):
     # Audit trail written by create_digest_task — read-only.
     list_display = (
-        'digest', 'status', 'task_id', 'task_list_id', 'updated_at',
+        'digest', 'user', 'status', 'task_id', 'task_list_id',
+        'updated_at',
     )
     readonly_fields = (
-        'digest', 'task_id', 'task_list_id', 'status', 'error',
-        'created_at', 'updated_at',
+        'digest', 'user', 'task_id', 'task_list_id', 'status',
+        'error', 'created_at', 'updated_at',
     )
 
     def has_add_permission(self, request):

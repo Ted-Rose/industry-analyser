@@ -272,8 +272,9 @@ Rebuilds are idempotent (`update_or_create` + wholesale item
 replace inside a transaction), then a best-effort Google Tasks
 hook fires outside the transaction — deduped by the
 `NewsDigestTask` link row, never able to fail the build, and
-inert unless both `GOOGLE_OAUTH_CLIENT_JSON` and
-`GOOGLE_TASKS_USERNAME` are set.
+inert unless `GOOGLE_OAUTH_CLIENT_JSON` is set. Recipients are
+the enabled `NewsDigestSubscription` rows — one task per
+subscriber in their own Google account.
 
 **Per-user ordering** (`preferences.py`): `ordered_sources`
 sorts a user's `NewsSourcePreference` ranks first, then
