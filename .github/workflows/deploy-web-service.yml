@@ -91,6 +91,10 @@ jobs:
           docker push "${IMAGE}:web-latest"
 
       - name: Run database migrations
+        # Master only: a workflow_dispatch from a feature branch must
+        # not run unmerged migration files against the prod DB (same
+        # guard as Terraform apply in deploy-scraper-jobs.yml).
+        if: github.ref == 'refs/heads/master'
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
@@ -103,7 +107,9 @@ jobs:
           # image (so it runs this commit's migration files) with the
           # same env-file secret as the service; it is intentionally
           # not terraform-managed. `migrate` is a fast no-op when
-          # nothing is pending.
+          # nothing is pending. Caveat: if `migrate` succeeds but the
+          # service deploy below fails, prod schema is ahead of the
+          # running code — keep migrations backward-compatible.
           gcloud run jobs deploy run-migrations \
             --image="${IMAGE}" \
             --region="${REGION}" \
