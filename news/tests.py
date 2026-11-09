@@ -23,6 +23,7 @@ from langdetect import LangDetectException
 from langdetect.lang_detect_exception import ErrorCode
 
 from scrape_jobs.models import (
+    ScrapeJob,
     ScrapeJobItem,
     ScrapeJobRun,
     ScrapeJobRunItem,
@@ -3759,3 +3760,128 @@ class RobotSurfaceTests(TestCase):
             ).status_code,
             404,
         )
+
+
+class NewsPipelineCommandTests(TestCase):
+    """news_pipeline: the four daily phases checkpointed as
+    ScrapeJobItems under job slug 'news.pipeline'. call_command
+    is mocked out — what is under test is phase order,
+    same-cycle resume, failure abort, --from and --dry-run."""
+
+    MODULE = 'news.management.commands.news_pipeline'
+
+    def _run(self, **kwargs):
+        out = StringIO()
+        with patch(f'{self.MODULE}.call_command') as cc:
+            call_command('news_pipeline', stdout=out, **kwargs)
+        return cc, out.getvalue()
+
+    @staticmethod
+    def _invoked(cc):
+        return [call.args[0] for call in cc.call_args_list]
+
+    def test_runs_all_phases_in_order(self):
+        cc, _ = self._run()
+        self.assertEqual(
+            self._invoked(cc),
+            ['scrape_news', 'link_news_stories',
+             'reclassify_news_articles', 'build_news_digest'],
+        )
+        run = ScrapeJobRun.objects.get(job__slug='news.pipeline')
+        self.assertEqual(run.status, ScrapeJobRun.SUCCESS)
+        self.assertEqual(
+            set(
+                ScrapeJobRunItem.objects.filter(
+                    run=run, status=ScrapeJobRunItem.DONE,
+                ).values_list('item__key', flat=True)
+            ),
+            {'scrape', 'link', 'reclassify', 'digest'},
+        )
+
+    def test_second_invocation_skips_done_phases(self):
+        self._run()
+        cc, _ = self._run()
+        cc.assert_not_called()
+        # Both invocations open a run; the second finishes
+        # SUCCESS with nothing to do.
+        self.assertEqual(ScrapeJobRun.objects.count(), 2)
+        latest = ScrapeJobRun.objects.latest('id')
+        self.assertEqual(latest.status, ScrapeJobRun.SUCCESS)
+
+    def test_fresh_reruns_every_phase(self):
+        self._run()
+        cc, _ = self._run(fresh=True)
+        self.assertEqual(len(cc.call_args_list), 4)
+        # --fresh is forwarded to scrape_news only — the other
+        # phases need no flag.
+        self.assertEqual(
+            cc.call_args_list[0].args, ('scrape_news', '--fresh')
+        )
+        self.assertEqual(
+            cc.call_args_list[1].args, ('link_news_stories',)
+        )
+
+    def test_failure_aborts_and_resumes_at_failed_phase(self):
+        with patch(f'{self.MODULE}.call_command') as cc:
+            cc.side_effect = [None, CommandError('boom')]
+            with self.assertRaises(CommandError):
+                call_command('news_pipeline', stdout=StringIO())
+        self.assertEqual(
+            self._invoked(cc),
+            ['scrape_news', 'link_news_stories'],
+        )
+        run = ScrapeJobRun.objects.get()
+        self.assertEqual(run.status, ScrapeJobRun.PARTIAL)
+        statuses = {
+            ri.item.key: ri.status
+            for ri in ScrapeJobRunItem.objects.filter(run=run)
+        }
+        self.assertEqual(statuses['scrape'], ScrapeJobRunItem.DONE)
+        self.assertEqual(statuses['link'], ScrapeJobRunItem.FAILED)
+        # The next same-cycle invocation retries the failed
+        # phase and everything after it — scrape stays DONE.
+        cc, _ = self._run()
+        self.assertEqual(
+            self._invoked(cc),
+            ['link_news_stories', 'reclassify_news_articles',
+             'build_news_digest'],
+        )
+
+    def test_from_phase_skips_earlier_phases(self):
+        cc, _ = self._run(from_phase='digest')
+        self.assertEqual(self._invoked(cc), ['build_news_digest'])
+
+    def test_from_unknown_phase_errors(self):
+        with self.assertRaises(CommandError):
+            self._run(from_phase='bogus')
+        # The RUNNING run opened at construction is closed
+        # FAILED instead of dangling for the stale sweep.
+        run = ScrapeJobRun.objects.get()
+        self.assertEqual(run.status, ScrapeJobRun.FAILED)
+
+    def test_dry_run_prints_pending_and_writes_nothing(self):
+        cc, out = self._run(dry_run=True)
+        cc.assert_not_called()
+        self.assertIn('scrape', out)
+        self.assertIn('digest', out)
+        self.assertEqual(ScrapeJob.objects.count(), 0)
+        self.assertEqual(ScrapeJobItem.objects.count(), 0)
+        self.assertEqual(ScrapeJobRun.objects.count(), 0)
+        self.assertEqual(ScrapeJobRunItem.objects.count(), 0)
+
+    def test_dry_run_lists_only_pending_phases(self):
+        # A morning pass died at 'link': scrape is DONE this
+        # cycle — --dry-run must exclude it from pending.
+        with patch(f'{self.MODULE}.call_command') as cc:
+            cc.side_effect = [None, CommandError('boom')]
+            with self.assertRaises(CommandError):
+                call_command('news_pipeline', stdout=StringIO())
+        cc, out = self._run(dry_run=True)
+        cc.assert_not_called()
+        self.assertIn(
+            'pending phases: link, reclassify, digest', out
+        )
+        self.assertIn('already done this cycle: scrape', out)
+        # Still read-only: no new run/run-item rows.
+        self.assertEqual(ScrapeJobRun.objects.count(), 1)
+        self.assertEqual(ScrapeJobRunItem.objects.count(), 2)
