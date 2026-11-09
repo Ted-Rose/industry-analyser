@@ -143,8 +143,10 @@ jobs:
 
           # Master job: sequential run of all enabled sub-jobs
           # (JOBS list in scrape_jobs/management/commands/run_all_jobs.py).
-          # This is the only remaining Cloud Run job — the former
-          # per-task jobs were removed in the Phase-2 consolidation.
+          # The only remaining SCHEDULED Cloud Run job — the former
+          # per-task jobs were removed in the Phase-2 consolidation
+          # (deploy-web-service.yml also maintains an unscheduled
+          # ad-hoc `run-migrations` job).
           update_job_if_exists all-jobs \
             --image="${IMAGE}" \
             --command=python \

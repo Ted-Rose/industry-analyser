@@ -406,8 +406,8 @@ apartment|house`. `link_vacancies_to_companies` takes `--ids` and
 `--employers-only`. `refetch_vacancies` takes
 `--exclude-keywords`, `--no-ocr` — see
 `docs/vacancy_refetch_usage.md`. `run_all_jobs` is the master
-`all-jobs` Cloud Run entry point — the only Cloud Run job left
-after the Phase-2 consolidation: the `all-jobs-daily` Cloud
+`all-jobs` Cloud Run entry point — the only scheduled Cloud Run
+job left after the Phase-2 consolidation: the `all-jobs-daily` Cloud
 Scheduler fires it at 19:50 UTC and its `JOBS` list runs each
 sub-job whose UTC schedule matches today (the JOBS list is the
 enable/disable point); `--only`/`--force` override the
@@ -757,7 +757,9 @@ context.
 Push to `master` triggers GitHub Actions
 (`.github/workflows/deploy-scraper-jobs.yml` and
 `deploy-web-service.yml`): Docker build/push to Artifact
-Registry → update the `all-jobs` Cloud Run job + web service.
+Registry → `python manage.py migrate` via the ad-hoc
+`run-migrations` Cloud Run job (master-only step) → update the
+`all-jobs` Cloud Run job + web service.
 Legacy
 `cloudbuild.yaml`, `deploy-cloudrun.sh`, and `vercel.json` also
 exist (see Known gaps). Don't hand-edit Terraform-managed
@@ -842,13 +844,12 @@ Prod (Cloud Run) is unaffected.
 - **Migrations**: generate files freely (`makemigrations`
   touches no DB) and apply them only against the SQLite override
   above — never `migrate` against the default prod connection.
-  There is no CI migration step (the `run-migrations` Cloud Run
-  job and its workflow were removed): prod migrations are
-  applied manually by the maintainer — after the migration
-  files land on `master`, the maintainer runs
-  `python manage.py migrate` against the prod `DATABASE_URL`
-  (the `.env` default) or via a one-off job in the GCP
-  console.
+  Prod migrations run in CI: the `build-and-deploy` job in
+  `deploy-web-service.yml` deploys a `run-migrations` Cloud Run
+  job from the just-built image and executes it before the new
+  service revision goes live (a failed `migrate` aborts the
+  deploy). Manual `migrate` against prod is reserved for
+  recovery only.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate`, `.devin/config.local.json` —
