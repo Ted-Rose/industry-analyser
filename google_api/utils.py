@@ -23,12 +23,25 @@ os.environ.setdefault('OAUTHLIB_RELAX_TOKEN_SCOPE', '1')
 # In production, always use HTTPS
 os.environ.setdefault('OAUTHLIB_INSECURE_TRANSPORT', '1')
 
-# The only scope this project requests — the news digest creates
-# one Google task per build. openid/userinfo scopes are not needed:
-# the callback attaches credentials to the logged-in Django user.
+# The scope the connect flow (/google/login) requests — the news
+# digest creates one Google task per build.
 GOOGLE_TASKS_SCOPES = [
     'https://www.googleapis.com/auth/tasks',
 ]
+
+# OIDC scopes the sign-in flow (/google/signin/) requests — sub +
+# email claims resolve the Django user in the shared callback.
+GOOGLE_SIGNIN_SCOPES = [
+    'openid',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+]
+
+# Fetched with the just-issued access token in the callback — a
+# direct TLS call to Google, so no ID-token validation is needed.
+USERINFO_ENDPOINT = (
+    'https://openidconnect.googleapis.com/v1/userinfo'
+)
 
 
 def get_user_credentials(user, scopes=None):

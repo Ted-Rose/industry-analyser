@@ -8,7 +8,8 @@ class GoogleOAuthCredentialsAdmin(admin.ModelAdmin):
     # Tokens are never rendered: the change form lists only the
     # fields below and every one is read-only.
     _SAFE_FIELDS = (
-        'user', 'token_expiry', 'scopes', 'created_at', 'updated_at',
+        'user', 'google_sub', 'token_expiry', 'scopes',
+        'created_at', 'updated_at',
     )
     list_display = _SAFE_FIELDS
     fields = _SAFE_FIELDS

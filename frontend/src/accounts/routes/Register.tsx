@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { register } from '../api';
+import GoogleSignIn from '../GoogleSignIn';
 import { navigate, safeNext } from '../next';
 import { errorDetail } from '../../shared/api/errors';
 import PageContainer from '../../shared/layout/PageContainer';
@@ -124,6 +125,7 @@ export default function Register() {
           {busy ? 'Registering…' : 'Register'}
         </Button>
       </form>
+      <GoogleSignIn />
       <p className="mt-3 text-center text-sm text-fg-muted">
         Already registered?{' '}
         <Link

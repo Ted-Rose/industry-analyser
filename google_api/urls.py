@@ -19,8 +19,21 @@ urlpatterns = [
     # /google/login explicitly.
     path(
         'login',
-        RedirectView.as_view(url='/google/login/'),
+        RedirectView.as_view(
+            url='/google/login/', query_string=True
+        ),
         name='login_noslash',
+    ),
+    path('signin/', views.signin_view, name='signin'),
+    # Same slashless drain as login — the landing catch-all
+    # swallows /google/signin before APPEND_SLASH can redirect.
+    # query_string=True keeps ?tasks=1 / ?next= through the bounce.
+    path(
+        'signin',
+        RedirectView.as_view(
+            url='/google/signin/', query_string=True
+        ),
+        name='signin_noslash',
     ),
     # No trailing slash — must match the redirect URI registered
     # on the OAuth client ({BASE_URL}/google/callback) exactly.

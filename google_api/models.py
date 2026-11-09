@@ -26,6 +26,13 @@ class GoogleOAuthCredentials(models.Model):
         default=list,
         help_text='List of granted OAuth scopes'
     )
+    google_sub = models.CharField(
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text='OIDC subject of the linked Google identity'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

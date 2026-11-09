@@ -58,9 +58,26 @@ function fillAndSubmit() {
   );
 }
 
+/** The shell's #spa-bootstrap json_script — useBootstrap()
+ *  reads it once at mount, so it must exist before render. */
+function setBootstrap(payload: unknown) {
+  const el = document.createElement('script');
+  el.id = 'spa-bootstrap';
+  el.setAttribute('type', 'application/json');
+  el.textContent = JSON.stringify(payload);
+  document.body.appendChild(el);
+}
+
+function googleLink() {
+  return screen.getByRole('link', {
+    name: /sign in with google/i,
+  });
+}
+
 describe('Login', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    document.getElementById('spa-bootstrap')?.remove();
   });
 
   it('navigates to the sanitized ?next= on success', async () => {
@@ -99,5 +116,50 @@ describe('Login', () => {
       await screen.findByText('Invalid username or password.'),
     ).toBeInTheDocument();
     expect(mockedNavigate).not.toHaveBeenCalled();
+  });
+
+  it('links Google sign-in with the sanitized ?next=', () => {
+    setBootstrap({ google_oauth_configured: true });
+    renderLogin('/login?next=/dashboard/');
+    expect(googleLink()).toHaveAttribute(
+      'href',
+      '/google/signin/?next=%2Fdashboard%2F',
+    );
+  });
+
+  it('omits next in the Google link for a foreign ?next=',
+    () => {
+      setBootstrap({ google_oauth_configured: true });
+      renderLogin('/login?next=https%3A%2F%2Fevil.example%2F');
+      expect(googleLink()).toHaveAttribute(
+        'href',
+        '/google/signin/',
+      );
+    });
+
+  it('appends tasks=1 with no next when the checkbox is ticked',
+    () => {
+      setBootstrap({ google_oauth_configured: true });
+      renderLogin();
+      fireEvent.click(
+        screen.getByLabelText(/google tasks access/i),
+      );
+      // next is omitted so the backend's subscribe landing
+      // default applies.
+      expect(googleLink()).toHaveAttribute(
+        'href',
+        '/google/signin/?tasks=1',
+      );
+    });
+
+  it('hides the Google section when OAuth is unconfigured', () => {
+    setBootstrap({ google_oauth_configured: false });
+    renderLogin();
+    expect(
+      screen.queryByRole('link', { name: /google/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/google tasks access/i),
+    ).not.toBeInTheDocument();
   });
 });
