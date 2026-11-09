@@ -669,11 +669,12 @@ context.
   copies in `.devin/skills/openspec-*/` are the same files with
   frontmatter stripped to `name`/`description` — **re-copy and
   re-strip after every `openspec update`**.
-- **Archive timing**: archive a change in the implementing PR
-  when feasible — specs, code and history land atomically.
-  Otherwise archive immediately after merge in a follow-up
-  PR; never leave a merged change unarchived, because
-  unsynced deltas leave `specs/` stale.
+- **Archive in the developing PR — always.** Before marking
+  an implementing PR ready, run `openspec archive <id>` so
+  specs, code and history land atomically; a merged change
+  left unarchived leaves `specs/` stale. In-PR archive is
+  required, not optional — if it was somehow missed, archive
+  immediately after merge in a follow-up PR.
 - **Update specs in the same PR as the code.** Any change that
   alters behavior covered by `openspec/specs/` MUST update the
   affected spec in the same PR — whether it came through
