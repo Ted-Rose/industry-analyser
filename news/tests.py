@@ -19,6 +19,8 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from google.oauth2 import service_account
+from google_api.models import GoogleOAuthCredentials
+from google_api.utils import GOOGLE_TASKS_SCOPES
 from langdetect import LangDetectException
 from langdetect.lang_detect_exception import ErrorCode
 
@@ -2129,6 +2131,173 @@ class PreferencesApiTests(TestCase):
             ],
         }, content_type='application/json')
         self.assertEqual(self._prefs(), [('a', 1), ('b', 2)])
+
+
+class DigestTaskApiTests(TestCase):
+    """GET|POST /api/news/digest-task/… — the subscription ops
+    behind django_auth backing the preferences-page card."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username='reader', password='x',
+        )
+        self.url = '/api/news/digest-task/'
+
+    def _oauth_creds(self, user, scopes=None):
+        return GoogleOAuthCredentials.objects.create(
+            user=user,
+            access_token='a',
+            refresh_token='r',
+            token_expiry=timezone.now() + timedelta(hours=1),
+            scopes=list(GOOGLE_TASKS_SCOPES) if scopes is None
+            else scopes,
+        )
+
+    def test_anonymous_get_401s_with_preferences_login_url(self):
+        """Anonymous GET answers the JSON 401 handshake whose
+        `next` lands on /news/preferences/ — the page owning
+        the card, not the nonexistent /news/digest-task/."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 401)
+        payload = response.json()
+        self.assertEqual(payload['error'], 'unauthenticated')
+        self.assertIn('/accounts/login/', payload['login_url'])
+        self.assertIn(
+            'next=%2Fnews%2Fpreferences%2F',
+            payload['login_url'],
+        )
+
+    def test_anonymous_posts_401(self):
+        for op in ('subscribe', 'unsubscribe'):
+            response = self.client.post(f'{self.url}{op}/')
+            self.assertEqual(response.status_code, 401)
+            self.assertIn(
+                'next=%2Fnews%2Fpreferences%2F',
+                response.json()['login_url'],
+            )
+
+    def test_get_fresh_user_all_false(self):
+        self.client.force_login(self.user)
+        with override_settings(GOOGLE_OAUTH_CLIENT_JSON=''):
+            response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {
+            'oauth_configured': False,
+            'google_connected': False,
+            'subscribed': False,
+            'last_task': None,
+        })
+
+    def test_google_connected_requires_tasks_scope(self):
+        self.client.force_login(self.user)
+        with override_settings(GOOGLE_OAUTH_CLIENT_JSON='{}'):
+            self._oauth_creds(self.user, scopes=['openid'])
+            response = self.client.get(self.url)
+            self.assertFalse(response.json()['google_connected'])
+            creds = self.user.google_credentials
+            creds.scopes = list(GOOGLE_TASKS_SCOPES)
+            creds.save()
+            payload = self.client.get(self.url).json()
+        self.assertTrue(payload['google_connected'])
+        self.assertTrue(payload['oauth_configured'])
+
+    def test_subscribe_without_grant_returns_200(self):
+        self.client.force_login(self.user)
+        response = self.client.post(f'{self.url}subscribe/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload['subscribed'])
+        self.assertFalse(payload['google_connected'])
+        sub = NewsDigestSubscription.objects.get(user=self.user)
+        self.assertTrue(sub.is_enabled)
+
+    def test_unsubscribe_is_idempotent(self):
+        self.client.force_login(self.user)
+        # Never subscribed — still a 200, and the row lands
+        # disabled for the audit trail.
+        response = self.client.post(f'{self.url}unsubscribe/')
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()['subscribed'])
+        NewsDigestSubscription.objects.filter(
+            user=self.user,
+        ).update(is_enabled=True)
+        response = self.client.post(f'{self.url}unsubscribe/')
+        self.assertFalse(response.json()['subscribed'])
+        self.assertEqual(
+            NewsDigestSubscription.objects.filter(
+                user=self.user,
+            ).count(),
+            1,
+        )
+        self.assertFalse(
+            NewsDigestSubscription.objects.get(
+                user=self.user,
+            ).is_enabled
+        )
+
+    def test_resubscribe_reenables_same_row(self):
+        self.client.force_login(self.user)
+        self.client.post(f'{self.url}subscribe/')
+        self.client.post(f'{self.url}unsubscribe/')
+        response = self.client.post(f'{self.url}subscribe/')
+        self.assertTrue(response.json()['subscribed'])
+        subs = NewsDigestSubscription.objects.filter(
+            user=self.user,
+        )
+        self.assertEqual(subs.count(), 1)
+        self.assertTrue(subs.get().is_enabled)
+
+    def test_last_task_echoes_newest_link_row(self):
+        d1 = NewsDigest.objects.create(date=date(2026, 1, 1))
+        d2 = NewsDigest.objects.create(date=date(2026, 1, 2))
+        NewsDigestTask.objects.create(
+            digest=d1, user=self.user, status='created',
+            task_id='t1', task_list_id='l1',
+        )
+        NewsDigestTask.objects.create(
+            digest=d2, user=self.user, status='failed',
+            error='re-authorize at /google/login',
+        )
+        # Another user's even-newer row must not leak in.
+        other = get_user_model().objects.create_user('other')
+        NewsDigestTask.objects.create(
+            digest=d2, user=other, status='created',
+        )
+        self.client.force_login(self.user)
+        response = self.client.get(self.url)
+        last = response.json()['last_task']
+        self.assertEqual(last['digest_date'], '2026-01-02')
+        self.assertEqual(last['status'], 'failed')
+        self.assertIn('google/login', last['error'])
+        self.assertIn('updated_at', last)
+
+    def test_last_task_tracks_newest_digest_not_latest_touch(
+        self,
+    ):
+        """A `build_news_digest --date <old>` rerun retrying an
+        older digest's failed row bumps its updated_at — the
+        card must still report the newest digest, not the most
+        recently touched row."""
+        old = NewsDigest.objects.create(date=date(2026, 1, 1))
+        new = NewsDigest.objects.create(date=date(2026, 1, 2))
+        stale = NewsDigestTask.objects.create(
+            digest=old, user=self.user, status='failed',
+            error='transient',
+        )
+        NewsDigestTask.objects.create(
+            digest=new, user=self.user, status='created',
+            task_id='t2', task_list_id='l1',
+        )
+        # Simulate the rerun retrying the older digest's row —
+        # update() bypasses auto_now so the bump is explicit.
+        NewsDigestTask.objects.filter(pk=stale.pk).update(
+            status='created',
+            updated_at=timezone.now() + timedelta(hours=1),
+        )
+        self.client.force_login(self.user)
+        last = self.client.get(self.url).json()['last_task']
+        self.assertEqual(last['digest_date'], '2026-01-02')
+        self.assertEqual(last['status'], 'created')
 
 
 class NewsShellTests(TestCase):
