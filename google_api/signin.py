@@ -11,6 +11,7 @@ import logging
 import re
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError
 
 logger = logging.getLogger('google_api')
 
@@ -99,14 +100,25 @@ def resolve_google_user(userinfo):
                 )
             return user
 
-    user = User(
-        username=_derive_username(userinfo),
-        email=verified_email,
-        is_staff=False,
-    )
-    user.set_unusable_password()
-    user.save()
-    logger.info(
-        f'Created user {user.username} for Google sub {sub}'
-    )
-    return user
+    # _derive_username's exists() check races a concurrent
+    # first sign-in deriving the same base: the loser
+    # IntegrityErrors on the unique username column — re-
+    # derive (the winner's row is visible now) and retry,
+    # the same way views.py retries a contested google_sub.
+    for attempt in range(3):
+        user = User(
+            username=_derive_username(userinfo),
+            email=verified_email,
+            is_staff=False,
+        )
+        user.set_unusable_password()
+        try:
+            user.save()
+        except IntegrityError:
+            if attempt == 2:
+                raise
+            continue
+        logger.info(
+            f'Created user {user.username} for Google sub {sub}'
+        )
+        return user

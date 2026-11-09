@@ -237,6 +237,11 @@ def callback(request):
             f'OAuth callback failed ({detail}); '
             'redirecting to login'
         )
+        # The stashed round-trip is over — discard its
+        # leftovers like a state mismatch would, or a stale
+        # oauth_redirect_url leaks into the next flow.
+        for key in _OAUTH_SESSION_KEYS:
+            request.session.pop(key, None)
         if flow_mode == 'signin':
             return _login_redirect(next_url)
         restart_url = reverse('google_api:login')
@@ -279,6 +284,8 @@ def callback(request):
             logger.warning(
                 'Sign-in callback got no usable userinfo'
             )
+            for key in _OAUTH_SESSION_KEYS:
+                request.session.pop(key, None)
             return _login_redirect(next_url)
         user = resolve_google_user(userinfo)
         if not user.is_active:
@@ -290,6 +297,8 @@ def callback(request):
                 f'Google sign-in denied for deactivated '
                 f'user {user.username}'
             )
+            for key in _OAUTH_SESSION_KEYS:
+                request.session.pop(key, None)
             return _login_redirect(next_url)
         auth_login(
             request, user,
@@ -307,7 +316,25 @@ def callback(request):
         if granted & set(GOOGLE_SIGNIN_SCOPES):
             userinfo = _fetch_userinfo(flow)
             if userinfo and userinfo.get('sub'):
-                defaults['google_sub'] = userinfo['sub']
+                new_sub = userinfo['sub']
+                existing = GoogleOAuthCredentials.objects.filter(
+                    user=user
+                ).first()
+                if (
+                    existing is not None
+                    and existing.google_sub
+                    and existing.google_sub != new_sub
+                ):
+                    # The update below silently rewrites the
+                    # stored sub — surface the rebind like the
+                    # sign-in path does in signin.py.
+                    logger.warning(
+                        f'Rebinding Google identity for user '
+                        f'{user.username}: stored google_sub '
+                        f'{existing.google_sub} replaced by '
+                        f'{new_sub}'
+                    )
+                defaults['google_sub'] = new_sub
 
     sub = defaults.get('google_sub')
     if sub and (
