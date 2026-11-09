@@ -474,12 +474,13 @@ schedule, `--dry-run` prints the plan.
   `build_digest` after commit; best-effort, dedup via the
   `NewsDigestTask` link row): `GOOGLE_OAUTH_CLIENT_JSON` (the
   `{"web": {...}}` client secrets doc, materialized to
-  `GOOGLE_APP_SECRETS_PATH` at settings import) and
-  `GOOGLE_TASKS_USERNAME` must BOTH be set or the feature no-ops;
-  `GOOGLE_TASKS_LIST_TITLE` defaults to `News`. Re-auth after a
-  revoked grant is `GET {BASE_URL}/google/login` — the
-  `/google/callback` redirect URI must be registered on the
-  shared `django-apps-7345` OAuth client.
+  `GOOGLE_APP_SECRETS_PATH` at settings import) alone gates the
+  feature — recipients are the enabled `NewsDigestSubscription`
+  rows, one task per subscriber in their own Google account's
+  list titled `GOOGLE_TASKS_LIST_TITLE` (default `News`).
+  Re-auth after a revoked grant is `GET {BASE_URL}/google/login`
+  — the `/google/callback` redirect URI must be registered on
+  the shared `django-apps-7345` OAuth client.
 - React/Vite serving (detail: `docs/plans/react_frontend_migration/`):
   `DJANGO_VITE.dev_mode = DEBUG and VITE_DEV=1` → SPA asset URLs
   point at the vite dev server (`VITE_PORT`, default **5274**;
