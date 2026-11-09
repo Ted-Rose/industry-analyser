@@ -122,18 +122,19 @@ describe('Register', () => {
     );
   });
 
-  it('appends tasks=1 when the checkbox is ticked', () => {
-    setBootstrap({ google_oauth_configured: true });
-    renderRegister();
-    fireEvent.click(
-      screen.getByLabelText(/google tasks access/i),
-    );
-    expect(
-      screen
-        .getByRole('link', { name: /sign in with google/i })
-        .getAttribute('href'),
-    ).toContain('tasks=1');
-  });
+  it('appends tasks=1 with no next when the checkbox is ticked',
+    () => {
+      setBootstrap({ google_oauth_configured: true });
+      renderRegister();
+      fireEvent.click(
+        screen.getByLabelText(/google tasks access/i),
+      );
+      // next is omitted so the backend's subscribe landing
+      // default applies.
+      expect(
+        screen.getByRole('link', { name: /sign in with google/i }),
+      ).toHaveAttribute('href', '/google/signin/?tasks=1');
+    });
 
   it('hides the Google section when OAuth is unconfigured', () => {
     setBootstrap({ google_oauth_configured: false });

@@ -43,8 +43,7 @@ partly stale (see preamble).
 | `accounts/` | `/accounts/` auth SPA + `/api/accounts/` | — |
 | `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
-| `google_api/` | Google OAuth2 credential store (`google_sub` links | — |
-| | the OIDC identity) + `/google/` connect/signin flows | |
+| `google_api/` | Google OAuth2 credential store; `/google/` flows | — |
 | `receipts/` | Email receipt ingest; staff `/receipts/` SPA | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
 | `frontend/` | React/Vite SPA sources, per-app dirs | — |

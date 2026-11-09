@@ -24,7 +24,11 @@ shows user, `google_sub`, expiry and scopes only.
 - **WHEN** a row predates `google_sub` and its owner
   re-completes either OAuth mode
 - **THEN** the row's `google_sub` is populated on the next
-  `update_or_create` — no separate backfill is required
+  `update_or_create` whenever the granted scopes allow a
+  userinfo call — always in sign-in mode, but best-effort in
+  connect mode: a tasks-only grant cannot read userinfo, so
+  `google_sub` stays null there — no separate backfill is
+  required
 
 ### Requirement: Google OAuth web flow
 
@@ -60,6 +64,15 @@ and `update_or_create`s `request.user`'s row.
 - **THEN** no token exchange runs, the session OAuth keys are
   discarded and the user is redirected to the mode's start
   point
+
+#### Scenario: Callback without a stashed flow is rejected
+
+- **WHEN** `/google/callback` is hit on a session that never
+  started a flow — no session-stashed `state`, whether or not
+  a `state` query param is present
+- **THEN** it is treated as a state mismatch: no token
+  exchange runs — "both sides empty" is not a match — and the
+  session OAuth keys are discarded
 
 #### Scenario: Non-local next is ignored
 

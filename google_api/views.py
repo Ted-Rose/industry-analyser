@@ -189,10 +189,16 @@ def callback(request):
     next_url = request.session.get('oauth_redirect_url')
 
     # Login-CSRF: the callback must continue a flow this session
-    # started — verify state before any token exchange. Both
-    # sides empty (a direct hit) counts as a match: connect's
-    # auth check or the failed exchange handles it below.
-    if request.GET.get('state') != request.session.pop('state', None):
+    # started — a non-empty session-stashed state must match the
+    # query param before any token exchange. "Both sides empty"
+    # is NOT a match: fetch_token's own state check is inert on a
+    # rebuilt Flow, so a bare ?code= hit on a session that never
+    # started a flow would otherwise reach the token exchange.
+    stashed_state = request.session.pop('state', None)
+    if (
+        not stashed_state
+        or request.GET.get('state') != stashed_state
+    ):
         logger.warning(
             'OAuth callback state mismatch; restarting flow'
         )
@@ -203,9 +209,11 @@ def callback(request):
     if flow_mode == 'connect' and not request.user.is_authenticated:
         # The connect branch keeps the old @login_required
         # contract — anonymous hits bounce to the Django login.
+        # `next` carries the bare callback path: echoing the full
+        # query string would copy the auth code into the login
+        # URL (browser history, referers).
         return redirect(
-            f'{settings.LOGIN_URL}'
-            f'?next={quote(request.get_full_path())}'
+            f'{settings.LOGIN_URL}?next={quote(request.path)}'
         )
 
     scopes = request.session.pop('oauth_scopes', GOOGLE_TASKS_SCOPES)
@@ -271,6 +279,16 @@ def callback(request):
             )
             return _login_redirect(next_url)
         user = resolve_google_user(userinfo)
+        if not user.is_active:
+            # authenticate() would reject the account via
+            # user_can_authenticate — this bypass must apply
+            # the same bar or a staff-deactivated user keeps
+            # signing in through Google.
+            logger.warning(
+                f'Google sign-in denied for deactivated '
+                f'user {user.username}'
+            )
+            return _login_redirect(next_url)
         auth_login(
             request, user,
             backend='accounts.backends.CaseInsensitiveAuthBackend',
@@ -279,13 +297,34 @@ def callback(request):
     else:
         # Connect attaches the grant to the already-authenticated
         # Django user — it must never create or re-authenticate
-        # one. google_sub rides along best-effort: a tasks-only
-        # grant cannot read userinfo, so an unanswered call keeps
-        # the row's existing value.
+        # one. google_sub rides along best-effort: only call
+        # userinfo when the grant carries an OIDC scope, else a
+        # tasks-only connect 401s on every run.
         user = request.user
-        userinfo = _fetch_userinfo(flow)
-        if userinfo and userinfo.get('sub'):
-            defaults['google_sub'] = userinfo['sub']
+        granted = set(credentials.scopes or [])
+        if granted & set(GOOGLE_SIGNIN_SCOPES):
+            userinfo = _fetch_userinfo(flow)
+            if userinfo and userinfo.get('sub'):
+                defaults['google_sub'] = userinfo['sub']
+
+    sub = defaults.get('google_sub')
+    if sub and (
+        GoogleOAuthCredentials.objects
+        .filter(google_sub=sub)
+        .exclude(user_id=user.pk)
+        .exists()
+    ):
+        # A google_sub belongs to exactly one user — keep this
+        # user's grant but leave the identity link on the row
+        # that already holds it; writing it anyway would hit the
+        # unique column's IntegrityError and clobber the other
+        # account's link.
+        logger.warning(
+            f'google_sub {sub} is already linked to another '
+            f'user; saving {user.username}\'s grant without '
+            'rebinding it'
+        )
+        defaults.pop('google_sub')
 
     GoogleOAuthCredentials.objects.update_or_create(
         user=user,

@@ -138,6 +138,14 @@ class OAuthFlowTests(CredentialsTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, '/google/login/')
 
+    def test_slashless_login_keeps_query_string(self):
+        self.client.force_login(self.user)
+        response = self.client.get('/google/login?next=/tv/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url, '/google/login/?next=/tv/'
+        )
+
     def test_index_redirects_into_login(self):
         # The landing page's "Google" card links to /google/.
         response = self.client.get('/google/')
@@ -152,6 +160,7 @@ class OAuthFlowTests(CredentialsTestCase):
 
         self.client.force_login(self.user)
         session = self.client.session
+        session['state'] = 'st-1'
         session['oauth_code_verifier'] = 'ver-1'
         session.save()
         flow = Mock()
@@ -161,18 +170,66 @@ class OAuthFlowTests(CredentialsTestCase):
             'from_client_secrets_file',
             return_value=flow,
         ):
-            response = self.client.get('/google/callback?code=x')
+            response = self.client.get(
+                '/google/callback?code=x&state=st-1'
+            )
         self.assertEqual(flow.code_verifier, 'ver-1')
         # invalid_grant → back to login, never a 500 loop
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.url.startswith('/google/login'))
 
     def test_anonymous_callback_redirects_to_django_login(self):
-        response = self.client.get('/google/callback')
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            response.url.startswith('/accounts/login/')
+        # A connect flow stashed while authenticated, resumed
+        # anonymous — bounces to the Django login, `next`
+        # holding the bare callback path so the auth code is
+        # not copied into the login URL.
+        session = self.client.session
+        session['state'] = 'st-1'
+        session['oauth_flow'] = 'connect'
+        session.save()
+        response = self.client.get(
+            '/google/callback?code=secret-code&state=st-1'
         )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url, '/accounts/login/?next=/google/callback'
+        )
+        self.assertNotIn('secret-code', response.url)
+
+    def test_callback_without_stashed_state_never_exchanges(self):
+        # A ?code= hit on a session that never started a flow —
+        # "both sides empty" is not a state match, so no token
+        # exchange and no credentials write may follow.
+        self.client.force_login(self.user)
+        flow = Mock()
+        with patch(
+            'google_api.views.InstalledAppFlow.'
+            'from_client_secrets_file',
+            return_value=flow,
+        ):
+            response = self.client.get('/google/callback?code=x')
+        flow.fetch_token.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/google/login/')
+        self.assertEqual(GoogleOAuthCredentials.objects.count(), 0)
+
+    def test_callback_with_foreign_state_never_exchanges(self):
+        # An authenticated direct hit carrying a state param but
+        # no stashed flow is rejected the same way.
+        self.client.force_login(self.user)
+        flow = Mock()
+        with patch(
+            'google_api.views.InstalledAppFlow.'
+            'from_client_secrets_file',
+            return_value=flow,
+        ):
+            response = self.client.get(
+                '/google/callback?code=x&state=foreign'
+            )
+        flow.fetch_token.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, '/google/login/')
+        self.assertEqual(GoogleOAuthCredentials.objects.count(), 0)
 
     def test_unconfigured_login_answers_503(self):
         self.client.force_login(self.user)
@@ -246,6 +303,13 @@ class SigninViewTests(CredentialsTestCase):
         response = self.client.get('/google/signin')
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, '/google/signin/')
+
+    def test_slashless_signin_keeps_query_string(self):
+        response = self.client.get('/google/signin?tasks=1')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url, '/google/signin/?tasks=1'
+        )
 
     def test_unconfigured_signin_answers_503(self):
         with override_settings(GOOGLE_APP_SECRETS_PATH=''):
@@ -510,53 +574,170 @@ class SigninCallbackTests(CredentialsTestCase):
         self.assertTrue(response.url.startswith('/accounts/login/'))
         self.assertEqual(GoogleOAuthCredentials.objects.count(), 0)
 
+    def test_signin_resolving_to_other_user_switches_session(self):
+        # The Google identity decides who lands logged in — a
+        # session authenticated as user A ends logged in as
+        # user B when B's Google completes the flow.
+        other = get_user_model().objects.create_user(
+            username='other', password='x',
+        )
+        GoogleOAuthCredentials.objects.create(
+            user=other,
+            access_token='at',
+            refresh_token='rt',
+            token_expiry=timezone.now() + timedelta(hours=1),
+            scopes=list(GOOGLE_SIGNIN_SCOPES),
+            google_sub='sub-9',
+        )
+        self.client.force_login(self.user)
+        self._stash()
+        flow = self._flow({
+            'sub': 'sub-9',
+            'email': 'o@e.dev',
+            'email_verified': True,
+        })
+        self._callback(flow)
+        self.assertEqual(
+            str(other.pk), self.client.session['_auth_user_id']
+        )
+
+    def test_signin_retains_tasks_scope_from_merge(self):
+        # include_granted_scopes: a plain sign-in (no tasks=1)
+        # for a user who already granted auth/tasks gets the
+        # merged scope list back — the stored row retains it.
+        row = self._row()
+        row.google_sub = 'sub-9'
+        row.save()
+        merged = (
+            list(GOOGLE_SIGNIN_SCOPES) + list(GOOGLE_TASKS_SCOPES)
+        )
+        self._stash()
+        flow = self._flow({
+            'sub': 'sub-9',
+            'email': 'whoever@else.dev',
+            'email_verified': True,
+        })
+        flow.credentials.scopes = merged
+        self._callback(flow)
+        row.refresh_from_db()
+        self.assertEqual(row.scopes, merged)
+        self.assertTrue(row.has_all_scopes(GOOGLE_TASKS_SCOPES))
+
+    def test_deactivated_user_cannot_sign_in(self):
+        # user_can_authenticate lives in authenticate(); the
+        # sign-in bypass must apply the same is_active bar.
+        row = self._row()
+        row.google_sub = 'sub-9'
+        row.save()
+        self.user.is_active = False
+        self.user.save()
+        self._stash()
+        flow = self._flow({
+            'sub': 'sub-9',
+            'email': 'o@e.dev',
+            'email_verified': True,
+        })
+        response = self._callback(flow)
+        self.assertTrue(
+            response.url.startswith('/accounts/login/')
+        )
+        self.assertNotIn('_auth_user_id', self.client.session)
+
 
 class ConnectCallbackTests(CredentialsTestCase):
     """The connect branch of the shared /google/callback."""
 
-    def test_connect_stores_google_sub_best_effort(self):
-        self.client.force_login(self.user)
+    def _stash(self):
         session = self.client.session
         session['state'] = 'st-1'
         session['oauth_flow'] = 'connect'
         session.save()
+
+    def _flow(self, scopes, userinfo=None):
         flow = Mock()
         flow.credentials.token = ACCESS_TOKEN
         flow.credentials.refresh_token = REFRESH_TOKEN
         flow.credentials.expiry = (
             timezone.now() + timedelta(hours=1)
         )
-        flow.credentials.scopes = list(GOOGLE_TASKS_SCOPES)
+        flow.credentials.scopes = list(scopes)
         response_mock = Mock()
         response_mock.status_code = 200
-        response_mock.json.return_value = {'sub': 'sub-c'}
+        response_mock.json.return_value = userinfo or {}
         flow.authorized_session.return_value.get.return_value = (
             response_mock
         )
+        return flow
+
+    def _callback(self, flow, state='st-1'):
         with patch(
             'google_api.views.InstalledAppFlow.'
             'from_client_secrets_file',
             return_value=flow,
         ):
-            self.client.get('/google/callback?code=x&state=st-1')
+            return self.client.get(
+                f'/google/callback?code=x&state={state}'
+            )
+
+    def test_connect_stores_google_sub_best_effort(self):
+        # userinfo answers only when the grant carries an OIDC
+        # scope (here merged in via include_granted_scopes).
+        self.client.force_login(self.user)
+        self._stash()
+        flow = self._flow(
+            GOOGLE_TASKS_SCOPES + GOOGLE_SIGNIN_SCOPES,
+            userinfo={'sub': 'sub-c'},
+        )
+        self._callback(flow)
         row = GoogleOAuthCredentials.objects.get(user=self.user)
         self.assertEqual(row.google_sub, 'sub-c')
 
+    def test_tasks_only_connect_skips_userinfo(self):
+        # A tasks-only grant cannot reach userinfo — no call,
+        # no predictable 401 warning, google_sub left alone.
+        self.client.force_login(self.user)
+        self._stash()
+        flow = self._flow(GOOGLE_TASKS_SCOPES)
+        self._callback(flow)
+        flow.authorized_session.assert_not_called()
+        row = GoogleOAuthCredentials.objects.get(user=self.user)
+        self.assertIsNone(row.google_sub)
+
+    def test_connect_never_clobbers_another_users_sub(self):
+        # Another user's row already holds sub-c: completing
+        # connect with that identity keeps this user's grant
+        # but leaves google_sub (and the link) untouched — no
+        # IntegrityError on the unique column.
+        other = get_user_model().objects.create_user(
+            username='other', password='x',
+        )
+        other_row = GoogleOAuthCredentials.objects.create(
+            user=other,
+            access_token='at',
+            refresh_token='rt',
+            token_expiry=timezone.now() + timedelta(hours=1),
+            scopes=list(GOOGLE_TASKS_SCOPES),
+            google_sub='sub-c',
+        )
+        self.client.force_login(self.user)
+        self._stash()
+        flow = self._flow(
+            GOOGLE_TASKS_SCOPES + GOOGLE_SIGNIN_SCOPES,
+            userinfo={'sub': 'sub-c'},
+        )
+        response = self._callback(flow)
+        self.assertEqual(response.status_code, 302)
+        row = GoogleOAuthCredentials.objects.get(user=self.user)
+        self.assertIsNone(row.google_sub)
+        self.assertEqual(row.access_token, ACCESS_TOKEN)
+        other_row.refresh_from_db()
+        self.assertEqual(other_row.google_sub, 'sub-c')
+
     def test_state_mismatch_restarts_connect_flow(self):
         self.client.force_login(self.user)
-        session = self.client.session
-        session['state'] = 'st-1'
-        session['oauth_flow'] = 'connect'
-        session.save()
+        self._stash()
         flow = Mock()
-        with patch(
-            'google_api.views.InstalledAppFlow.'
-            'from_client_secrets_file',
-            return_value=flow,
-        ):
-            response = self.client.get(
-                '/google/callback?code=x&state=WRONG'
-            )
+        response = self._callback(flow, state='WRONG')
         flow.fetch_token.assert_not_called()
         self.assertEqual(response.url, '/google/login/')
 

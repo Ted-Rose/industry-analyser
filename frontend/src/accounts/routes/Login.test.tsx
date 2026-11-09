@@ -127,26 +127,30 @@ describe('Login', () => {
     );
   });
 
-  it('falls back to / in the Google link for a foreign ?next=',
+  it('omits next in the Google link for a foreign ?next=',
     () => {
       setBootstrap({ google_oauth_configured: true });
       renderLogin('/login?next=https%3A%2F%2Fevil.example%2F');
       expect(googleLink()).toHaveAttribute(
         'href',
-        '/google/signin/?next=%2F',
+        '/google/signin/',
       );
     });
 
-  it('appends tasks=1 when the checkbox is ticked', () => {
-    setBootstrap({ google_oauth_configured: true });
-    renderLogin();
-    fireEvent.click(
-      screen.getByLabelText(/google tasks access/i),
-    );
-    expect(googleLink().getAttribute('href')).toContain(
-      'tasks=1',
-    );
-  });
+  it('appends tasks=1 with no next when the checkbox is ticked',
+    () => {
+      setBootstrap({ google_oauth_configured: true });
+      renderLogin();
+      fireEvent.click(
+        screen.getByLabelText(/google tasks access/i),
+      );
+      // next is omitted so the backend's subscribe landing
+      // default applies.
+      expect(googleLink()).toHaveAttribute(
+        'href',
+        '/google/signin/?tasks=1',
+      );
+    });
 
   it('hides the Google section when OAuth is unconfigured', () => {
     setBootstrap({ google_oauth_configured: false });

@@ -11,9 +11,11 @@ import { safeNext } from './next';
  * that appends `tasks=1` so the same consent also grants the
  * news-digest Google Tasks scope (least privilege — the grant
  * is never implicit). `?next=` round-trips through safeNext so
- * the post-login landing stays same-origin. The whole section
- * is hidden when the bootstrap payload reports the OAuth client
- * unconfigured.
+ * the post-login landing stays same-origin — and is omitted
+ * when it would just be '/', because the backend only applies
+ * the tasks=1 subscribe landing when `next` is absent
+ * entirely. The whole section is hidden when the bootstrap
+ * payload reports the OAuth client unconfigured.
  */
 export default function GoogleSignIn() {
   const { search } = useLocation();
@@ -22,8 +24,12 @@ export default function GoogleSignIn() {
 
   if (!bootstrap.google_oauth_configured) return null;
 
-  const params = new URLSearchParams({ next: safeNext(search) });
+  const params = new URLSearchParams();
+  const next = safeNext(search);
+  if (next !== '/') params.set('next', next);
   if (tasks) params.set('tasks', '1');
+  const query = params.toString();
+  const href = `/google/signin/${query ? `?${query}` : ''}`;
 
   return (
     <div className="mt-4">
@@ -37,7 +43,7 @@ export default function GoogleSignIn() {
       </div>
       <Button
         as="a"
-        href={`/google/signin/?${params.toString()}`}
+        href={href}
         variant="secondary"
         className="w-full"
       >
