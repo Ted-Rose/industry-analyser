@@ -3854,6 +3854,10 @@ class NewsPipelineCommandTests(TestCase):
     def test_from_unknown_phase_errors(self):
         with self.assertRaises(CommandError):
             self._run(from_phase='bogus')
+        # The RUNNING run opened at construction is closed
+        # FAILED instead of dangling for the stale sweep.
+        run = ScrapeJobRun.objects.get()
+        self.assertEqual(run.status, ScrapeJobRun.FAILED)
 
     def test_dry_run_prints_pending_and_writes_nothing(self):
         cc, out = self._run(dry_run=True)
@@ -3864,3 +3868,20 @@ class NewsPipelineCommandTests(TestCase):
         self.assertEqual(ScrapeJobItem.objects.count(), 0)
         self.assertEqual(ScrapeJobRun.objects.count(), 0)
         self.assertEqual(ScrapeJobRunItem.objects.count(), 0)
+
+    def test_dry_run_lists_only_pending_phases(self):
+        # A morning pass died at 'link': scrape is DONE this
+        # cycle — --dry-run must exclude it from pending.
+        with patch(f'{self.MODULE}.call_command') as cc:
+            cc.side_effect = [None, CommandError('boom')]
+            with self.assertRaises(CommandError):
+                call_command('news_pipeline', stdout=StringIO())
+        cc, out = self._run(dry_run=True)
+        cc.assert_not_called()
+        self.assertIn(
+            'pending phases: link, reclassify, digest', out
+        )
+        self.assertIn('already done this cycle: scrape', out)
+        # Still read-only: no new run/run-item rows.
+        self.assertEqual(ScrapeJobRun.objects.count(), 1)
+        self.assertEqual(ScrapeJobRunItem.objects.count(), 2)

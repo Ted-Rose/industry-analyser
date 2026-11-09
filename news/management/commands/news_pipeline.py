@@ -20,6 +20,7 @@ import logging
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
+from scrape_jobs.models import ScrapeJob, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
 
 logger = logging.getLogger('news')
@@ -36,6 +37,26 @@ PHASES = (
      'Topic reclassification', 20),
     ('digest', 'build_news_digest', 'Daily digest build', 10),
 )
+
+
+def _cycle_done_keys(cycle_key, fresh):
+    """DONE item keys of this job's ``cycle_key`` runs — read-only.
+
+    ``ScrapeJobRunner(dry_run=True)`` skips the completed-keys read
+    (it writes nothing and the job row may not exist), which would
+    list every phase as pending. This mirrors
+    ``ScrapeJobRunner._cycle_completed_keys`` as a pure query so
+    --dry-run can show only genuinely pending phases.
+    """
+    job = ScrapeJob.objects.filter(slug=JOB_SLUG).first()
+    if job is None or fresh or not job.is_enabled:
+        return set()
+    return set(
+        ScrapeJobRunItem.objects.filter(
+            run__in=job.runs.filter(cycle_key=cycle_key),
+            status=ScrapeJobRunItem.DONE,
+        ).values_list('item__key', flat=True)
+    )
 
 
 class Command(BaseCommand):
@@ -85,44 +106,70 @@ class Command(BaseCommand):
             (key, label, priority, command)
             for key, command, label, priority in PHASES
         ]
-        items = runner.sync_items(entries)
         try:
-            pending = runner.pending_items(items)
-        except ValueError as e:
-            raise CommandError(str(e))
-
-        if options['dry_run']:
-            keys = ', '.join(i.key for i in pending) or '(none)'
-            self.stdout.write(
-                f'{JOB_SLUG} cycle={runner.cycle_key} — '
-                f'pending phases: {keys}'
-            )
-            return
-
-        for item in pending:
-            logger.info(
-                '%s phase %r starting', JOB_SLUG, item.key
-            )
-            # --fresh re-scrapes: forwarded only to scrape_news,
-            # which bypasses its cycle gate and conditional GETs.
-            argv = (
-                ['--fresh']
-                if item.key == 'scrape' and options['fresh']
-                else []
-            )
-            try:
-                call_command(item.obj, *argv)
-            except (Exception, SystemExit) as e:
-                # Abort at the failed phase: downstream phases
-                # on stale data would produce misleading
-                # digests. The FAILED item keeps the phase
-                # pending so the next cycle invocation resumes
-                # here; finish() ends the run PARTIAL.
-                runner.item_failed(item, e)
-                runner.finish()
-                raise CommandError(
-                    f'{JOB_SLUG} aborted at phase '
-                    f'{item.key!r}: {e}'
+            items = runner.sync_items(entries)
+            if options['dry_run']:
+                # The dry-run runner hardcodes an empty
+                # completed set — fill it from the DB read-only
+                # so the pending list is honest.
+                runner.completed_keys = _cycle_done_keys(
+                    runner.cycle_key, options['fresh'],
                 )
-            runner.item_done(item)
-        runner.finish()
+            pending = runner.pending_items(items)
+
+            if options['dry_run']:
+                self._print_dry_run(runner, items, pending)
+                return
+
+            for item in pending:
+                logger.info(
+                    '%s phase %r starting', JOB_SLUG, item.key
+                )
+                # --fresh re-scrapes: forwarded only to
+                # scrape_news, which bypasses its cycle gate
+                # and conditional GETs.
+                argv = (
+                    ['--fresh']
+                    if item.key == 'scrape' and options['fresh']
+                    else []
+                )
+                try:
+                    call_command(item.obj, *argv)
+                except (Exception, SystemExit) as e:
+                    # Abort at the failed phase: downstream
+                    # phases on stale data would produce
+                    # misleading digests. The FAILED item keeps
+                    # the phase pending so the next cycle
+                    # invocation resumes here; finish() ends
+                    # the run PARTIAL.
+                    runner.item_failed(item, e)
+                    runner.finish()
+                    raise CommandError(
+                        f'{JOB_SLUG} aborted at phase '
+                        f'{item.key!r}: {e}'
+                    ) from e
+                runner.item_done(item)
+            runner.finish()
+        except CommandError:
+            raise
+        except Exception as e:
+            # A pre-loop failure (item sync, unknown --from)
+            # would otherwise leave the RUNNING run dangling
+            # until the next invocation's stale sweep.
+            if not options['dry_run']:
+                runner.finish('FAILED', str(e))
+            raise CommandError(str(e)) from e
+
+    def _print_dry_run(self, runner, items, pending):
+        keys = ', '.join(i.key for i in pending) or '(none)'
+        self.stdout.write(
+            f'{JOB_SLUG} cycle={runner.cycle_key} — '
+            f'pending phases: {keys}'
+        )
+        done = [
+            i.key for i in items if i.key in runner.completed_keys
+        ]
+        if done:
+            self.stdout.write(
+                'already done this cycle: ' + ', '.join(done)
+            )
