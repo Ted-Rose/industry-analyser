@@ -4,15 +4,13 @@ from urllib.parse import quote
 from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.urls import reverse
 from google_auth_oauthlib.flow import InstalledAppFlow
-from oauthlib.oauth2.rfc6749.errors import (
-    AccessDeniedError,
-    InvalidGrantError,
-    MissingCodeError,
-)
+from oauthlib.oauth2 import OAuth2Error
+from requests.exceptions import RequestException
 
 from .signin import resolve_google_user
 from .utils import (
@@ -124,14 +122,14 @@ def signin_view(request):
 
     # Never pass request.user: sign-in must always reach the
     # consent screen — the Google identity, not the current
-    # session, decides who lands logged in.
+    # session, decides who lands logged in. With no user to look
+    # up, google_auth can only return the auth dict (or raise);
+    # the stored-credentials early return needs a user.
     auth = google_auth(scopes=scopes)
 
     if isinstance(auth, dict) and 'authorization_url' in auth:
         _stash_flow(request, auth, 'signin', next_url)
         return redirect(auth['authorization_url'])
-
-    return redirect(next_url)
 
 
 def _build_flow(request, scopes):
@@ -211,7 +209,11 @@ def callback(request):
         # contract — anonymous hits bounce to the Django login.
         # `next` carries the bare callback path: echoing the full
         # query string would copy the auth code into the login
-        # URL (browser history, referers).
+        # URL (browser history, referers). The stashed round-trip
+        # is over either way — discard its leftovers like a state
+        # mismatch would.
+        for key in _OAUTH_SESSION_KEYS:
+            request.session.pop(key, None)
         return redirect(
             f'{settings.LOGIN_URL}?next={quote(request.path)}'
         )
@@ -222,17 +224,17 @@ def callback(request):
         flow.fetch_token(
             authorization_response=request.build_absolute_uri()
         )
-    except (
-        AccessDeniedError,
-        InvalidGrantError,
-        MissingCodeError,
-    ) as e:
-        # Auth code already consumed or expired (e.g. the callback
-        # URL was reloaded), consent denied (?error=access_denied),
-        # or no code at all (back button / direct hit) — restart the
+    except (OAuth2Error, RequestException) as e:
+        # OAuth2Error covers the protocol failures — auth code
+        # already consumed or expired (e.g. the callback URL was
+        # reloaded), consent denied (?error=access_denied), no
+        # code at all (back button / direct hit), a token
+        # response missing access_token; RequestException covers
+        # the token endpoint being unreachable. All restart the
         # OAuth flow instead of a 500.
+        detail = getattr(e, 'error', None) or e
         logger.warning(
-            f'OAuth callback failed ({e.error}); '
+            f'OAuth callback failed ({detail}); '
             'redirecting to login'
         )
         if flow_mode == 'signin':
@@ -326,10 +328,26 @@ def callback(request):
         )
         defaults.pop('google_sub')
 
-    GoogleOAuthCredentials.objects.update_or_create(
-        user=user,
-        defaults=defaults,
-    )
+    try:
+        GoogleOAuthCredentials.objects.update_or_create(
+            user=user,
+            defaults=defaults,
+        )
+    except IntegrityError:
+        # The existence check above races a concurrent callback:
+        # the loser hits the unique google_sub column mid-write.
+        # Keep this user's grant — retry with the contested link
+        # left off, exactly like the pre-check branch does.
+        logger.warning(
+            f'google_sub {sub} claimed by a concurrent '
+            f'callback; retrying {user.username}\'s grant '
+            'without rebinding it'
+        )
+        defaults.pop('google_sub', None)
+        GoogleOAuthCredentials.objects.update_or_create(
+            user=user,
+            defaults=defaults,
+        )
     logger.info(
         f'Saved credentials for user {user.username} '
         f'with scopes: {list(credentials.scopes or [])}'

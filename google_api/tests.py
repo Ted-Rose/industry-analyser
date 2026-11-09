@@ -182,10 +182,14 @@ class OAuthFlowTests(CredentialsTestCase):
         # A connect flow stashed while authenticated, resumed
         # anonymous — bounces to the Django login, `next`
         # holding the bare callback path so the auth code is
-        # not copied into the login URL.
+        # not copied into the login URL. The whole stashed
+        # round-trip is discarded, not just state/flow.
         session = self.client.session
         session['state'] = 'st-1'
         session['oauth_flow'] = 'connect'
+        session['oauth_scopes'] = list(GOOGLE_TASKS_SCOPES)
+        session['oauth_code_verifier'] = 'ver-1'
+        session['oauth_redirect_url'] = '/tv/'
         session.save()
         response = self.client.get(
             '/google/callback?code=secret-code&state=st-1'
@@ -195,6 +199,12 @@ class OAuthFlowTests(CredentialsTestCase):
             response.url, '/accounts/login/?next=/google/callback'
         )
         self.assertNotIn('secret-code', response.url)
+        session = self.client.session
+        for key in (
+            'state', 'oauth_flow', 'oauth_scopes',
+            'oauth_code_verifier', 'oauth_redirect_url',
+        ):
+            self.assertNotIn(key, session)
 
     def test_callback_without_stashed_state_never_exchanges(self):
         # A ?code= hit on a session that never started a flow —
@@ -534,6 +544,25 @@ class SigninCallbackTests(CredentialsTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.url.startswith('/accounts/login/'))
 
+    def test_missing_token_redirects_to_login(self):
+        # A token response without access_token raises
+        # MissingTokenError — any OAuth2Error from the exchange
+        # restarts the flow instead of a 500.
+        from oauthlib.oauth2.rfc6749.errors import (
+            MissingTokenError,
+        )
+
+        self._stash(next_url='/tv/')
+        flow = self._flow(
+            None, token_error=MissingTokenError('missing token')
+        )
+        response = self._callback(flow)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith('/accounts/login/'))
+        self.assertIn('next=/tv/', response.url)
+        self.assertNotIn('_auth_user_id', self.client.session)
+        self.assertEqual(GoogleOAuthCredentials.objects.count(), 0)
+
     def test_state_mismatch_never_exchanges_token(self):
         self._stash()
         flow = self._flow({'sub': 'sub-1'})
@@ -643,6 +672,38 @@ class SigninCallbackTests(CredentialsTestCase):
         )
         self.assertNotIn('_auth_user_id', self.client.session)
 
+    def test_sub_race_retries_write_without_google_sub(self):
+        # TOCTOU on the google_sub pre-check: a concurrent
+        # callback stamps the sub between exists() and
+        # update_or_create — the IntegrityError retry keeps the
+        # grant and drops the contested link instead of a 500.
+        from django.db import IntegrityError
+
+        self._stash()
+        flow = self._flow({
+            'sub': 'sub-race',
+            'email': 'r@e.dev',
+            'email_verified': True,
+        })
+        attempts = []
+
+        def flaky_update_or_create(**kwargs):
+            attempts.append(dict(kwargs['defaults']))
+            if len(attempts) == 1:
+                raise IntegrityError('duplicate google_sub')
+            return (Mock(), False)
+
+        with patch.object(
+            GoogleOAuthCredentials.objects,
+            'update_or_create',
+            side_effect=flaky_update_or_create,
+        ):
+            response = self._callback(flow)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(attempts[0]['google_sub'], 'sub-race')
+        self.assertNotIn('google_sub', attempts[1])
+
 
 class ConnectCallbackTests(CredentialsTestCase):
     """The connect branch of the shared /google/callback."""
@@ -740,6 +801,23 @@ class ConnectCallbackTests(CredentialsTestCase):
         response = self._callback(flow, state='WRONG')
         flow.fetch_token.assert_not_called()
         self.assertEqual(response.url, '/google/login/')
+
+    def test_token_endpoint_unreachable_restarts_connect(self):
+        # A transport failure reaching Google's token endpoint
+        # (RequestException, not an OAuth2Error) restarts the
+        # flow the same way invalid_grant does — never a 500.
+        import requests
+
+        self.client.force_login(self.user)
+        self._stash()
+        flow = self._flow(GOOGLE_TASKS_SCOPES)
+        flow.fetch_token.side_effect = (
+            requests.exceptions.ConnectionError('refused')
+        )
+        response = self._callback(flow)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith('/google/login'))
+        self.assertEqual(GoogleOAuthCredentials.objects.count(), 0)
 
 
 class AdminTests(CredentialsTestCase):
