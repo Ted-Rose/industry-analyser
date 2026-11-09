@@ -90,6 +90,38 @@ jobs:
           docker push "${IMAGE}:web-${GITHUB_SHA}"
           docker push "${IMAGE}:web-latest"
 
+      - name: Run database migrations
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}"
+
+          # Apply migrations BEFORE the new revision serves traffic —
+          # a failed migrate fails this step and aborts the deploy.
+          # The job is created/updated ad-hoc from the just-pushed
+          # image (so it runs this commit's migration files) with the
+          # same env-file secret as the service; it is intentionally
+          # not terraform-managed. `migrate` is a fast no-op when
+          # nothing is pending.
+          gcloud run jobs deploy run-migrations \
+            --image="${IMAGE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --command=python \
+            --args=manage.py,migrate \
+            --set-secrets="DOTENV=env-file:latest" \
+            --task-timeout=3600 \
+            --max-retries=0 \
+            --quiet
+
+          # --wait propagates the execution's exit status.
+          gcloud run jobs execute run-migrations \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --wait \
+            --quiet
+
       - name: Deploy to Cloud Run Service
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
