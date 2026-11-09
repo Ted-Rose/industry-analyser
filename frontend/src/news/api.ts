@@ -19,6 +19,8 @@ export type PreferenceRowOut =
   components['schemas']['PreferenceRowOut'];
 export type PreferencesSavedOut =
   components['schemas']['PreferencesSavedOut'];
+export type DigestTaskStatusOut =
+  components['schemas']['DigestTaskStatusOut'];
 
 /** One submitted preferences row — presence = the include
  *  checkbox; `rank: null` is checked-but-unranked (sinks last
@@ -82,5 +84,29 @@ export function savePreferences(
   return apiPost<PreferencesSavedOut>(
     '/api/news/preferences/',
     { rows },
+  );
+}
+
+/** GET /api/news/digest-task/ — session-auth; the digest-task
+ *  card's subscription/Google-connection state plus the
+ *  caller's newest link row. */
+export function fetchDigestTaskStatus(): Promise<DigestTaskStatusOut> {
+  return apiGet<DigestTaskStatusOut>('/api/news/digest-task/');
+}
+
+/** POST /api/news/digest-task/subscribe/ — idempotent opt-in;
+ *  answers the same status payload (200 even without a Google
+ *  grant). */
+export function subscribeDigestTask(): Promise<DigestTaskStatusOut> {
+  return apiPost<DigestTaskStatusOut>(
+    '/api/news/digest-task/subscribe/',
+  );
+}
+
+/** POST /api/news/digest-task/unsubscribe/ — idempotent
+ *  opt-out; keeps the row (is_enabled=false) server-side. */
+export function unsubscribeDigestTask(): Promise<DigestTaskStatusOut> {
+  return apiPost<DigestTaskStatusOut>(
+    '/api/news/digest-task/unsubscribe/',
   );
 }
