@@ -101,6 +101,15 @@ describe('Dashboard', () => {
     ).toBeInTheDocument();
   });
 
+  it('links to the Django admin from the page header', async () => {
+    mockedApiGet.mockResolvedValue(makeDashboard());
+    renderDashboard();
+    const adminLink = await screen.findByRole('link', {
+      name: 'Admin',
+    });
+    expect(adminLink).toHaveAttribute('href', '/admin/');
+  });
+
   it('passes the template-era ?from/&to= params to the API', async () => {
     mockedApiGet.mockResolvedValue(makeDashboard({ rows: [] }));
     renderDashboard('/?from=2026-01-01&to=2026-01-10');
