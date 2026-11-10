@@ -1,11 +1,11 @@
 {
-  "../../../../Users/tedis.rozenfelds/personal_data/p_projects/industry-analyser/frontend/node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2": {
+  "node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2": {
     "file": "inter-latin-ext-wght-normal/inter-latin-ext-wght-normal.DO1Apj_S.woff2",
-    "src": "../../../../Users/tedis.rozenfelds/personal_data/p_projects/industry-analyser/frontend/node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2"
+    "src": "node_modules/@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2"
   },
-  "../../../../Users/tedis.rozenfelds/personal_data/p_projects/industry-analyser/frontend/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2": {
+  "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2": {
     "file": "inter-latin-wght-normal/inter-latin-wght-normal.Dx4kXJAl.woff2",
-    "src": "../../../../Users/tedis.rozenfelds/personal_data/p_projects/industry-analyser/frontend/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"
+    "src": "node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"
   },
   "_Card.DfN2iB1o.js": {
     "file": "shared/Card.DfN2iB1o.js",

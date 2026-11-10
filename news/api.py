@@ -30,7 +30,12 @@ from google_api.models import GoogleOAuthCredentials
 from google_api.utils import GOOGLE_TASKS_SCOPES
 from industry_analyser.api import ApiHttpError
 
-from .digest import _pick_headline, _rationale, ranked_stories_for
+from .digest import (
+    _confirmed_members,
+    _pick_headline,
+    _rationale,
+    ranked_stories_for,
+)
 from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsArticle,
@@ -386,8 +391,7 @@ def digest_extra(
                     link=a.link,
                     source_name=a.source.name,
                 )
-                for a in story.articles.all()
-                if a.story_match_status in CONFIRMED_MATCH_STATUSES
+                for a in _confirmed_members(story)
             ],
         )
         for index, story in enumerate(stories[:EXTRA_PAGE_SIZE])
