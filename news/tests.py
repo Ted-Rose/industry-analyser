@@ -1736,12 +1736,29 @@ class CuratedSeedKeywordTests(TestCase):
 
     def test_satver_does_not_hit_satversme(self):
         # 'satver' (seize) shares the 'satv' stem — the
-        # 'Satversm*' prefix does not reach it. The police
-        # headline now correctly lands on 'crime' (policij*/
-        # aizdom*/zagl* hits), never on 'politics'.
+        # 'Satversm*' prefix does not reach it. It is the
+        # only keyword candidate in this headline, so a
+        # satver->Satversm* regression (e.g. a 'satv*' or
+        # plain 'satversme' seed) would score politics 2
+        # and fail the assertIsNone.
+        self.assertIsNone(
+            self._topic('Akadēmija satver jaunu nolikumu')
+        )
+
+    def test_police_headline_hits_crime(self):
+        # policij*/aizdom*/zagl* hits — 'satver' itself
+        # earns no topic (test above), but the rest of the
+        # headline is unambiguous crime vocabulary.
         self.assertEqual(
             self._topic('Policija satver aizdomās turēto zagli'),
             self.by_slug['crime'],
+        )
+
+    def test_sporta_savejs_is_not_crime(self):
+        # 'šāvējs' (sport shooter) — no 'šāv*'/'šau*' spec
+        # may ever be seeded or sports pages tag 'crime'.
+        self.assertIsNone(
+            self._topic('Sporta šāvējs uzvar čempionātā')
         )
 
     def test_arlietas_does_not_hit_arlietu(self):

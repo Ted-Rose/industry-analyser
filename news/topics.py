@@ -166,6 +166,10 @@ TOPICS = (
             # 'ties*' stem/prefix that would hit 'tiesības'/
             # 'tiesu'/'tieši'.
             'tiesas*', 'tiesneš*', '=tiesa', 'prāv*',
+            # 'aiztur*' also hits 'aizture'/'aizturēšana' in
+            # the delay/suspension sense (transport holdups,
+            # benefit suspensions), not just "detained" —
+            # an accepted ambiguity.
             'aiztur*', 'apcietin*', 'aizdom*',
             'krāpniec*', 'krāpš*', 'blēdīb*',
             'izvaro*', 'vardarb*', 'narkot*',

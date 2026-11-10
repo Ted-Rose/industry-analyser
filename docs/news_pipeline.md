@@ -25,10 +25,9 @@ each so a crash resumes where it left off:
 2. **Tag.** Keyword-match each new article's title+lead
    against curated lists for six topics (economics, politics,
    government-funding, war, diplomacy, crime). Words are
-   squashed to
-   4-char stems so Latvian declensions collapse; a title hit
-   counts double and score ≥ 2 is required. No hits → the
-   article stays untopicked (`topic = NULL`).
+   squashed to 4-char stems so Latvian declensions collapse;
+   a title hit counts double and score ≥ 2 is required. No
+   hits → the article stays untopicked (`topic = NULL`).
 3. **Cluster.** Group articles that are the same story
    reported by different outlets: compare each unmatched
    article's title stems against titles in stories dated
