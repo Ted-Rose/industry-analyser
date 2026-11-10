@@ -167,6 +167,45 @@ describe('DigestDetail', () => {
     );
   });
 
+  it('shows Load more on an empty digest with extras', async () => {
+    mockedApiGet.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/extra/')
+          ? extraPage(url)
+          : makeDetail({ items: [], has_more: true }),
+      ),
+    );
+    renderAt(`/${DATE}`);
+    await screen.findByText('Šajā kopsavilkumā nav ierakstu.');
+    const button = screen.getByRole('button', {
+      name: 'Ielādēt vēl 20 ziņas',
+    });
+    fireEvent.click(button);
+    expect(
+      await screen.findByText('3. Papildu 0'),
+    ).toBeInTheDocument();
+  });
+
+  it('hides Load more while the first extra page errors', async () => {
+    mockedApiGet.mockImplementation((url: string) =>
+      url.includes('/extra/')
+        ? Promise.reject(new Error('boom'))
+        : Promise.resolve(makeDetail()),
+    );
+    renderAt(`/${DATE}`);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Ielādēt vēl 20 ziņas',
+      }),
+    );
+    await screen.findByText('Failed to load more news');
+    expect(
+      screen.queryByRole('button', {
+        name: 'Ielādēt vēl 20 ziņas',
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it('hides Load more when the server reports no extras', async () => {
     mockedApiGet.mockImplementation(() =>
       Promise.resolve(makeDetail({ has_more: false })),

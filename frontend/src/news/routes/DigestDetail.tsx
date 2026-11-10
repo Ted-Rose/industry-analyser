@@ -62,8 +62,14 @@ export default function DigestDetail() {
   const { date } = useParams<{ date: string }>();
   // Extras stream only after the first 'Load more' click —
   // the infinite query stays disabled until then so its
-  // initial page never prefetches.
-  const [moreStarted, setMoreStarted] = useState(false);
+  // initial page never prefetches. Deriving the flag from
+  // startedDate === date (not an effect reset) keeps a
+  // same-route date change from briefly enabling the query
+  // during the commit before the reset effect runs.
+  const [startedDate, setStartedDate] = useState<string | null>(
+    null,
+  );
+  const moreStarted = startedDate === date;
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['news', 'digest', date],
@@ -90,13 +96,6 @@ export default function DigestDetail() {
     if (date) {
       document.title = `Kopsavilkums ${date}`;
     }
-  }, [date]);
-
-  // A date change must re-arm the click gate — otherwise a
-  // future same-page navigation would auto-fire the extras
-  // query without the user asking for them.
-  useEffect(() => {
-    setMoreStarted(false);
   }, [date]);
 
   const notFound =
@@ -168,7 +167,7 @@ export default function DigestDetail() {
               onClick={() =>
                 extra.data
                   ? void extra.fetchNextPage()
-                  : setMoreStarted(true)
+                  : setStartedDate(date as string)
               }
             >
               Ielādēt vēl 20 ziņas
