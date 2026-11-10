@@ -85,6 +85,7 @@ class ProgramFiltersOut(Schema):
     channel_name: Optional[str]
     exclude_channel_name: Optional[str]
     show_disliked: bool
+    all_content: bool
 
 
 class ProgramsOut(Schema):
@@ -123,6 +124,7 @@ def list_programs(
     channel: Optional[str] = Query(None, max_length=255),
     exclude_channel: Optional[str] = Query(None, max_length=255),
     show_disliked: bool = False,
+    all_content: bool = False,
 ):
     """Program feed — mirrors the retired program_list view.
 
@@ -132,6 +134,8 @@ def list_programs(
     declared-but-dead input in the template form — it now filters on
     the displayed match ratio (show's when truthy, falling back to
     the program's like the card's |default-style fallback).
+    `all_content` opts out of the default movies-and-series filter
+    (same absent-vs-set convention as `not_content_rating`).
     """
     # Default 'not_content_rating' to 'R' if not specified (verbatim
     # from the view — an explicit empty string disables it).
@@ -171,6 +175,21 @@ def list_programs(
                 title_match_ratio__gte=ratio,
             )
         )
+
+    # Default-on content filter: keep movies plus anything whose
+    # Show carries series structure (series_title/series_episode) —
+    # ?all_content=1 restores the unfiltered feed. Program's own
+    # content_type is the canonical value (the scraper stamps
+    # show.content_type on it; reclassify_tv_programs refreshes it).
+    if not all_content:
+        query &= (
+            Q(content_type=Program.ContentType.MOVIE)
+            | Q(show__series_title__gt='')
+            | Q(show__series_episode__isnull=False)
+        )
+    # is_excluded is the "never surface" flag — honored even in
+    # all_content mode (dedup/admin exclusions stay hidden).
+    query &= Q(show__isnull=True) | Q(show__is_excluded=False)
 
     query &= Q(start_time__date__gte=start_date)
     query &= Q(start_time__date__lte=end_date)
@@ -241,6 +260,7 @@ def list_programs(
             channel_name=channel,
             exclude_channel_name=exclude_channel,
             show_disliked=show_disliked,
+            all_content=all_content,
         ),
     )
 

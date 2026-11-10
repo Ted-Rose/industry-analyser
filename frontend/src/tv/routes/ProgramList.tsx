@@ -48,6 +48,9 @@ interface Draft {
   channel: string;
   excludeChannel: string;
   showDisliked: boolean;
+  /** Checked = default movies-and-series filter stays on;
+   *  unchecked serializes ?all_content=1 (the full schedule). */
+  onlyMovies: boolean;
 }
 
 interface ProgramGroup {
@@ -117,6 +120,7 @@ export default function ProgramList() {
         channel: searchParams.get('channel'),
         excludeChannel: searchParams.get('exclude_channel'),
         showDisliked: searchParams.get('show_disliked'),
+        allContent: searchParams.get('all_content'),
       }),
     // A filter change keeps the previous feed on screen while the
     // new one loads — the opacity dim below is the only "loading"
@@ -153,6 +157,7 @@ export default function ProgramList() {
     channel: searchParams.get('channel') ?? '',
     excludeChannel: searchParams.get('exclude_channel') ?? '',
     showDisliked: searchParams.get('show_disliked') === '1',
+    onlyMovies: searchParams.get('all_content') !== '1',
   });
 
   // Re-sync the staged inputs when the URL changes (back/forward,
@@ -180,6 +185,7 @@ export default function ProgramList() {
           channel: p.get('channel') ?? '',
           excludeChannel: p.get('exclude_channel') ?? '',
           showDisliked: p.get('show_disliked') === '1',
+          onlyMovies: p.get('all_content') !== '1',
         };
       }
       if (!data) return d;
@@ -224,6 +230,9 @@ export default function ProgramList() {
       next.set('exclude_channel', draft.excludeChannel);
     }
     if (draft.showDisliked) next.set('show_disliked', '1');
+    // Checked is the server default — only an unchecked box
+    // needs the param (absent = filtered).
+    if (!draft.onlyMovies) next.set('all_content', '1');
     setSearchParams(next);
   };
 
@@ -373,6 +382,21 @@ export default function ProgramList() {
             }
           />
         </div>
+
+        {/* Checked = server default (movies + series only);
+            unchecking serializes ?all_content=1 on submit. */}
+        <div className="flex items-end">
+          <Checkbox
+            name="only_movies"
+            id="only_movies"
+            value="1"
+            label="Only movies & shows:"
+            checked={draft.onlyMovies}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, onlyMovies: e.target.checked }))
+            }
+          />
+        </div>
       </FilterBar>
 
       {/* Channel names — the template context carried `channels` for
@@ -391,6 +415,7 @@ export default function ProgramList() {
           {data.filters.start_date}–{data.filters.end_date}
           {data.filters.not_content_rating &&
             ` · rating "${data.filters.not_content_rating}" excluded`}
+          {data.filters.all_content && ' · all content'}
         </p>
       )}
 
@@ -409,7 +434,8 @@ export default function ProgramList() {
             activeCount > 0
               ? 'Nothing matches the active filters.'
               : 'No programs in the default window — the last 7 ' +
-                'days, R-rated content excluded.'
+                'days, movies & shows only, R-rated content ' +
+                'excluded.'
           }
           action={
             activeCount > 0 ? (

@@ -180,6 +180,8 @@ export interface paths {
          *     declared-but-dead input in the template form — it now filters on
          *     the displayed match ratio (show's when truthy, falling back to
          *     the program's like the card's |default-style fallback).
+         *     `all_content` opts out of the default movies-and-series filter
+         *     (same absent-vs-set convention as `not_content_rating`).
          */
         get: operations["tv_programs_api_list_programs"];
         put?: never;
@@ -1213,6 +1215,8 @@ export interface components {
             exclude_channel_name: string | null;
             /** Show Disliked */
             show_disliked: boolean;
+            /** All Content */
+            all_content: boolean;
         };
         /** ProgramOut */
         ProgramOut: {
@@ -2667,6 +2671,7 @@ export interface operations {
                 channel?: string | null;
                 exclude_channel?: string | null;
                 show_disliked?: boolean;
+                all_content?: boolean;
             };
             header?: never;
             path?: never;

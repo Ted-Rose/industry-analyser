@@ -21,6 +21,7 @@ export interface ProgramParams {
   channel?: string | null;
   excludeChannel?: string | null;
   showDisliked?: string | null;
+  allContent?: string | null;
 }
 
 /** Pass numeric fields through only when they parse — the template
@@ -60,6 +61,9 @@ export function fetchPrograms(
     qs.set('exclude_channel', params.excludeChannel);
   }
   if (params.showDisliked === '1') qs.set('show_disliked', '1');
+  // '1' bypasses the default movies-and-series filter; anything
+  // else omits the param so the server applies the filter.
+  if (params.allContent === '1') qs.set('all_content', '1');
   const suffix = qs.toString();
   return apiGet<ProgramsOut>(
     `/api/tv/programs/${suffix ? `?${suffix}` : ''}`,
