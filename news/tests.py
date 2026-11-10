@@ -986,6 +986,149 @@ class DigestTests(TestCase):
         self.assertNotIn(cand.title, titles)
 
 
+class DigestExtraTests(TestCase):
+    """GET /api/news/digests/<date>/extra/ — the 'Load more'
+    page of ranked stories past the digest's stored top-N."""
+
+    def setUp(self):
+        self.a = _source('a')
+        self.b = _source('b')
+        self.topic = NewsTopic.objects.create(
+            slug='politics', name='Politika', weight=1.0,
+            keywords=['Saeima'],
+        )
+        self.today = timezone.localdate()
+
+    _UNSET = object()
+
+    def _story(self, title, score, topic=_UNSET):
+        if topic is self._UNSET:
+            topic = self.topic
+        story = NewsStory.objects.create(
+            title=title, topic=topic,
+            published_date=self.today,
+            importance_score=score, source_count=1,
+        )
+        _article(
+            self.a, title, topic=topic,
+            story=story, story_match_status='auto',
+        )
+        return story
+
+    def _extra(self, offset=0):
+        return self.client.get(
+            f'/api/news/digests/{self.today.isoformat()}/'
+            f'extra/?offset={offset}'
+        )
+
+    def test_ranks_continue_after_stored_items(self):
+        for i in range(5, 0, -1):
+            self._story(f'Ziņa {i}', float(i))
+        build_digest(self.today, top_n=3)
+        response = self._extra()
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertFalse(payload['has_next'])
+        self.assertEqual(payload['offset'], 0)
+        self.assertEqual(
+            [(i['rank'], i['headline']) for i in payload['items']],
+            [(4, 'Ziņa 2'), (5, 'Ziņa 1')],
+        )
+
+    def test_paginates_with_has_next(self):
+        for i in range(25, 0, -1):
+            self._story(f'Ziņa {i}', float(i))
+        build_digest(self.today, top_n=3)
+        first = self._extra().json()
+        self.assertTrue(first['has_next'])
+        self.assertEqual(len(first['items']), 20)
+        second = self._extra(offset=20).json()
+        self.assertFalse(second['has_next'])
+        self.assertEqual(len(second['items']), 2)
+        self.assertEqual(
+            second['items'][0]['rank'], 24,
+        )
+        # No story is served twice across the two pages.
+        ranks = [i['rank'] for i in first['items']]
+        self.assertEqual(len(ranks), len(set(ranks)))
+        self.assertNotIn(
+            second['items'][0]['rank'], ranks,
+        )
+
+    def test_candidate_only_story_stays_excluded(self):
+        story = NewsStory.objects.create(
+            title='Tikai kandidāti', topic=self.topic,
+            published_date=self.today,
+            importance_score=99.0, source_count=2,
+        )
+        _article(
+            self.a, 'Tikai kandidāti', topic=self.topic,
+            story=story, story_match_status='candidate',
+        )
+        self._story('Ziņa viens', 5.0)
+        build_digest(self.today, top_n=1)
+        payload = self._extra().json()
+        self.assertEqual(payload['items'], [])
+        self.assertFalse(payload['has_next'])
+
+    def test_extra_articles_confirmed_members_only(self):
+        self._story('Ziņa viens', 5.0)
+        extra_story = self._story('Ziņa divi', 4.0)
+        _article(
+            self.b, 'Kandidāts (B)', topic=self.topic,
+            story=extra_story, story_match_status='candidate',
+        )
+        build_digest(self.today, top_n=1)
+        item = self._extra().json()['items'][0]
+        self.assertEqual(item['headline'], 'Ziņa divi')
+        self.assertEqual(
+            [a['title'] for a in item['articles']],
+            ['Ziņa divi'],
+        )
+
+    def test_bad_date_404s(self):
+        response = self.client.get(
+            '/api/news/digests/not-a-date/extra/'
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_missing_digest_404s(self):
+        response = self._extra()
+        self.assertEqual(response.status_code, 404)
+
+    def test_detail_has_more_gates_the_button(self):
+        self._story('Ziņa viens', 5.0)
+        build_digest(self.today, top_n=1)
+        response = self.client.get(
+            f'/api/news/digests/{self.today.isoformat()}/'
+        )
+        self.assertFalse(response.json()['has_more'])
+        self._story('Ziņa divi', 4.0)
+        response = self.client.get(
+            f'/api/news/digests/{self.today.isoformat()}/'
+        )
+        self.assertTrue(response.json()['has_more'])
+
+    def test_empty_digest_still_serves_extras(self):
+        # build_digest writes the NewsDigest row even when no
+        # story qualified — a digest with 0 stored items can
+        # hold extras once a story becomes eligible.
+        NewsDigest.objects.create(date=self.today)
+        self._story('Ziņa viens', 5.0)
+        payload = self._extra().json()
+        self.assertEqual(
+            [(i['rank'], i['headline']) for i in payload['items']],
+            [(1, 'Ziņa viens')],
+        )
+
+    def test_offset_beyond_end_returns_empty_page(self):
+        self._story('Ziņa viens', 5.0)
+        NewsDigest.objects.create(date=self.today)
+        payload = self._extra(offset=50).json()
+        self.assertEqual(payload['items'], [])
+        self.assertFalse(payload['has_next'])
+
+
 class DigestGoogleTaskTests(TestCase):
     """The build -> per-subscriber Google task fan-out: one
     insert per enabled subscription, per-user insert bodies and

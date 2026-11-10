@@ -30,6 +30,12 @@ from google_api.models import GoogleOAuthCredentials
 from google_api.utils import GOOGLE_TASKS_SCOPES
 from industry_analyser.api import ApiHttpError
 
+from .digest import (
+    _confirmed_members,
+    _pick_headline,
+    _rationale,
+    ranked_stories_for,
+)
 from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsArticle,
@@ -49,6 +55,10 @@ logger = logging.getLogger('news')
 router = Router()
 
 _LANG_RE = re.compile(r'^[a-z]{2}(-[a-zA-Z]{2})?$')
+
+# The /news/<date>/ 'Load more' page size — one click appends
+# this many ranked stories past the digest's stored top-N.
+EXTRA_PAGE_SIZE = 20
 
 
 # --- Schemas ---
@@ -120,6 +130,26 @@ class DigestDetailItemOut(Schema):
 class DigestDetailOut(Schema):
     date: date
     items: List[DigestDetailItemOut]
+    # True when ranked_stories_for(day) holds eligible stories
+    # beyond the stored items — gates the 'Load more' button.
+    has_more: bool
+
+
+class DigestExtraItemOut(Schema):
+    """One ranked story past the digest's stored top-N — same
+    render shape as DigestDetailItemOut but built live from a
+    NewsStory (rank continues after the stored items)."""
+    rank: int
+    headline: str
+    rationale: str
+    topic_name: Optional[str]
+    articles: List[ArticleRef]
+
+
+class DigestExtraOut(Schema):
+    items: List[DigestExtraItemOut]
+    offset: int
+    has_next: bool
 
 
 class StorySourceRef(Schema):
@@ -304,7 +334,71 @@ def digest_detail(request, date: str):
         ))
         .order_by('rank')
     )
-    return DigestDetailOut(date=digest.date, items=list(items))
+    return DigestDetailOut(
+        date=digest.date,
+        items=list(items),
+        has_more=_extra_stories(digest, day).exists(),
+    )
+
+
+def _extra_stories(digest, day):
+    """The day's eligible ranked stories minus the ones the
+    digest already stored — the pool the extra op pages.
+    Exclusion by story id (not a bare ranking offset) keeps a
+    re-clustering between build and click from re-serving a
+    story the digest already shows."""
+    return (
+        ranked_stories_for(day)
+        .exclude(pk__in=digest.items.values_list(
+            'story_id', flat=True
+        ))
+        .select_related('topic')
+    )
+
+
+@router.get('/digests/{date}/extra/', auth=None,
+            response=DigestExtraOut)
+def digest_extra(
+    request, date: str, offset: int = Query(0, ge=0),
+):
+    """Ranked stories past the digest's stored top-N — the
+    /news/<date>/ 'Load more' page. Same eligibility and
+    ordering as build_digest (ranked_stories_for), minus the
+    stored stories; ranks continue after the stored items."""
+    try:
+        day = datetime.strptime(date, '%Y-%m-%d').date()
+    except ValueError:
+        raise Http404('Invalid date format') from None
+    digest = get_object_or_404(NewsDigest, date=day)
+    # One extra row probes has_next without a COUNT query.
+    stories = list(
+        _extra_stories(digest, day)
+        [offset:offset + EXTRA_PAGE_SIZE + 1]
+    )
+    has_next = len(stories) > EXTRA_PAGE_SIZE
+    base_rank = digest.items.count() + offset
+    items = [
+        DigestExtraItemOut(
+            rank=base_rank + index + 1,
+            headline=_pick_headline(story)[:500],
+            rationale=_rationale(story)[:300],
+            topic_name=(
+                story.topic.name if story.topic else None
+            ),
+            articles=[
+                ArticleRef(
+                    title=a.title,
+                    link=a.link,
+                    source_name=a.source.name,
+                )
+                for a in _confirmed_members(story)
+            ],
+        )
+        for index, story in enumerate(stories[:EXTRA_PAGE_SIZE])
+    ]
+    return DigestExtraOut(
+        items=items, offset=offset, has_next=has_next,
+    )
 
 
 @router.get('/stories/{story_id}/', auth=None,

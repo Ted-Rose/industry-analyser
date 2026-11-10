@@ -686,6 +686,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/news/digests/{date}/extra/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Digest Extra
+         * @description Ranked stories past the digest's stored top-N — the
+         *     /news/<date>/ 'Load more' page. Same eligibility and
+         *     ordering as build_digest (ranked_stories_for), minus the
+         *     stored stories; ranks continue after the stored items.
+         */
+        get: operations["news_api_digest_extra"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/news/stories/{story_id}/": {
         parameters: {
             query?: never;
@@ -2266,6 +2289,35 @@ export interface components {
             date: string;
             /** Items */
             items: components["schemas"]["DigestDetailItemOut"][];
+            /** Has More */
+            has_more: boolean;
+        };
+        /**
+         * DigestExtraItemOut
+         * @description One ranked story past the digest's stored top-N — same
+         *     render shape as DigestDetailItemOut but built live from a
+         *     NewsStory (rank continues after the stored items).
+         */
+        DigestExtraItemOut: {
+            /** Rank */
+            rank: number;
+            /** Headline */
+            headline: string;
+            /** Rationale */
+            rationale: string;
+            /** Topic Name */
+            topic_name: string | null;
+            /** Articles */
+            articles: components["schemas"]["ArticleRef"][];
+        };
+        /** DigestExtraOut */
+        DigestExtraOut: {
+            /** Items */
+            items: components["schemas"]["DigestExtraItemOut"][];
+            /** Offset */
+            offset: number;
+            /** Has Next */
+            has_next: boolean;
         };
         /** StoryArticleOut */
         StoryArticleOut: {
@@ -3159,6 +3211,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DigestDetailOut"];
+                };
+            };
+        };
+    };
+    news_api_digest_extra: {
+        parameters: {
+            query?: {
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestExtraOut"];
                 };
             };
         };
