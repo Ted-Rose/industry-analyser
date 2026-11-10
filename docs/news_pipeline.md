@@ -23,8 +23,9 @@ each so a crash resumes where it left off:
    date). Already-seen articles just get a "still there"
    timestamp; only new ones go further.
 2. **Tag.** Keyword-match each new article's title+lead
-   against curated lists for five topics (economics, politics,
-   government-funding, war, diplomacy). Words are squashed to
+   against curated lists for six topics (economics, politics,
+   government-funding, war, diplomacy, crime). Words are
+   squashed to
    4-char stems so Latvian declensions collapse; a title hit
    counts double and score ≥ 2 is required. No hits → the
    article stays untopicked (`topic = NULL`).
@@ -207,7 +208,10 @@ the digest (see below).
 
 **Seed topics** (`TOPICS` in `topics.py`): `economics` (1.2),
 `politics` (1.0), `government-funding` (1.3), `war` (1.1),
-`diplomacy` (1.0). The keyword lists are heavily curated —
+`diplomacy` (1.0), `crime` (0.4 — deliberately last in the
+tuple and lowest-weighted: tagging a crime story demotes it
+below the NULL-topic effective weight of 1.0 rather than
+hiding it). The keyword lists are heavily curated —
 4-char stems are greedy on short roots (`eiro`→`eiro` hits all
 `Eiropas*`, `banka`→`bank` hits `bankomāts`, `karš` declensions
 must be `=`-exact so `karalis`/`karuselis` don't hit). Read the
@@ -290,7 +294,7 @@ Two admin-editable weights feed `importance_score`:
   1.0; Jauns.lv 0.5 (tabloid); LSM English 1.0 but disabled.
 - **`NewsTopic.weight`** — editorial interest per topic:
   government-funding 1.3, economics 1.2, war 1.1,
-  politics/diplomacy 1.0.
+  politics/diplomacy 1.0, crime 0.4.
 
 So a story covered by 3 outlets averages their source weights,
 multiplied by its topic's weight — breadth of coverage first,

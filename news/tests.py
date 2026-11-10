@@ -1372,6 +1372,79 @@ class SeedKeywordTests(TestCase):
         self.assertIsNone(topic)
 
 
+class CrimeTopicSeedTests(TestCase):
+    """The 'crime' seed — deliberately the lowest-weight topic,
+    LAST in TOPICS so score ties resolve against it. Tagging a
+    crime story is itself the demotion: a NULL-topic story
+    scores at effective weight 1.0, a 'crime'-tagged one at
+    0.4 — demoted, not hidden."""
+
+    def setUp(self):
+        self.topics = [NewsTopic(**t) for t in TOPICS]
+
+    def test_crime_headline_classifies_as_crime(self):
+        topic = classify_topic(
+            'Vīrietim par slepkavību piespriests cietumsods',
+            '',
+            self.topics,
+        )
+        self.assertIsNotNone(topic)
+        self.assertEqual(topic.slug, 'crime')
+
+    def test_politics_headline_stays_politics(self):
+        # Hard-news keywords must not leak into the 0.4 topic.
+        topic = classify_topic(
+            'Saeima skata likumprojektu',
+            '',
+            self.topics,
+        )
+        self.assertIsNotNone(topic)
+        self.assertEqual(topic.slug, 'politics')
+
+    def test_crime_seed_weight_is_the_lowest(self):
+        crime = next(t for t in TOPICS if t['slug'] == 'crime')
+        self.assertGreater(crime['weight'], 0)
+        self.assertLessEqual(crime['weight'], 0.5)
+        self.assertEqual(
+            crime['weight'], min(t['weight'] for t in TOPICS),
+        )
+
+    def test_crime_story_scores_below_untopicked_story(self):
+        # _refresh_story defaults the effective weight to 1.0
+        # for a NULL topic — identical coverage scores 1.0
+        # untopicked but 0.4 once tagged 'crime'.
+        crime = NewsTopic.objects.create(
+            slug='crime', name='Noziedzība', weight=0.4,
+            keywords=[],
+        )
+        source = _source('a')
+        untopicked = NewsStory.objects.create(
+            title='Stāsts', published_date=timezone.localdate(),
+        )
+        tagged = NewsStory.objects.create(
+            title='Stāsts', published_date=timezone.localdate(),
+        )
+        _article(
+            source, 'Stāsts viens', story=untopicked,
+            story_match_status='auto',
+        )
+        _article(
+            source, 'Stāsts divi', topic=crime, story=tagged,
+            story_match_status='auto',
+        )
+        _refresh_story(untopicked)
+        _refresh_story(tagged)
+        untopicked.refresh_from_db()
+        tagged.refresh_from_db()
+        self.assertIsNone(untopicked.topic_id)
+        self.assertEqual(tagged.topic_id, crime.id)
+        self.assertEqual(untopicked.importance_score, 1.0)
+        self.assertEqual(tagged.importance_score, 0.4)
+        self.assertLess(
+            tagged.importance_score, untopicked.importance_score,
+        )
+
+
 class ReclassifyCommandTests(TestCase):
     def setUp(self):
         self.source = _source('a')
@@ -1662,9 +1735,13 @@ class CuratedSeedKeywordTests(TestCase):
     # hitting the real inflection families.
 
     def test_satver_does_not_hit_satversme(self):
-        # 'satver' (police seize) shares the 'satv' stem.
-        self.assertIsNone(
-            self._topic('Policija satver aizdomās turēto zagli')
+        # 'satver' (seize) shares the 'satv' stem — the
+        # 'Satversm*' prefix does not reach it. The police
+        # headline now correctly lands on 'crime' (policij*/
+        # aizdom*/zagl* hits), never on 'politics'.
+        self.assertEqual(
+            self._topic('Policija satver aizdomās turēto zagli'),
+            self.by_slug['crime'],
         )
 
     def test_arlietas_does_not_hit_arlietu(self):
