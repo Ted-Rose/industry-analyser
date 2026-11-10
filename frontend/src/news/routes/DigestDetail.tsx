@@ -1,24 +1,69 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { fetchDigest } from '../api';
+import {
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query';
+import {
+  fetchDigest,
+  fetchDigestExtra,
+  type DigestDetailItemOut,
+  type DigestExtraItemOut,
+} from '../api';
 import { ApiError, errorDetail } from '../../shared/api/errors';
 import PageContainer, {
   PageHeader,
 } from '../../shared/layout/PageContainer';
+import Button from '../../shared/ui/Button';
 import EmptyState from '../../shared/ui/EmptyState';
 import ErrorState from '../../shared/ui/ErrorState';
 import { LoadingState } from '../../shared/ui/Skeleton';
+
+/** One ranked digest row — identical markup for stored
+ *  DigestDetailItemOut rows and the appended 'Load more'
+ *  DigestExtraItemOut rows (ranks continue across both). */
+function renderItem(
+  item: DigestDetailItemOut | DigestExtraItemOut,
+) {
+  return (
+    <article key={item.rank} className="item">
+      <h3>
+        {item.rank}. {item.headline}
+      </h3>
+      <p className="muted">
+        {item.rationale}
+        {item.topic_name && ` · ${item.topic_name}`}
+      </p>
+      <ul className="articles">
+        {item.articles.map((article) => (
+          <li key={article.link}>
+            <a href={article.link}>{article.title}</a>{' '}
+            <span className="muted">
+              ({article.source_name})
+            </span>
+          </li>
+        ))}
+      </ul>
+    </article>
+  );
+}
 
 /**
  * React port of news/digest_detail.html — one digest day:
  * `rank. headline`, the `rationale · topic` muted line and
  * the confirmed-members-only article list (candidate links
  * never arrive — the API filters them). Garbage or missing
- * dates 404 at the API and render the not-found state.
+ * dates 404 at the API and render the not-found state. When
+ * the day holds eligible stories past the stored top-N
+ * (`has_more`), a 'Load more' button appends them 20 at a
+ * time via /api/news/digests/<date>/extra/.
  */
 export default function DigestDetail() {
   const { date } = useParams<{ date: string }>();
+  // Extras stream only after the first 'Load more' click —
+  // the infinite query stays disabled until then so its
+  // initial page never prefetches.
+  const [moreStarted, setMoreStarted] = useState(false);
 
   const { data, isPending, isError, error, refetch } = useQuery({
     queryKey: ['news', 'digest', date],
@@ -29,6 +74,18 @@ export default function DigestDetail() {
       failureCount < 3,
   });
 
+  const extra = useInfiniteQuery({
+    queryKey: ['news', 'digest', date, 'extra'],
+    queryFn: ({ pageParam }) =>
+      fetchDigestExtra(date as string, pageParam),
+    initialPageParam: 0,
+    getNextPageParam: (last) =>
+      last.has_next
+        ? last.offset + last.items.length
+        : undefined,
+    enabled: Boolean(date) && moreStarted,
+  });
+
   useEffect(() => {
     if (date) {
       document.title = `Kopsavilkums ${date}`;
@@ -37,6 +94,14 @@ export default function DigestDetail() {
 
   const notFound =
     error instanceof ApiError && error.status === 404;
+
+  const extraItems =
+    extra.data?.pages.flatMap((page) => page.items) ?? [];
+  // The server's has_more gates the first click; once pages
+  // stream in, the last page's has_next takes over.
+  const moreAvailable = extra.data
+    ? Boolean(extra.hasNextPage)
+    : (data?.has_more ?? false);
 
   return (
     <PageContainer width="prose" className="news-prose">
@@ -59,27 +124,38 @@ export default function DigestDetail() {
       ) : data.items.length === 0 ? (
         <p className="muted">Šajā kopsavilkumā nav ierakstu.</p>
       ) : (
-        data.items.map((item) => (
-          <article key={item.rank} className="item">
-            <h3>
-              {item.rank}. {item.headline}
-            </h3>
-            <p className="muted">
-              {item.rationale}
-              {item.topic_name && ` · ${item.topic_name}`}
-            </p>
-            <ul className="articles">
-              {item.articles.map((article) => (
-                <li key={article.link}>
-                  <a href={article.link}>{article.title}</a>{' '}
-                  <span className="muted">
-                    ({article.source_name})
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </article>
-        ))
+        <>
+          {data.items.map(renderItem)}
+          {extraItems.map(renderItem)}
+          {extra.isError && (
+            <ErrorState
+              title="Failed to load more news"
+              error={errorDetail(extra.error)}
+              onRetry={() =>
+                void (extra.data
+                  ? extra.fetchNextPage()
+                  : extra.refetch())
+              }
+            />
+          )}
+          {moreAvailable && (
+            <Button
+              variant="secondary"
+              className="mt-4"
+              loading={
+                extra.isFetchingNextPage ||
+                (moreStarted && !extra.data && extra.isFetching)
+              }
+              onClick={() =>
+                extra.data
+                  ? void extra.fetchNextPage()
+                  : setMoreStarted(true)
+              }
+            >
+              Ielādēt vēl 20 ziņas
+            </Button>
+          )}
+        </>
       )}
     </PageContainer>
   );

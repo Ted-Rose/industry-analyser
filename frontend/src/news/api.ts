@@ -10,6 +10,10 @@ export type DigestDetailOut =
   components['schemas']['DigestDetailOut'];
 export type DigestDetailItemOut =
   components['schemas']['DigestDetailItemOut'];
+export type DigestExtraOut =
+  components['schemas']['DigestExtraOut'];
+export type DigestExtraItemOut =
+  components['schemas']['DigestExtraItemOut'];
 export type StoryCardOut = components['schemas']['StoryCardOut'];
 export type StoryArticleOut =
   components['schemas']['StoryArticleOut'];
@@ -51,6 +55,18 @@ export function fetchDigests(params: {
 /** GET /api/news/digests/<date>/ — one digest day. */
 export function fetchDigest(date: string): Promise<DigestDetailOut> {
   return apiGet<DigestDetailOut>(`/api/news/digests/${date}/`);
+}
+
+/** GET /api/news/digests/<date>/extra/?offset=N — the next
+ *  20 ranked stories past the digest's stored top-N (the
+ *  'Load more' page on the day page). */
+export function fetchDigestExtra(
+  date: string,
+  offset: number,
+): Promise<DigestExtraOut> {
+  return apiGet<DigestExtraOut>(
+    `/api/news/digests/${date}/extra/?offset=${offset}`,
+  );
 }
 
 /** GET /api/news/stories/<id>/ — the inline-reader story card;

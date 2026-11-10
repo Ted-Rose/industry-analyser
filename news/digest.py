@@ -45,6 +45,31 @@ def _pick_headline(story):
     return best.title
 
 
+def ranked_stories_for(date):
+    """The day's digest-eligible stories ranked by
+    importance_score then recency — the full ordering
+    build_digest slices its top_n from. The digest-extra API
+    op pages past the stored items through the same ranking."""
+    return (
+        NewsStory.objects.filter(
+            published_date=date,
+            # At least one confirmed member — an all-'candidate'
+            # story is admin-review material, not published
+            # coverage.
+            articles__story_match_status__in=(
+                CONFIRMED_MATCH_STATUSES
+            ),
+        )
+        .filter(
+            Q(topic__is_enabled=True)
+            | Q(topic__isnull=True, source_count__gte=2)
+        )
+        .distinct()
+        .prefetch_related('articles__source')
+        .order_by('-importance_score', '-last_seen')
+    )
+
+
 def _rationale(story):
     # The outlet count is recomputed from live confirmed
     # membership — story.source_count is only refreshed by
@@ -69,24 +94,7 @@ def build_digest(date, top_n=20, dry_run=False):
     wholesale.
     Returns {'date': date, 'items': [(rank, headline, rationale)]}.
     """
-    stories = (
-        NewsStory.objects.filter(
-            published_date=date,
-            # At least one confirmed member — an all-'candidate'
-            # story is admin-review material, not published
-            # coverage.
-            articles__story_match_status__in=(
-                CONFIRMED_MATCH_STATUSES
-            ),
-        )
-        .filter(
-            Q(topic__is_enabled=True)
-            | Q(topic__isnull=True, source_count__gte=2)
-        )
-        .distinct()
-        .prefetch_related('articles__source')
-        .order_by('-importance_score', '-last_seen')[:top_n]
-    )
+    stories = ranked_stories_for(date)[:top_n]
 
     items = []
     for rank, story in enumerate(stories, start=1):
