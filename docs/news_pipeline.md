@@ -11,6 +11,36 @@ design doc is `openspec/changes/add-news-digest-google-task/`.
 Zero paid AI calls anywhere in this pipeline — classification
 and clustering are pure Python heuristics, deliberately.
 
+## In plain words
+
+Once a day, `news_pipeline` runs on the maintainer's machine
+(not Cloud Run) and does four things in order, checkpointing
+each so a crash resumes where it left off:
+
+1. **Collect.** Fetch each enabled outlet's RSS feed with a
+   "only if it changed" conditional GET. Every `<item>` becomes
+   a `NewsArticle` row (title, lead, link, image, publish
+   date). Already-seen articles just get a "still there"
+   timestamp; only new ones go further.
+2. **Tag.** Keyword-match each new article's title+lead
+   against curated lists for five topics (economics, politics,
+   government-funding, war, diplomacy). Words are squashed to
+   4-char stems so Latvian declensions collapse; a title hit
+   counts double and score ≥ 2 is required. No hits → the
+   article stays untopicked (`topic = NULL`).
+3. **Cluster.** Group articles that are the same story
+   reported by different outlets: compare each unmatched
+   article's title stems against titles in stories dated
+   ±1 day (Jaccard similarity). Close enough → join the
+   story; otherwise start a new one. Each story's
+   `importance_score` = distinct outlets × topic weight ×
+   average outlet weight.
+4. **Rank.** Pick the day's stories that have an enabled
+   topic — or no topic but ≥2 outlets — sort by importance,
+   keep the top 20. The headline comes from the highest-
+   weighted outlet that covered it; the rationale is just
+   "N outlets: lsm, delfi, …".
+
 ## Orchestration
 
 `news_pipeline` is the single daily entry point — one
@@ -74,10 +104,11 @@ digest.
 | `news_source_preference` | Per-user outlet ranking for the story reader |
 | `news_article_audio` | TTS seam — table and endpoint exist, no generator yet |
 
-`story_match_status` values: `unmatched` → `auto` / `candidate`
-/ `manual`. `CONFIRMED_MATCH_STATUSES = ('auto', 'manual')` —
-`candidate` links await admin review and never count as
-coverage anywhere downstream.
+`story_match_status` values: `unmatched` → `auto` / `manual`,
+plus legacy `candidate` rows — the clusterer no longer produces
+`candidate` links (see Stage 3); the existing ones await admin
+review and never count as coverage anywhere downstream.
+`CONFIRMED_MATCH_STATUSES = ('auto', 'manual')`.
 
 ## Stage 1 — RSS scraping (`news/scraper.py`, `news/feeds.py`)
 
@@ -209,15 +240,19 @@ classification, which keeps stopwords.
 
 **Outcomes** (constants at the top of `clustering.py`):
 
-- score ≥ `AUTO_THRESHOLD` (0.45) **and** ≥
+- score ≥ `AUTO_THRESHOLD` (0.30) **and** ≥
   `MIN_SHARED_SUBSTANTIVE` (2) shared stems that aren't date
   boilerplate → `story_match_status='auto'`;
-- score ≥ `CANDIDATE_THRESHOLD` (0.30) → `'candidate'` — the
-  link is stored for admin review but counts as coverage
-  nowhere;
 - otherwise a fresh `NewsStory` is created from the article
   (title, lead, topic, `published_date` = article day) and the
   article is linked `'auto'` with a NULL score.
+
+There is no `CANDIDATE_THRESHOLD` anymore — the clusterer
+produces only `'auto'` links, so near-misses become their own
+stories instead of piling up in a review queue. The
+`'candidate'` status survives only on rows written before the
+thresholds were merged; they still count as coverage nowhere
+until an admin flips them to `'manual'`.
 
 "Substantive" means shared stems minus `_DATE_STEMS`
 (`gada`/`gadu`/`gadā`/`gads`) — the guard exists because same-
@@ -262,9 +297,12 @@ multiplied by its topic's weight — breadth of coverage first,
 outlet quality second, topic interest third.
 
 **Digest selection** (`build_digest`): stories with
-`published_date == date`, an *enabled* topic (NULL-topic
-stories are excluded by the join), and ≥1 confirmed member —
-ranked by `-importance_score`, `-last_seen`, top N (default 5).
+`published_date == date` and ≥1 confirmed member that either
+have an *enabled* topic **or** have `topic IS NULL` with
+`source_count >= 2` — multi-outlet coverage is itself strong
+importance evidence, while single-source untopicked
+singletons (sports/celebrity noise) stay excluded. Ranked by
+`-importance_score`, `-last_seen`, top N (default 20).
 Headline = the confirmed member article from the highest-
 weighted source (tie: longest lead); rationale =
 `"N outlets: lsm, delfi, …"` recomputed from live membership.
