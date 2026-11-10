@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { Settings } from 'lucide-react';
 import {
   keepPreviousData,
   useQuery,
@@ -17,6 +18,7 @@ import PageContainer, {
   PageHeader,
 } from '../../shared/layout/PageContainer';
 import Badge, { StatusBadge } from '../../shared/ui/Badge';
+import Button from '../../shared/ui/Button';
 import DataTable, {
   type Column,
 } from '../../shared/ui/DataTable';
@@ -289,6 +291,18 @@ export default function Dashboard() {
         description={
           "Per-job progress over each job's latest cycle, " +
           'plus daily run statistics.'
+        }
+        actions={
+          <Button
+            as="a"
+            href="/admin/"
+            variant="secondary"
+            leftIcon={
+              <Settings className="size-4" aria-hidden="true" />
+            }
+          >
+            Admin
+          </Button>
         }
       />
       {isError && !data ? (
