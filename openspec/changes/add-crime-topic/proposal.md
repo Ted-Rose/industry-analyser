@@ -39,13 +39,13 @@ excluding it entirely.
 ## Capabilities
 
 ### New Capabilities
-<!-- The news topic set is data (seed TOPICS tuple), not a
-     spec'd capability — precedent: add-news-pipeline-command
-     shipped without a spec delta. -->
+- `news-topics`: the seeded topic catalog as a ranking lever —
+  a low-weight topic demotes the stories it catches relative
+  to the NULL-topic effective weight of 1.0.
 
 ### Modified Capabilities
 <!-- Digest ranking behavior changes via data weights only;
-     no spec'd contract changes. -->
+     no spec'd contract changes to existing specs. -->
 
 ## Impact
 
