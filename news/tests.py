@@ -1109,6 +1109,25 @@ class DigestExtraTests(TestCase):
         )
         self.assertTrue(response.json()['has_more'])
 
+    def test_empty_digest_still_serves_extras(self):
+        # build_digest writes the NewsDigest row even when no
+        # story qualified — a digest with 0 stored items can
+        # hold extras once a story becomes eligible.
+        NewsDigest.objects.create(date=self.today)
+        self._story('Ziņa viens', 5.0)
+        payload = self._extra().json()
+        self.assertEqual(
+            [(i['rank'], i['headline']) for i in payload['items']],
+            [(1, 'Ziņa viens')],
+        )
+
+    def test_offset_beyond_end_returns_empty_page(self):
+        self._story('Ziņa viens', 5.0)
+        NewsDigest.objects.create(date=self.today)
+        payload = self._extra(offset=50).json()
+        self.assertEqual(payload['items'], [])
+        self.assertFalse(payload['has_next'])
+
 
 class DigestGoogleTaskTests(TestCase):
     """The build -> per-subscriber Google task fan-out: one

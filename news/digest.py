@@ -66,7 +66,9 @@ def ranked_stories_for(date):
         )
         .distinct()
         .prefetch_related('articles__source')
-        .order_by('-importance_score', '-last_seen')
+        # '-pk' tiebreaker keeps offset pagination stable when
+        # (score, last_seen) ties straddle a page boundary.
+        .order_by('-importance_score', '-last_seen', '-pk')
     )
 
 

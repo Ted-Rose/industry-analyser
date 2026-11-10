@@ -53,15 +53,19 @@ function makeDetail(
 
 /** Server echo for /extra/?offset=N — one page of `size`
  *  extra rows whose ranks continue after the stored items,
- *  then the well runs dry. */
-function extraPage(url: string, size = 2): DigestExtraOut {
+ *  then the well runs dry unless `hasNext` says otherwise. */
+function extraPage(
+  url: string,
+  size = 2,
+  hasNext = false,
+): DigestExtraOut {
   const offset = Number(
     new URL(url, 'http://test').searchParams.get('offset'),
   );
   const items = Array.from({ length: size }, (_, i) =>
     makeItem(3 + offset + i, `Papildu ${offset + i}`),
   );
-  return { items, offset, has_next: false };
+  return { items, offset, has_next: hasNext };
 }
 
 function renderAt(entry: string) {
@@ -123,6 +127,43 @@ describe('DigestDetail', () => {
     );
     expect(requested).toContain(
       `/api/news/digests/${DATE}/extra/?offset=0`,
+    );
+  });
+
+  it('pages through extras with fetchNextPage offsets', async () => {
+    mockedApiGet.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/extra/')
+          ? extraPage(url, 1, url.includes('offset=0'))
+          : makeDetail(),
+      ),
+    );
+    renderAt(`/${DATE}`);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Ielādēt vēl 20 ziņas',
+      }),
+    );
+    await screen.findByText('3. Papildu 0');
+    // has_next true → second click fetches offset=1.
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Ielādēt vēl 20 ziņas',
+      }),
+    );
+    await screen.findByText('4. Papildu 1');
+    const requested = mockedApiGet.mock.calls.map(
+      (call) => call[0],
+    );
+    expect(requested).toContain(
+      `/api/news/digests/${DATE}/extra/?offset=1`,
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: 'Ielādēt vēl 20 ziņas',
+        }),
+      ).not.toBeInTheDocument(),
     );
   });
 

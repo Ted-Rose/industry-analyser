@@ -92,16 +92,27 @@ export default function DigestDetail() {
     }
   }, [date]);
 
+  // A date change must re-arm the click gate — otherwise a
+  // future same-page navigation would auto-fire the extras
+  // query without the user asking for them.
+  useEffect(() => {
+    setMoreStarted(false);
+  }, [date]);
+
   const notFound =
     error instanceof ApiError && error.status === 404;
 
   const extraItems =
     extra.data?.pages.flatMap((page) => page.items) ?? [];
   // The server's has_more gates the first click; once pages
-  // stream in, the last page's has_next takes over.
-  const moreAvailable = extra.data
-    ? Boolean(extra.hasNextPage)
-    : (data?.has_more ?? false);
+  // stream in, the last page's has_next takes over. While a
+  // failed FIRST page shows its ErrorState+Retry, hide the
+  // button — its onClick is a no-op then (moreStarted already
+  // true and fetchNextPage has nothing to resume).
+  const moreAvailable =
+    (extra.data ? Boolean(extra.hasNextPage)
+      : (data?.has_more ?? false)) &&
+    !(extra.isError && !extra.data);
 
   return (
     <PageContainer width="prose" className="news-prose">
@@ -121,11 +132,19 @@ export default function DigestDetail() {
         )
       ) : isPending || !data ? (
         <LoadingState variant="cards" />
-      ) : data.items.length === 0 ? (
-        <p className="muted">Šajā kopsavilkumā nav ierakstu.</p>
       ) : (
         <>
-          {data.items.map(renderItem)}
+          {/* A digest row can hold 0 stored items yet still
+              have eligible extras (stories re-clustered after
+              the build) — the extras UI lives outside the
+              empty-list branch so has_more stays reachable. */}
+          {data.items.length === 0 ? (
+            <p className="muted">
+              Šajā kopsavilkumā nav ierakstu.
+            </p>
+          ) : (
+            data.items.map(renderItem)
+          )}
           {extraItems.map(renderItem)}
           {extra.isError && (
             <ErrorState
