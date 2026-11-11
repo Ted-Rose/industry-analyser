@@ -22,11 +22,11 @@ infra in `terraform/`.
 
 Single git repo: `origin` is the user's own
 `Ted-Rose/industry-analyser` (verified NOT a fork), default
-branch `master`. CI/deploy: `.github/workflows/` on push to
-`master` + `frontend-checks.yml` on every PR.
+branch `main`. CI/deploy: `.github/workflows/` on push to
+`main` + `frontend-checks.yml` on every PR.
 
 Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for
-historical design plans (frozen — see rule 10), `docs/` for
+historical design plans (frozen — see rule 11), `docs/` for
 audits/reports. `DOCUMENTATION_INDEX.md` is a doc map but
 partly stale (see preamble).
 
@@ -541,85 +541,94 @@ Repo conventions:
   `django-model-conventions.md`, `migrations.md`,
   `scraping-pipeline.md`, `secrets-and-local-files.md`).
 
-Universal rules (apply to every task):
+Universal rules — follow exactly:
 
-1. **Commit format**: `Type: Capitalized message` — `Feat:` /
-   `Fix:` / `Docs:` / `Refactor:` / `Test:` / `Chore:`.
-2. **Branching/staging**: commit on feature branches only, never
-   `master`. Name the branch `<type>/<slug>` with the same type
-   set as commits (`feat/`, `fix/`, `docs/`, `refactor/`,
-   `test/`, `chore/`) — `feat/news-spa`, not
-   `add-news-spa`; issue-fix branches keep the skill's
-   `fix/issue-<N>-<slug>` form. Stage ONLY files created or
-   modified this session, by path — never `git add -A`,
-   `git add .`, or `git commit -a`; confirm the staged set with
-   `git status` first. Leave the user's own dirty files alone.
-   Never commit plan/scratch markdown (`*-plan.md` drafts,
-   `PR_DESCRIPTION.md`, `pr-body.md`).
-3. **Dangerous commands — never run** (see Guardrails for why):
-   `python manage.py migrate`/`sqlmigrate` against the default
-   `DATABASE_URL` (prod), `python manage.py test` against the
-   default `DATABASE_URL` (creates a test DB on the prod
-   server), `terraform apply` or any mutating `gcloud` command,
-   `deploy-cloudrun.sh`, `gcloud run jobs execute` deploys,
-   force-pushes/history rewrites on `master`. `makemigrations`
-   is safe (touches no DB); `migrate`/`test` are fine ONLY with
-   the `DATABASE_URL=sqlite:///db.sqlite3` prefix. If a task
-   needs a forbidden command, write the change and tell the user
-   the command to run.
-4. **Scoped tests**: run tests only for the app(s) you changed —
-   `DATABASE_URL=sqlite:///db.sqlite3 python manage.py test
-   <app>` — not the whole suite unless the change is broad.
-5. **PR creation**: write the body to a temp file and use
-   `gh pr create --body-file` — never inline `--body` (shell
-   quoting breaks on multi-line bodies). See
-   `.devin/workflows/create-pr.md`; delete the temp file after.
-6. **Every PR body includes a UI verification / QC section**:
-   concrete manual steps (which pages, which clicks, expected
-   result) exercising the change end-to-end through the UI. Omit
-   only when genuinely unreachable from UI — then give an
-   equivalent (curl command, log line to check).
-7. **Fork rule**: `origin` is the user's own repo (not a fork).
-   If a fork/upstream setup ever appears, ALL GitHub operations
-   — issues, PRs, comments, releases — target the fork, never
-   upstream, unless asked.
-8. **No secrets in code**: secrets live in gitignored `.env`,
-   `private_settings.json`, `ca.pem`, `blogs/config.yaml`,
-   `fetcher/config_v2.json`, `terraform/*.tfvars|tfstate`, and
-   in prod in GCP Secret Manager + GitHub Actions secrets
-   (`GCP_SA_KEY`, `TF_VAR_*`). Never create new Secret Manager
-   secrets — append KEY=VALUE lines to the shared `env-file`
-   secret (each extra secret adds cost). Never commit, print, or
-   copy them into code/docs. `private_settings.json` may be READ
-   at runtime for the `ai_agent` read-only creds — never print
-   the password.
-9. **Update the docs after functionality changes** — this repo's
-   developer-guide equivalents are `DOCUMENTATION_INDEX.md`
-   (doc map), the relevant `docs/` file, and app
-   `README.md`/`ARCHITECTURE.md`/`QUICK_REFERENCE.md` where they
-   exist (`fetcher/` has all three). If a change has no fitting
-   doc, note it in the PR body.
-10. **`docs/plans/` is frozen** — existing files stay as
-    history (each carries a status header: implemented /
-    partial / in progress / not implemented / reverted), but
-    agents MUST NOT create new plan, design or investigation
-    markdown files — not in `docs/plans/` and not elsewhere.
-    All new planning goes through OpenSpec: `openspec-propose`
-    for changes, `openspec-explore`/change artifacts for
-    investigations (see OpenSpec).
-11. **Test login**: none documented — the app uses Django
-    session auth; `python manage.py createsuperuser` creates a
-    local admin. Ask the user whether a shared test account
-    exists before inventing credentials.
-12. **AGENTS.md is self-updating.** When you hit local-setup,
-    infrastructure, or missing-tooling friction — a CLI that
-    isn't installed (e.g. `gh` — `brew install gh`), a
-    non-obvious way to run the project locally, a required
-    version or local path — don't grind through many failing
-    alternatives. Missing tool → tell the user what to install.
-    Working flow or local quirk discovered → write it into this
-    file so the next agent uses it directly, and commit that doc
-    update alongside the work that discovered it.
+1. **Max 79 chars per line, every file type.** Verify:
+   `awk 'length > 79 {print FILENAME":"NR}' <file>`. Fix
+   violations you introduce plus long lines in files already
+   being modified. Exempt: formatter output (e.g. Prettier at
+   printWidth 80 may emit 80-char lines) and vendored upstream
+   skill files under `.agents/skills/` and `.devin/skills/`
+   (`openspec-*`, `vercel-react-best-practices/`) — refresh
+   tools own them.
+2. **Commit format** `Type: Capitalized message` —
+   `Feat:`/`Fix:`/`Docs:`/`Refactor:`/`Test:`/`Chore:`.
+3. **Commit on feature branches only, never `main`.**
+   Name branches `<type>/<slug>` with the commit types
+   (`feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `chore/`).
+   Stage only files changed this session, by path — never
+   `git add -A`, `git add .` or `git commit -a`; confirm the
+   staged set with `git status` first; leave the user's own
+   dirty files alone; never commit plan/scratch markdown.
+4. **Dangerous commands — never run** the destructive/deploy
+   commands listed under "Repo-specific rules" below; write
+   the change and tell the user the command to run instead.
+5. **Scoped verification** — run only the tests/checks for
+   what you changed, not the whole suite.
+6. **PR bodies go to a temp file** + `gh pr create
+   --body-file`, never inline `--body`; delete the temp file
+   after. See `.devin/skills/create-pr/`.
+7. **Every PR body includes a UI verification / QC section** —
+   concrete steps (pages, clicks, expected result) exercising
+   the change end-to-end through the UI. Omit only when
+   genuinely unreachable from the UI — then give an
+   equivalent (curl command, log line, file to inspect).
+8. **GitHub remote targeting**: when `origin` is the user's
+   fork (an `upstream` remote exists), ALL GitHub operations
+   — issues, PRs, comments, releases — target the fork via
+   `--repo <owner>/<fork>`; never upstream unless asked.
+   Otherwise `origin` is the target.
+9. **No secrets in code.** Secrets live in gitignored local
+   files / env vars / GCP Secret Manager. Never create new
+   Secret Manager secrets — append KEY=VALUE lines to the
+   shared `env-file` secret (each extra secret adds cost).
+10. **Update docs after functionality changes** — this file
+    and the repo's other contract docs (README /
+    DEVELOPER_GUIDE / docs/*) — in the same change.
+11. **`docs/plans/` is frozen** — existing files stay as
+    history with their status headers (implemented / partial /
+    in progress / not implemented / reverted); nothing new is
+    added there or anywhere else — all new planning goes
+    through OpenSpec (`openspec-propose` for changes,
+    `openspec-explore`/change artifacts for investigations).
+12. **This file is self-updating.** Missing tool → tell the
+    user what to install instead of grinding through failing
+    alternatives. Discovered flow/local quirk → write it into
+    the relevant AGENTS.md and commit that doc update
+    alongside the work that discovered it.
+
+### Repo-specific rules
+
+- **Dangerous commands — never run** (see Guardrails for why):
+  `python manage.py migrate`/`sqlmigrate` against the default
+  `DATABASE_URL` (prod), `python manage.py test` against the
+  default `DATABASE_URL` (creates a test DB on the prod
+  server), `terraform apply` or any mutating `gcloud`
+  command, `deploy-cloudrun.sh`, `gcloud run jobs execute`
+  deploys, force-pushes/history rewrites on `main`.
+  `makemigrations` is safe (touches no DB);
+  `migrate`/`test` are fine ONLY with the
+  `DATABASE_URL=sqlite:///db.sqlite3` prefix.
+- **GitHub targeting**: `origin` is the user's own repo
+  (`Ted-Rose/industry-analyser`, verified NOT a fork) — all
+  `gh` operations target it.
+- **Branch naming**: issue-fix branches keep the skill's
+  `fix/issue-<N>-<slug>` form; everything else follows
+  rule 3's `<type>/<slug>`.
+- **Local secrets** (gitignored, never commit/print): `.env`,
+  `private_settings.json`, `ca.pem`, `blogs/config.yaml`,
+  `fetcher/config_v2.json`, `terraform/*.tfvars`/`tfstate`.
+  `private_settings.json` may be READ at runtime for the
+  `ai_agent` read-only creds — never print the password.
+- **Test login**: none documented — the app uses Django
+  session auth; `python manage.py createsuperuser` creates a
+  local admin. Ask the user whether a shared test account
+  exists before inventing credentials.
+- **Contract docs to keep in sync**: `DOCUMENTATION_INDEX.md`
+  (the doc map), the relevant `docs/` file, and per-app docs
+  like `fetcher/`'s `README.md`/`ARCHITECTURE.md`/
+  `QUICK_REFERENCE.md`. If no doc fits a change, note that in
+  the PR body.
 
 ## Agent config
 
@@ -631,7 +640,7 @@ Universal rules (apply to every task):
   reviewers → fix rounds).
 - `.devin/skills/vercel-react-best-practices/` — vendored React
   perf rules for `frontend/` work.
-- `.devin/workflows/create-pr.md` — the `--body-file` PR rule.
+- `.devin/skills/create-pr/` — the `--body-file` PR rule.
 - `.devin/rules/*.md` — always-on project rules (code style,
   migrations, secrets, model conventions, scraper pipeline).
 - `.devin/skills/openspec-*/` — OpenSpec workflow skills
@@ -656,8 +665,8 @@ context.
 - **Run `openspec` commands only from the repo root** — a
   fixed convention, not upward root-resolution.
 - The CLI is a global npm install in `/opt/homebrew/bin` —
-  agent shells lack it on PATH, so
-  `export PATH="/opt/homebrew/bin:$PATH"` first.
+  not on agent-shell PATH (see the machine-environment notes
+  in `~/.config/devin/AGENTS.md`).
 - **Always run `openspec validate --all --strict` after
   touching `openspec/`** — proposing, spec edits, sync,
   archive. It must pass before committing; strict mode catches
@@ -687,7 +696,7 @@ context.
   investigations go through `openspec changes`
   (`openspec-propose` for changes, `openspec-explore` for
   investigations), never new plan-MD files. Existing
-  `docs/plans/*` stay as history — see rule 10.
+  `docs/plans/*` stay as history — see rule 11.
 - Vendored-skill files are exempt from the 79-char rule — see
   Conventions.
 
@@ -754,11 +763,11 @@ context.
 
 ## Deployment
 
-Push to `master` triggers GitHub Actions
+Push to `main` triggers GitHub Actions
 (`.github/workflows/deploy-scraper-jobs.yml` and
 `deploy-web-service.yml`): Docker build/push to Artifact
 Registry → `python manage.py migrate` via the ad-hoc
-`run-migrations` Cloud Run job (master-only step) → update the
+`run-migrations` Cloud Run job (main-only step) → update the
 `all-jobs` Cloud Run job + web service.
 Legacy
 `cloudbuild.yaml`, `deploy-cloudrun.sh`, and `vercel.json` also
@@ -822,14 +831,12 @@ That issue list IS the fix queue; `GET
 /issues/<id>/` with `{"status":"resolvedInNextRelease"}` — only
 after the fix merges.
 
-Local-only quirk: this dev machine sits behind a Netskope
-TLS-intercepting proxy — Python→Sentry egress FAILS SILENTLY
-(`SSLCertVerificationError` inside the SDK transport; `flush()`
-returns but events never arrive) unless `SSL_CERT_FILE` points
-at a CA bundle that includes the Netskope root — build one by
-concatenating `certifi.where()` output with
-`/Library/Application Support/Netskope/STAgent/data/nscacert.pem`.
-Prod (Cloud Run) is unaffected.
+Local-only quirk: Python→Sentry egress fails SILENTLY from
+this machine (`flush()` returns but events never arrive)
+behind the TLS-intercepting proxy — the `SSL_CERT_FILE`
+CA-bundle fix lives in the global machine-environment notes
+(`~/.config/devin/AGENTS.md`). Prod (Cloud Run) is
+unaffected.
 
 ## Guardrails
 
