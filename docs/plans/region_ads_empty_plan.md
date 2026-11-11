@@ -1,5 +1,12 @@
 # Region-ads link from Rent vs Buy renders "0 results" — fix plan
 
+> **Status**: Implemented. `RentVsBuy.tsx` builds `regionAdsUrl`
+> with `date_from`/`date_to`/`deal_type` (ranked rows link
+> `deal_type=ALL`), and `region_ads_list` supports `ALL` merged
+> rent+sale output; a missing/blank `deal_type` still returns an
+> empty table by design.
+
+
 ## Bug
 
 On `/classified-ads/rent-vs-buy`, each ranked row's region label links

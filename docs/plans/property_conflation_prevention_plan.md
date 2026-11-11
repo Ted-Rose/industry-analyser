@@ -1,5 +1,14 @@
 # Property Conflation Prevention Plan
 
+> **Status**: Partial — phases 1–2 implemented
+> (`audit_property_links`, `relink_property_ads`, twin
+> shortcut, conflation alarms → candidate, `N-M` split,
+> `extract_apartment_no` recall). Phase 3 review surface
+> (admin flags column/filter, twin-divergence on
+> candidate rows, merge action, scheduled audit) is
+> tracked in `openspec/changes/add-property-review-surface/`.
+
+
 Follow-up to `docs/plans/property_linking_plan.md` and the duplicate review
 documented in `docs/research/property_match_review_2026_10.md` /
 `/tmp/property_match_review_report.md`. Verified against the
