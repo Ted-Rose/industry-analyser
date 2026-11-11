@@ -211,8 +211,9 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 ALLOWED_HOSTS = [
+    # 127.0.0.1 stays unconditional: local prod-parity runs use
+    # DEBUG=False but are still reached over http://127.0.0.1.
     '127.0.0.1',
-    '0.0.0.0',
     'industry-analyser-180632294935.europe-north1.run.app',
     # Covers staging/PR Cloud Run services (e.g. industry-analyser-staging).
     '.run.app',
@@ -234,6 +235,19 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.run.app',
     'https://*.vercel.app',
 ]
+
+# Cloud Run and Vercel both terminate TLS upstream and forward the
+# original scheme in X-Forwarded-Proto. Trust it on those platforms
+# only, so request.is_secure(), the http→https redirect, HSTS and
+# Secure cookies engage in production while local http dev (which
+# also runs DEBUG=False) keeps working.
+if os.environ.get('VERCEL') or os.environ.get('K_SERVICE'):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Application definition
 INSTALLED_APPS = [
