@@ -2,33 +2,44 @@
 #
 # vercel.json rewrites are filesystem-first: every file that ships is
 # publicly fetchable at its repo path AND adds to the deployment.
-# Only the Django runtime (api/, app dirs with their templates/ and
-# static/, industry_analyser/, committed frontend_dist/, manage.py,
-# requirements.txt, pyproject.toml, uv.lock) is needed at runtime.
-# Cross-check against INSTALLED_APPS before adding exclusions —
-# app dirs must keep shipping their templates/ and static/ trees.
+# Only the Django runtime (api/, app dirs with their templates/,
+# static/ and prompts/ trees, industry_analyser/, committed
+# frontend_dist/, manage.py, requirements.txt, pyproject.toml,
+# uv.lock, wsgi.py) is needed at runtime. Cross-check against
+# INSTALLED_APPS before adding exclusions — app dirs must keep
+# shipping their templates/ and static/ trees.
 
-# Docs, planning, agent config (also stops /AGENTS.md, /changelog.md,
-# etc. being publicly served — rewrites are filesystem-first)
-/*.md
+# Docs, planning, agent config — `**` so app-level docs also stay
+# out (fetcher/README.md, blogs/BLOG_SCRAPER_CALLSTACK.md, …);
+# rewrites are filesystem-first so shipped files are publicly served
+**/*.md
 docs/
 openspec/
 vision/
 .devin/
 .agents/
 .claude/
+.vscode/
 
-# Infra, CI and the Cloud Run path (Docker/cloudbuild/deploy script)
+# Infra, CI and the Cloud Run path — shell/terraform sources are
+# matched at any depth so they stay covered if a dir-level exclusion
+# above is ever narrowed
 terraform/
 .github/
 Dockerfile
 cloudbuild.yaml
-deploy-cloudrun.sh
+*.sh
+*.tf
+*.tfvars
+*.tfstate*
 
 # Local state and secrets — must never ship or be fetchable
 .env*
 private_settings.json
 ca.pem
+*.pem
+*.key
+*.p12
 db.sqlite3
 db_backups/
 logs/
@@ -36,14 +47,17 @@ venv/
 .vercel/
 
 # Gitignored local configs — absent in CI checkouts, but keep them
-# out of a `vercel deploy` CLI upload's public surface. The
-# terraform/ entries duplicate the dir-level exclusion above so the
-# secrets stay covered if that exclusion is ever narrowed.
+# out of a `vercel deploy` CLI upload's public surface. `config.yaml`
+# is name-matched at any depth so future app configs stay covered.
 fetcher/config.json
 fetcher/config_v2.json
-blogs/config.yaml
-terraform/terraform.tfvars
-terraform/*.tfstate*
+fetcher/config.template.json
+config.yaml
+
+# Lint/deploy metadata Vercel doesn't already filter out (it never
+# serves .env*, .gitignore, .dockerignore or .vercelignore itself)
+.flake8
+.gcloudignore
 
 # Local collectstatic output — Vercel has no build step, so a stale
 # staticfiles/ would mask the committed frontend_dist/ assets
@@ -59,7 +73,7 @@ frontend/
 node_modules/
 
 # Tests and Python artifacts
-*/tests/
+tests/
 tests.py
 __pycache__/
 *.py[cod]

@@ -771,6 +771,14 @@ context.
   requirements-only addition ships a Vercel bundle missing
   the package, and the eager root-urlconf imports turn it
   into a site-wide 500.
+- Vercel production deploys can lag `main`: observed 2026-11-11 —
+  merges to `main` produced only (SSO-gated) Preview deployments,
+  so `industryanalyser.vercel.app` kept serving the previous
+  Production build. After merging deploy-affecting changes
+  (`vercel.json`, `.vercelignore`), verify with
+  `gh api repos/Ted-Rose/industry-analyser/deployments` — the
+  newest `Production` entry must postdate the merge, else the
+  public-fetch surface has NOT changed yet.
 - `blogs/config.yaml`'s `max_api_requests` still exists but only
   seeds the `AIJob` row once — the live cap is in admin.
 - Thin test coverage is a known state: many `tests.py` are
