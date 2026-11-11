@@ -361,7 +361,8 @@ python manage.py scrape_news \
   [--backfill] [--since YYYY-MM-DD] [--until YYYY-MM-DD] \
   [--max-minutes N]
 python manage.py link_news_stories [--days N] [--dry-run]
-python manage.py build_news_digest [--date D] [--top-n N]
+python manage.py build_news_digest [--date D] [--days N] \
+  [--top-n N]
 python manage.py reclassify_news_articles [--all] [--days N]
 python manage.py backfill_program_shows [--dry-run]
 python manage.py enrich_tv_shows [--status pending] [--limit N]
@@ -386,7 +387,7 @@ resuming at the first unfinished phase; `--fresh` re-runs all
 phases (forwarded to `scrape_news`), `--from PHASE` resumes at
 a named phase. The four delegated commands stay standalone —
 `link_news_stories --days N` is the outage catch-up and
-`build_news_digest --date D` backfills a missed day.
+`build_news_digest --days N` backfills missed days.
 `scrape_news` polls RSS feeds; `--backfill` instead
 walks each enabled source's historical sitemaps/archives into
 `NewsArticle` rows (job `news.backfill`, constant `backfill`

@@ -13,7 +13,7 @@ This is orchestration only — each phase is a ``call_command``
 exactly like ``run_all_jobs`` used to invoke them individually,
 so the delegated commands stay standalone (e.g.
 ``link_news_stories --days N`` for outage catch-up,
-``build_news_digest --date D`` for a missed day).
+``build_news_digest --days N`` for missed days).
 """
 import logging
 

@@ -984,6 +984,12 @@ class DigestTests(TestCase):
             ],
         )
 
+    def test_days_below_one_rejected(self):
+        with self.assertRaises(CommandError):
+            call_command(
+                'build_news_digest', days=0, stdout=StringIO(),
+            )
+
     def test_detail_page_renders_confirmed_members_only(self):
         story = self._story('Ziņa viens', 5.0, source=self.a)
         cand = _article(

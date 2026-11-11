@@ -90,6 +90,9 @@ bookkeeping. After a multi-day outage, articles older than
 `link_news_stories --days N` once to catch up, and
 `build_news_digest --days N [--date D]` to backfill missed
 days' digests (the window ends at `--date`, default today).
+Each built day fires the per-subscriber Google Task fan-out,
+so a large `--days` backfill creates one task per subscriber
+per day.
 
 ## Data model (`news/models.py`)
 
