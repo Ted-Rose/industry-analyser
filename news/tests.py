@@ -965,6 +965,25 @@ class DigestTests(TestCase):
         result = build_digest(self.today, top_n=5)
         self.assertEqual(result['items'], [])
 
+    def test_days_backfills_ending_at_date(self):
+        out = StringIO()
+        call_command(
+            'build_news_digest',
+            date=(self.today - timedelta(days=2)).isoformat(),
+            days=3,
+            stdout=out,
+        )
+        self.assertEqual(
+            list(
+                NewsDigest.objects.order_by('date')
+                .values_list('date', flat=True)
+            ),
+            [
+                self.today - timedelta(days=d)
+                for d in (4, 3, 2)
+            ],
+        )
+
     def test_detail_page_renders_confirmed_members_only(self):
         story = self._story('Ziņa viens', 5.0, source=self.a)
         cand = _article(
