@@ -17,7 +17,7 @@ from django.shortcuts import get_object_or_404, render
 from django.utils.html import escape
 from django.views.decorators.csrf import ensure_csrf_cookie
 
-from industry_analyser.views import _spa_shell_context
+from industry_analyser.views import _spa_shell_context, edge_public_cache
 
 from .models import NewsArticleAudio, NewsDigest
 from .syndication import (
@@ -115,6 +115,7 @@ def digest_detail_page(request, date):
     return render(request, 'news/digest_shell.html', context)
 
 
+@edge_public_cache
 def sitemap_xml(request):
     """XML sitemap — the public pages a crawler should index:
     landing, the /news/ digest index and every digest day. The
@@ -150,6 +151,7 @@ def sitemap_xml(request):
     return HttpResponse(xml, content_type='application/xml')
 
 
+@edge_public_cache
 def llms_txt(request):
     """llms.txt — markdown for LLM agents (the convention they
     are trained to fetch, like robots.txt for crawlers). Lists
