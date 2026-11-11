@@ -35,13 +35,27 @@ logs/
 venv/
 .vercel/
 
+# Gitignored local configs — absent in CI checkouts, but keep them
+# out of a `vercel deploy` CLI upload's public surface. The
+# terraform/ entries duplicate the dir-level exclusion above so the
+# secrets stay covered if that exclusion is ever narrowed.
+fetcher/config.json
+fetcher/config_v2.json
+blogs/config.yaml
+terraform/terraform.tfvars
+terraform/*.tfstate*
+
 # Local collectstatic output — Vercel has no build step, so a stale
 # staticfiles/ would mask the committed frontend_dist/ assets
 staticfiles/
 
-# node_modules can never ship (frontend/ sources stay — only the
-# committed frontend_dist/ build output is served, but a future
-# build step would need the sources)
+# SPA sources and node_modules never ship — Vercel runs no build
+# step for this project (no buildCommand in vercel.json, and
+# [tool.vercel.scripts] needs framework detection we don't get), so
+# only the committed frontend_dist/ build output is needed.
+# Shipping frontend/ would also expose the TS sources publicly —
+# rewrites are filesystem-first.
+frontend/
 node_modules/
 
 # Tests and Python artifacts
