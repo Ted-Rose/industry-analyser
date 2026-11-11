@@ -2,7 +2,7 @@
 name: fix-good-first-issue
 description: Pick an open GitHub issue labeled "good first
   issue" in Ted-Rose/industry-analyser, fix it on a new branch
-  cut from master, open a draft PR, wait for checks, fix any
+  cut from main, open a draft PR, wait for checks, fix any
   failures, and mark the PR ready for review. Invoke when the
   user asks to fix a good-first-issue / pick up an issue.
 ---
@@ -11,7 +11,7 @@ description: Pick an open GitHub issue labeled "good first
 
 Single repo — the GitHub repo is `Ted-Rose/industry-analyser`
 (remote `origin`, the user's own repo, not a fork). Default
-branch: `master`. Requires the `gh` CLI; if it is not installed,
+branch: `main`. Requires the `gh` CLI; if it is not installed,
 tell the user to `brew install gh` rather than working around it.
 
 ## 1. Pick an issue
@@ -53,9 +53,9 @@ the API shape changes, regenerate `openapi.json` and
 `api-types.ts` (CI fails on drift). If unsure, state your
 reasoning and ask the user before branching.
 
-## 3. Branch from `master`
+## 3. Branch from `main`
 
-    git switch master
+    git switch main
     git pull --ff-only
     git switch -c fix/issue-<N>-<short-slug>
 
@@ -101,13 +101,13 @@ switch, stop and ask the user before proceeding.
 
       git push -u origin fix/issue-<N>-<short-slug>
 
-- Create the PR as a DRAFT with `--base master`. Follow
+- Create the PR as a DRAFT with `--base main`. Follow
   `.devin/workflows/create-pr.md`: write the body to a temp file
   and use `--body-file` (never inline `--body`):
 
       gh pr create --draft \
         --title "Type: Capitalized message" \
-        --base master --head fix/issue-<N>-<short-slug> \
+        --base main --head fix/issue-<N>-<short-slug> \
         --body-file pr-body.md
       rm pr-body.md
 
