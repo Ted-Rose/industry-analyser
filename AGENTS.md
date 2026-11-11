@@ -624,6 +624,11 @@ Universal rules — follow exactly:
   session auth; `python manage.py createsuperuser` creates a
   local admin. Ask the user whether a shared test account
   exists before inventing credentials.
+- **Contract docs to keep in sync**: `DOCUMENTATION_INDEX.md`
+  (the doc map), the relevant `docs/` file, and per-app docs
+  like `fetcher/`'s `README.md`/`ARCHITECTURE.md`/
+  `QUICK_REFERENCE.md`. If no doc fits a change, note that in
+  the PR body.
 
 ## Agent config
 

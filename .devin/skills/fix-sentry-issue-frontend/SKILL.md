@@ -114,7 +114,7 @@ switch, stop and ask the user before proceeding.
   `git add .`). Never commit plan/scratch markdown.
 - Commit format `Type: Capitalized message` (usually `Fix:`).
 - `git push -u origin <branch>`, then a DRAFT PR `--base main`
-  per `.devin/workflows/create-pr.md` — write the body to a temp
+  per `.devin/skills/create-pr/` — write the body to a temp
   file and use `--body-file`, never inline `--body`.
 - Body must: link the Sentry issue
   (`https://industry-analyser-ue.sentry.io/issues/<id>/`), quote

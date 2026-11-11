@@ -71,7 +71,7 @@ the work yourself into one prompt per stage.) Prompt:
        commit plan/scratch md). Format: `Type: Capitalized
        msg`. Push: git push -u origin feat/<slug>
     6. Open a DRAFT PR with --base main following
-       .devin/workflows/create-pr.md — write the body to
+       .devin/skills/create-pr/ — write the body to
        pr-body.md, use --body-file, rm it after. Body must
        include a UI-verification section.
     7. gh pr checks <N> --watch; fix failures until green,
