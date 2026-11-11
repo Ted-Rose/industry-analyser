@@ -1,0 +1,55 @@
+# Vercel deployment hygiene.
+#
+# vercel.json rewrites are filesystem-first: every file that ships is
+# publicly fetchable at its repo path AND adds to the deployment.
+# Only the Django runtime (api/, app dirs with their templates/ and
+# static/, industry_analyser/, committed frontend_dist/, manage.py,
+# requirements.txt, pyproject.toml, uv.lock) is needed at runtime.
+# Cross-check against INSTALLED_APPS before adding exclusions —
+# app dirs must keep shipping their templates/ and static/ trees.
+
+# Docs, planning, agent config (also stops /AGENTS.md, /changelog.md,
+# etc. being publicly served — rewrites are filesystem-first)
+/*.md
+docs/
+openspec/
+vision/
+.devin/
+.agents/
+.claude/
+
+# Infra, CI and the Cloud Run path (Docker/cloudbuild/deploy script)
+terraform/
+.github/
+Dockerfile
+cloudbuild.yaml
+deploy-cloudrun.sh
+
+# Local state and secrets — must never ship or be fetchable
+.env*
+private_settings.json
+ca.pem
+db.sqlite3
+db_backups/
+logs/
+venv/
+.vercel/
+
+# Local collectstatic output — Vercel has no build step, so a stale
+# staticfiles/ would mask the committed frontend_dist/ assets
+staticfiles/
+
+# node_modules can never ship (frontend/ sources stay — only the
+# committed frontend_dist/ build output is served, but a future
+# build step would need the sources)
+node_modules/
+
+# Tests and Python artifacts
+*/tests/
+tests.py
+__pycache__/
+*.py[cod]
+
+# One-off maintenance/job scripts (management commands live inside
+# the app packages and are never invoked on Vercel)
+scripts/

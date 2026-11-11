@@ -22,7 +22,7 @@ from functools import partial
 
 from django.urls import path
 
-from industry_analyser.views import react_app_public
+from industry_analyser.views import edge_public_cache, react_app_public
 from . import views
 from .syndication import NewsDigestFeed
 
@@ -47,7 +47,7 @@ urlpatterns = [
     # Outgoing RSS feed — the crawlable digest. MUST precede
     # '<str:date>/' the same way 'preferences/' does: 'str'
     # would swallow 'rss.xml' as a date.
-    path('rss.xml', NewsDigestFeed(), name='rss'),
+    path('rss.xml', edge_public_cache(NewsDigestFeed()), name='rss'),
     # Binary FileResponse stays a Django view. Multi-segment —
     # '<str:date>/' can't collide; must precede <path:subpath>.
     path(

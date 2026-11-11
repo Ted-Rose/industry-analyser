@@ -14,6 +14,7 @@ from pathlib import Path
 import io
 import logging
 import os
+import re
 import sys
 import getpass
 from urllib.parse import quote_plus
@@ -396,8 +397,27 @@ WHITENOISE_IMMUTABLE_FILE_TEST = r'\.[0-9A-Za-z_-]{8}\.'
 # Vercel deploys this project as file-based api/ functions with no
 # usable build step (buildCommand fails every deploy), so collectstatic
 # never runs there — serve from the finders instead. Cloud Run still
-# uses collectstatic output via the Dockerfile.
+# uses collectstatic output via the Dockerfile. On Vercel the
+# vercel.json rewrites intercept /static/<vite-entry>/ and serve the
+# committed frontend_dist/ files straight from the CDN, so the
+# finders mostly answer for admin/app assets and misses.
 WHITENOISE_USE_FINDERS = bool(os.environ.get('VERCEL'))
+
+_WHITENOISE_IMMUTABLE_RE = re.compile(WHITENOISE_IMMUTABLE_FILE_TEST)
+
+
+def _whitenoise_add_headers(headers, path, url):
+    """Extra header on every WhiteNoise-served file (runs after the
+    built-in cache headers). On Vercel a static response that still
+    flows through the function is only edge-cached when it carries
+    s-maxage/CDN-Cache-Control, so immutable (content-hashed) assets
+    get Vercel-CDN-Cache-Control here. The header is ignored on
+    Cloud Run and anywhere else."""
+    if _WHITENOISE_IMMUTABLE_RE.search(url):
+        headers['Vercel-CDN-Cache-Control'] = 'max-age=31536000'
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = _whitenoise_add_headers
 
 # django-vite bridge: dev_mode (VITE_DEV=1) emits dev-server asset
 # URLs; otherwise entries resolve through frontend_dist/manifest.json.

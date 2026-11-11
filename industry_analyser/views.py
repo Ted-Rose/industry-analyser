@@ -22,9 +22,32 @@ from django.http import (
 )
 from django.shortcuts import redirect, render
 from django.urls import URLPattern, get_resolver, is_valid_path
+from django.utils.cache import patch_cache_control
+from django.views.decorators.cache import cache_control
 from django.views.decorators.csrf import ensure_csrf_cookie
 
+# Shared edge-cache policy for public surfaces whose content only
+# changes after the daily 19:50 UTC all-jobs run: shared caches may
+# serve a copy for an hour and a stale one for a day while
+# revalidating; browsers always revalidate (max-age=0). The
+# decorator form wraps plain Django views; patch_edge_cache()
+# applies the same policy to a response object (ninja ops mutate
+# an injected HttpResponse instead of wrapping a view).
+_EDGE_CACHE_KWARGS = {
+    'public': True,
+    'max_age': 0,
+    's_maxage': 3600,
+    'stale_while_revalidate': 86400,
+}
+edge_public_cache = cache_control(**_EDGE_CACHE_KWARGS)
 
+
+def patch_edge_cache(response):
+    """Apply the edge_public_cache policy to an existing response."""
+    return patch_cache_control(response, **_EDGE_CACHE_KWARGS)
+
+
+@edge_public_cache
 def robots_txt(request):
     """Crawler policy at /robots.txt — the public app pages and
     the digest API stay crawlable; only the auth/admin plumbing

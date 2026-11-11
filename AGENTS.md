@@ -740,10 +740,33 @@ context.
 - TWO deploy targets are live: Cloud Run
   (`.github/workflows/` + `Dockerfile`, pip-installs
   `requirements.txt`) and a Vercel serverless deployment
-  (`vercel.json` catch-all rewrite → `api/index.py`, which
-  installs deps from `pyproject.toml`/`uv.lock` into
-  `/var/task/_vendor` and runs `build_files.sh` at build
-  time). Only `cloudbuild.yaml` and `deploy-cloudrun.sh` are
+  (deps install from `pyproject.toml`/`uv.lock` into
+  `/var/task/_vendor`). Vercel has NO working build step —
+  no `buildCommand` in `vercel.json` and
+  `[tool.vercel.scripts]` needs a framework preset this
+  project doesn't get — so `build_files.sh` and
+  `collectstatic` never run there; `WHITENOISE_USE_FINDERS`
+  serves static from the finders (`STATICFILES_DIRS` =
+  committed `frontend_dist/`). `vercel.json` pins
+  `regions: ["arn1"]` (nearest Vercel region to Latvia and
+  to the presumed-Finland Aiven DB), rewrites
+  `/static/<vite-entry>/…` to `/frontend_dist/…` so hashed
+  SPA assets are served by the CDN before the function
+  (filesystem-first; `/static/admin/:file` is
+  single-segment so Django's own `admin/` assets still
+  reach WhiteNoise), sets immutable `Cache-Control` on
+  hash-shaped `/static/` and `/frontend_dist/` paths, and
+  `_whitenoise_add_headers` in settings adds
+  `Vercel-CDN-Cache-Control` to immutable files still
+  served through the lambda. `.vercelignore` keeps
+  secrets/local state and repo meta out of the deployment
+  — every shipped file is publicly fetchable — and
+  `edge_public_cache`/`patch_edge_cache` in
+  `industry_analyser/views.py` stamp `s-maxage=3600,
+  stale-while-revalidate=86400` on the daily-freshness
+  public surfaces (robots.txt, sitemap.xml, llms.txt,
+  /news/rss.xml, `GET /api/news/digests*`). Only
+  `cloudbuild.yaml` and `deploy-cloudrun.sh` are
   legacy artifacts. Keep both dependency lists in sync — a
   requirements-only addition ships a Vercel bundle missing
   the package, and the eager root-urlconf imports turn it
@@ -787,9 +810,10 @@ Push to `main` triggers GitHub Actions
 Registry → `python manage.py migrate` via the ad-hoc
 `run-migrations` Cloud Run job (main-only step) → update the
 `all-jobs` Cloud Run job + web service.
-Legacy
-`cloudbuild.yaml`, `deploy-cloudrun.sh`, and `vercel.json` also
-exist (see Known gaps). Don't hand-edit Terraform-managed
+The Vercel deployment (see Known gaps — `vercel.json` +
+`.vercelignore` + `api/index.py`) is a live second target,
+not CI-managed; `cloudbuild.yaml` and `deploy-cloudrun.sh`
+are the legacy artifacts. Don't hand-edit Terraform-managed
 resources; change `terraform/*.tf` and let CI apply — never run
 `terraform apply` locally.
 

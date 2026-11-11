@@ -21,7 +21,7 @@ from typing import List, Optional
 
 from django.conf import settings
 from django.db.models import Max, Min, Prefetch
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from ninja import Field, Query, Router, Schema
@@ -29,6 +29,7 @@ from ninja import Field, Query, Router, Schema
 from google_api.models import GoogleOAuthCredentials
 from google_api.utils import GOOGLE_TASKS_SCOPES
 from industry_analyser.api import ApiHttpError
+from industry_analyser.views import patch_edge_cache
 
 from .digest import (
     _confirmed_members,
@@ -243,6 +244,7 @@ class DigestTaskStatusOut(Schema):
 @router.get('/digests/', auth=None, response=DigestListOut)
 def list_digests(
     request,
+    response: HttpResponse,
     # No max_length — over-length garbage must hit the
     # strptime/membership fallbacks below (200 default window),
     # not pydantic's 422.
@@ -293,6 +295,9 @@ def list_digests(
             .order_by('rank')
         ),
     ))
+    # Public daily-freshness data — edge-cacheable on Vercel
+    # (s-maxage); browsers still revalidate (max-age=0).
+    patch_edge_cache(response)
     return DigestListOut(
         digests=list(digests),
         period=period,
@@ -305,7 +310,7 @@ def list_digests(
 
 
 @router.get('/digests/{date}/', auth=None, response=DigestDetailOut)
-def digest_detail(request, date: str):
+def digest_detail(request, response: HttpResponse, date: str):
     """One digest day — verbatim port of the retired
     digest_detail view (strptime guard → 'Invalid date format'
     404, confirmed members only via the to_attr prefetch)."""
@@ -334,6 +339,7 @@ def digest_detail(request, date: str):
         ))
         .order_by('rank')
     )
+    patch_edge_cache(response)
     return DigestDetailOut(
         date=digest.date,
         items=list(items),
@@ -359,7 +365,8 @@ def _extra_stories(digest, day):
 @router.get('/digests/{date}/extra/', auth=None,
             response=DigestExtraOut)
 def digest_extra(
-    request, date: str, offset: int = Query(0, ge=0),
+    request, response: HttpResponse, date: str,
+    offset: int = Query(0, ge=0),
 ):
     """Ranked stories past the digest's stored top-N — the
     /news/<date>/ 'Load more' page. Same eligibility and
@@ -396,6 +403,7 @@ def digest_extra(
         )
         for index, story in enumerate(stories[:EXTRA_PAGE_SIZE])
     ]
+    patch_edge_cache(response)
     return DigestExtraOut(
         items=items, offset=offset, has_next=has_next,
     )
