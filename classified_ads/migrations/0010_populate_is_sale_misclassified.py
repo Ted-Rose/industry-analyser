@@ -12,7 +12,7 @@ def populate_is_sale_misclassified(apps, schema_editor):
     2. Keyword signal: Latvian/Russian sale vocabulary in comment field
     
     Expected: ~568 records flagged out of ~3,476 total.
-    See: docs/misclassified_sale_ads_analysis.md
+    See: docs/research/misclassified_sale_ads_analysis.md
     """
     ApartmentForRent = apps.get_model('classified_ads', 'ApartmentForRent')
     

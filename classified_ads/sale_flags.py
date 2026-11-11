@@ -12,7 +12,7 @@ sections, and its single displayed price lands in the rent table as
 2. Heuristic below: sale-scale price or Latvian/Russian sale
    vocabulary in the comment.
 
-See: docs/misclassified_sale_ads_analysis.md
+See: docs/research/misclassified_sale_ads_analysis.md
 """
 
 PRICE_THRESHOLD = 50
@@ -32,7 +32,7 @@ def is_sale_misclassified(comment, monthly_price_per_sqm):
        as rent)
     2. Keyword signal: Latvian/Russian sale vocabulary in comment
 
-    See: docs/misclassified_sale_ads_analysis.md
+    See: docs/research/misclassified_sale_ads_analysis.md
     """
     if monthly_price_per_sqm > PRICE_THRESHOLD:
         return True

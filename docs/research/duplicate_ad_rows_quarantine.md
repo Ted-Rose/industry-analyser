@@ -64,7 +64,7 @@ All 237 newly hidden rows are property-linked (`property_id` set).
 **Important**: hiding an ad row does NOT merge its property row.
 179 groups point at more than one `property_id` — i.e. the same
 listing produced two property rows. That property-level dedup is a
-separate, tracked issue; see `docs/property_match_review_2026_10.md`.
+separate, tracked issue; see `docs/research/property_match_review_2026_10.md`.
 
 ## Anomalies / nuances
 
