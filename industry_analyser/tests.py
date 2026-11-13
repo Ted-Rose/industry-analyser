@@ -9,6 +9,7 @@ import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db.utils import ProgrammingError
 from django.test import (
     RequestFactory,
     SimpleTestCase,
@@ -378,6 +379,59 @@ class UnhandledApiErrorTests(SimpleTestCase):
                 'error': 'server_error',
                 'detail': 'Internal Server Error',
             },
+        )
+        capture.assert_called_once_with(exc)
+
+
+class SchemaLagApiErrorTests(SimpleTestCase):
+    """_on_programming_error: a query hitting a column/table whose
+    migration has not run yet (Vercel serves new code before the
+    Cloud Run pipeline's migrate step finishes — the
+    INDUSTRY-ANALYSER-API-B window) is expected transient deploy
+    state → 503 + warning, no Sentry event. Other
+    ProgrammingErrors keep the uniform 500 + capture path."""
+
+    def test_missing_column_returns_503_without_capture(self):
+        exc = ProgrammingError(
+            'column news_digest_task.user_id does not exist'
+        )
+        request = RequestFactory().get('/api/news/digest-task/')
+        with self.assertLogs('industry_analyser', level='WARNING'), \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp['Retry-After'], '60')
+        self.assertEqual(
+            json.loads(resp.content)['error'], 'unavailable'
+        )
+        capture.assert_not_called()
+
+    def test_missing_relation_returns_503_without_capture(self):
+        exc = ProgrammingError(
+            'relation "news_digest_subscription" does not exist'
+        )
+        request = RequestFactory().get('/api/news/digest-task/')
+        with self.assertLogs('industry_analyser', level='WARNING'), \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 503)
+        capture.assert_not_called()
+
+    def test_other_programming_errors_delegate_to_500(self):
+        exc = ProgrammingError('syntax error at or near "SELCT"')
+        request = RequestFactory().get('/api/vacancies/')
+        with self.assertLogs('industry_analyser', level='ERROR'), \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            json.loads(resp.content)['error'], 'server_error'
         )
         capture.assert_called_once_with(exc)
 

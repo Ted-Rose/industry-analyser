@@ -7,9 +7,11 @@ CSRF enforced on unsafe methods) with JSON 401s instead of redirects.
 Public read endpoints opt out per-op with auth=None.
 """
 import logging
+import re
 from urllib.parse import urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
+from django.db.utils import ProgrammingError
 from django.http import Http404
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
@@ -81,6 +83,7 @@ _ERROR_SLUGS = {
     429: 'throttled',
     500: 'server_error',
     502: 'upstream_error',
+    503: 'unavailable',
 }
 
 
@@ -175,6 +178,43 @@ def _on_validation_error(request, exc):
         'error': 'validation_error',
         'detail': exc.errors,
     }, status=422)
+
+
+# Postgres reports a still-pending migration as UndefinedColumn /
+# UndefinedTable — Django wraps both as ProgrammingError whose
+# message reads "<column|relation> ... does not exist".
+_SCHEMA_LAG_RE = re.compile(
+    r'(column|relation)[^\n]*does not exist'
+)
+
+
+@api.exception_handler(ProgrammingError)
+def _on_programming_error(request, exc):
+    """Schema-lag query failures → 503, not a 500 + Sentry event.
+
+    The Vercel deploy serves newly-merged code as soon as it builds,
+    while `run-migrations` only executes inside the Cloud Run deploy
+    pipeline minutes later — during that window an endpoint can
+    legitimately query a column/table the migration has not created
+    yet. That is expected transient deploy state, not a bug: answer
+    a retryable 503 and skip the Sentry event (which is what
+    INDUSTRY-ANALYSER-API-B reported for
+    `GET /api/news/digest-task/`). Any other ProgrammingError (bad
+    SQL in code) still falls through to the uniform 500 + capture
+    path.
+    """
+    if _SCHEMA_LAG_RE.search(str(exc)):
+        logger.warning(
+            'schema lag during deploy window: %s', exc
+        )
+        resp = api.create_response(request, {
+            'error': 'unavailable',
+            'detail': 'Service temporarily unavailable - retry '
+                      'shortly.',
+        }, status=503)
+        resp['Retry-After'] = '60'
+        return resp
+    return _on_unhandled_error(request, exc)
 
 
 @api.exception_handler(Exception)
