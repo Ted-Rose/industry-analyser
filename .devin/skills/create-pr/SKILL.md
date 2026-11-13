@@ -10,8 +10,11 @@ description: >
 
 # Create a PR
 
-1. Prereqs: on a feature branch (never `main` — if on `main`,
-   `git checkout -b` first and move the commits). `gh` installed
+1. Prereqs: on a feature branch (never `main` — if commits
+   landed on `main`, recover in a worktree: `git branch
+   <type>/<slug>`, `git reset --hard origin/main`, then
+   `git worktree add ../industry-analyser-wt/<slug>
+   <type>/<slug>`). `gh` installed
    and authed; if missing, tell the user
    `brew install gh && gh auth login`. All `gh` calls target
    `Ted-Rose/industry-analyser` (remote `origin`).

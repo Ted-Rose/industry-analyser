@@ -108,9 +108,13 @@ never reuse the implementer. Prompt:
 
 If the reviewer reported blocker/should-fix findings:
 
-1. Launch one `subagent_general` fixer (the PR branch is still
-   checked out — verify with `git branch --show-current`, else
-   switch to it). Prompt: the PR URL, the numbered findings
+1. Launch one `subagent_general` fixer on the same branch in a
+   FRESH worktree — a branch can live in only one worktree, so
+   remove the implementer's first (`git worktree remove
+   ../industry-analyser-wt/<slug>`), then the fixer adds one
+   on the existing branch (`git worktree add
+   ../industry-analyser-wt/fix-<slug> feat/<slug>`). Prompt:
+   the PR URL, the numbered findings
    verbatim, "fix, commit (`Fix: ...`), push, re-watch
    `gh pr checks`, return what changed". Nits may be batched
    into one fixer or skipped — say which.
