@@ -1,8 +1,9 @@
 ---
 name: openspec-apply-delegated
 description: >
-  Implement an OpenSpec change hands-off via subagents — an
-  implementer agent cuts a feature branch, works the task list,
+  Implement an OpenSpec change hands-off via subagents — the
+  orchestrator creates a worktree, an implementer agent works
+  the task list,
   and opens a PR ready for review; once checks are green a
   fresh reviewer agent reports severity-tagged findings and
   fixer agents iterate until clean. Use when asked to implement an OpenSpec
@@ -48,7 +49,9 @@ stays small and survives `openspec update`.
 4. Launch one background subagent (`subagent_general`,
    `is_background=true`). Subagents are stateless — the prompt
    must contain, verbatim or by path reference:
-   - the change name, repo root path, and the `--store <id>`
+   - the change name, the worktree path
+     `../industry-analyser-wt/<change-name>` as the repo root
+     it must `cd` into, and the `--store <id>`
      flag if one was selected
    - instruction to read
      `.devin/skills/openspec-apply-change/SKILL.md` and follow
@@ -108,10 +111,10 @@ stays small and survives `openspec update`.
 8. On `[blocker]` or `[major]` findings, launch a fixer
    subagent (`subagent_general`) on the SAME branch to commit
    and push fixes. A branch can live in only one worktree —
-   if the implementer's worktree still holds it, remove that
-   worktree first (`git worktree remove
-   ../industry-analyser-wt/<change-name>`), then the fixer
-   adds a fresh one on the existing branch (`git worktree add
+   remove whichever worktree currently holds it (`git worktree
+   list` to find it; `git worktree remove --force
+   ../industry-analyser-wt/<name>`), then the fixer adds a
+   fresh one on the existing branch (`git worktree add
    ../industry-analyser-wt/fix-<change-name>
    feat/<change-name>`). Then start a new round with a NEW
    reviewer.
@@ -133,10 +136,11 @@ stays small and survives `openspec update`.
   fixer and reviewer must treat an unchecked task as incomplete
   work, not as a defect to review.
 - Once the loop is clean AND the PR's checks are green,
-  remove the worktree immediately (`git worktree remove
-  ../industry-analyser-wt/<name>` + `git branch -D
-  feat/<change-name>` from the main checkout) — don't wait
-  for merge; remove every worktree the run created.
+  remove every worktree the run created immediately
+  (`git worktree remove --force
+  ../industry-analyser-wt/<change-name>` and any
+  `fix-<change-name>` + `git branch -D feat/<change-name>`
+  from the main checkout) — don't wait for merge.
 - Final report: PR URL, branch, tasks done/total, review
   rounds, unresolved findings, check status, and whether the
   archive was included in the PR or deferred (with the

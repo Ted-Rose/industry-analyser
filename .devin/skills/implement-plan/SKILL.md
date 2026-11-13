@@ -110,8 +110,9 @@ If the reviewer reported blocker/should-fix findings:
 
 1. Launch one `subagent_general` fixer on the same branch in a
    FRESH worktree — a branch can live in only one worktree, so
-   remove the implementer's first (`git worktree remove
-   ../industry-analyser-wt/<slug>`), then the fixer adds one
+   remove whichever worktree currently holds it (`git worktree
+   list` to find it; `git worktree remove --force
+   ../industry-analyser-wt/<name>`), then the fixer adds one
    on the existing branch (`git worktree add
    ../industry-analyser-wt/fix-<slug> feat/<slug>`). Prompt:
    the PR URL, the numbered findings
@@ -136,7 +137,7 @@ If the reviewer reported blocker/should-fix findings:
   written, stop and ask the user rather than improvising.
 
 Once a review round is clean AND the PR's checks are green,
-remove the worktree immediately — `git worktree remove
+remove the worktree immediately — `git worktree remove --force
 <path>` + `git branch -D <type>/<slug>` per AGENTS.md; don't
 wait for merge.
 
