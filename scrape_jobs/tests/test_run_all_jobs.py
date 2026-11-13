@@ -158,16 +158,16 @@ class RunAllJobsTests(SimpleTestCase):
         return run, out.getvalue()
 
     def test_normal_pass_runs_only_due_entries_in_order(self):
-        # 2026-10-19 has an odd day-of-month: every dom:odd entry
-        # is due; last_day_of_month + manual are not. Locally the
-        # local:daily news pipeline is due as well.
+        # Every daily entry is due on a local pass;
+        # last_day_of_month (sync_receipt_emails) is not. The
+        # local:daily news pipeline is due locally as well.
         with _patched_today(date(2026, 10, 19)):
             run, _ = self._handle()
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
-             'scrape_apartment_ads', 'link_ads_to_properties',
-             'news_pipeline'],
+             'scrape_apartment_ads', 'scrape_vacancy',
+             'link_ads_to_properties', 'news_pipeline'],
         )
 
     def test_dry_run_prints_plan_and_runs_nothing(self):
@@ -183,9 +183,9 @@ class RunAllJobsTests(SimpleTestCase):
         self.assertIn('RUN  scrape_housing_ads', out)
         self.assertIn('RUN  scrape_apartment_ads', out)
         self.assertIn('RUN  link_ads_to_properties', out)
+        self.assertIn('RUN  scrape_vacancy', out)
         self.assertIn('RUN  news_pipeline', out)
         self.assertIn('skip sync_receipt_emails', out)
-        self.assertIn('skip scrape_vacancy', out)
         for label, _kind, _argv, _schedule in JOBS:
             self.assertIn(label, out)
 
@@ -201,7 +201,8 @@ class RunAllJobsTests(SimpleTestCase):
             self._handle(only='nosuchjob')
 
     def test_only_takes_precedence_over_force(self):
-        # With both flags, --only wins: even a `manual` entry runs.
+        # With both flags, --only wins: a single entry runs,
+        # ignoring its schedule.
         run, _ = self._handle(only='scrape_vacancy', force=True)
         self.assertEqual(self._labels(run), ['scrape_vacancy'])
 
@@ -211,20 +212,21 @@ class RunAllJobsTests(SimpleTestCase):
             self._labels(run),
             ['sync_receipt_emails', 'scrape_tv_programs',
              'scrape_housing_ads', 'scrape_apartment_ads',
-             'link_ads_to_properties', 'news_pipeline'],
+             'scrape_vacancy', 'link_ads_to_properties',
+             'news_pipeline'],
         )
 
     def test_failure_continues_and_exits_nonzero(self):
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom')] + [None] * 4
+                run.side_effect = [RuntimeError('boom')] + [None] * 5
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
-             'scrape_apartment_ads', 'link_ads_to_properties',
-             'news_pipeline'],
+             'scrape_apartment_ads', 'scrape_vacancy',
+             'link_ads_to_properties', 'news_pipeline'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -234,7 +236,7 @@ class RunAllJobsTests(SimpleTestCase):
         # so the loop is unaffected either way.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom')] + [None] * 4
+                run.side_effect = [RuntimeError('boom')] + [None] * 5
                 with mock.patch(
                     f'{MODULE}.capture_internal_exception'
                 ) as capture:
@@ -250,14 +252,14 @@ class RunAllJobsTests(SimpleTestCase):
         # not allowed to abort the remaining entries.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [SystemExit(1)] + [None] * 4
+                run.side_effect = [SystemExit(1)] + [None] * 5
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
-             'scrape_apartment_ads', 'link_ads_to_properties',
-             'news_pipeline'],
+             'scrape_apartment_ads', 'scrape_vacancy',
+             'link_ads_to_properties', 'news_pipeline'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -326,7 +328,9 @@ class RunAllJobsTests(SimpleTestCase):
     def test_command_entry_dispatches_call_command(self):
         with mock.patch(f'{MODULE}.call_command') as cc:
             call_command('run_all_jobs', only='scrape_tv_programs')
-        cc.assert_called_once_with('scrape_tv_programs')
+        cc.assert_called_once_with(
+            'scrape_tv_programs', '--days-past', '1'
+        )
 
     def test_script_entry_runs_via_subprocess(self):
         with mock.patch(
@@ -341,6 +345,7 @@ class RunAllJobsTests(SimpleTestCase):
                 'scripts/materialize_fetcher_config_and_scrape.py'
             )
         )
+        self.assertEqual(list(argv[2:]), ['--no-ocr'])
         self.assertEqual(
             sp.call_args.kwargs['cwd'], str(settings.BASE_DIR)
         )
@@ -351,24 +356,37 @@ class RunAllJobsTests(SimpleTestCase):
                 call_command('run_all_jobs', only='scrape_vacancy')
 
     def test_local_pass_includes_news_jobs(self):
-        # An even day-of-month — nothing but the local:daily
-        # news pipeline is due.
+        # A local pass runs every `daily` entry plus the
+        # local:daily news pipeline (only last_day_of_month is
+        # not due on the 20th).
         with _patched_today(date(2026, 10, 20)):
             with mock.patch(
                 f'{MODULE}.detect_executed_by',
                 return_value='local',
             ):
                 run, _ = self._handle()
-        self.assertEqual(self._labels(run), ['news_pipeline'])
+        self.assertEqual(
+            self._labels(run),
+            ['scrape_tv_programs', 'scrape_housing_ads',
+             'scrape_apartment_ads', 'scrape_vacancy',
+             'link_ads_to_properties', 'news_pipeline'],
+        )
 
     def test_gcp_pass_skips_news_jobs(self):
+        # On Cloud Run only the plain `daily` entries are due —
+        # the local:daily news jobs never run there.
         with _patched_today(date(2026, 10, 20)):
             with mock.patch(
                 f'{MODULE}.detect_executed_by',
                 return_value='gcp_cloud_run',
             ):
                 run, _ = self._handle()
-        self.assertEqual(self._labels(run), [])
+        self.assertEqual(
+            self._labels(run),
+            ['scrape_tv_programs', 'scrape_housing_ads',
+             'scrape_apartment_ads', 'scrape_vacancy',
+             'link_ads_to_properties'],
+        )
 
     def test_gcp_dry_run_shows_news_skipped(self):
         with _patched_today(date(2026, 10, 20)):
@@ -379,6 +397,7 @@ class RunAllJobsTests(SimpleTestCase):
                 run, out = self._handle(dry_run=True)
         run.assert_not_called()
         self.assertIn('executor: gcp_cloud_run', out)
+        self.assertIn('RUN  scrape_vacancy', out)
         self.assertIn('skip news_pipeline', out)
 
     def test_force_still_skips_local_jobs_on_gcp(self):

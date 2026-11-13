@@ -1662,7 +1662,7 @@ class HousingAdScraperRunnerTest(TestCase):
 class GcpFallbackCooldownTest(TestCase):
     """Cooldown gates: GCP Cloud Run invocations are a weekly
     fallback — they exit early (no new run row, no scraping) when
-    the job had a SUCCESS run within the last 6 days or a live
+    the job had a SUCCESS run within the last 7 days or a live
     RUNNING one. Local invocations are gated per cycle — a second
     run in today's cycle exits early, the next day's run scrapes.
     ``--fresh``/``--ignore-cooldown`` bypass both gates."""
@@ -1715,7 +1715,7 @@ class GcpFallbackCooldownTest(TestCase):
         self._make_run(
             'classified_ads.apartment_ads',
             ScrapeJobRun.SUCCESS,
-            completed_at=timezone.now() - timedelta(days=7),
+            completed_at=timezone.now() - timedelta(days=8),
         )
         scraper_cls = self._invoke(
             self.APT_MODULE, 'scrape_apartment_ads',
@@ -1755,7 +1755,7 @@ class GcpFallbackCooldownTest(TestCase):
         self._make_run(
             'classified_ads.house_ads',
             ScrapeJobRun.SUCCESS,
-            completed_at=timezone.now() - timedelta(days=7),
+            completed_at=timezone.now() - timedelta(days=8),
         )
         scraper_cls = self._invoke(
             self.HOUSE_MODULE, 'scrape_housing_ads',

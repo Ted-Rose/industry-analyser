@@ -13,10 +13,11 @@ from scrape_jobs.runner import (
 logger = logging.getLogger('classified_ads')
 
 JOB_SLUG = 'classified_ads.house_ads'
-# The scrape is scheduled every other day (dom:odd), so the GCP
-# fallback cooldown is one day — just enough to dedup the
-# month-end 31st→1st consecutive odd days and same-day reruns.
-GCP_COOLDOWN_DAYS = 1
+# GCP Cloud Run is the weekly fallback: scrape only when no
+# SUCCESS (local or GCP) completed in the last 7 days. The
+# JOBS entry runs `daily` so the fallback engages on any day
+# the data goes stale, not just odd days.
+GCP_COOLDOWN_DAYS = 7
 
 
 class Command(BaseCommand):
@@ -59,7 +60,7 @@ class Command(BaseCommand):
             action='store_true',
             dest='ignore_cooldown',
             help='Run even if a scrape already succeeded in the '
-                 'cooldown window (1 day on GCP, current cycle '
+                 'cooldown window (7 days on GCP, current cycle '
                  'locally)',
         )
 
