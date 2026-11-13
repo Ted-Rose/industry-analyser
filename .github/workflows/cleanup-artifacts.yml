@@ -10,7 +10,7 @@ on:
     types:
       - completed
     branches:
-      - master
+      - main
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:

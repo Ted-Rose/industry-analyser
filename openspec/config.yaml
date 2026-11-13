@@ -24,7 +24,7 @@ context: |
       files exempt).
     - Commit messages use "Type: Capitalized message"
       (Feat:/Fix:/Docs:/Refactor:/Test:/Chore:); commit on
-      feature branches only, never master, named <type>/<slug>
+      feature branches only, never main, named <type>/<slug>
       with the same type set (feat/, fix/, docs/, refactor/,
       test/, chore/); stage only files you changed this session,
       by path.
