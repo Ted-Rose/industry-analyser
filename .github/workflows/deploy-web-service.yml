@@ -59,9 +59,10 @@ env:
 
 jobs:
   build-and-deploy:
-    # Prod deploy: pushes to main and manual runs. PRs only get the
-    # staging deploy below.
-    if: github.event_name != 'pull_request'
+    # Prod deploy: pushes to main and manual runs on main. A
+    # workflow_dispatch from a feature branch skips this job (staging
+    # still deploys below) — prod must never get unmerged code.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
