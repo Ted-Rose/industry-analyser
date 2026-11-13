@@ -75,8 +75,8 @@ python manage.py scrape_news [--source SLUG] [--fresh] \
     [--dry-run] [--ignore-cooldown] \
     [--backfill [--since D] [--until D] [--max-minutes N]]
 python manage.py link_news_stories [--days N] [--dry-run]
-python manage.py build_news_digest [--date D] [--top-n N] \
-    [--dry-run]
+python manage.py build_news_digest [--date D] [--days N] \
+    [--top-n N] [--dry-run]
 python manage.py reclassify_news_articles [--all] [--days N] \
     [--dry-run] [--batch-size N]
 ```
@@ -88,8 +88,11 @@ the pending phases without invoking anything or writing job
 bookkeeping. After a multi-day outage, articles older than
 `link_news_stories --days 2`'s window stay unmatched — run
 `link_news_stories --days N` once to catch up, and
-`build_news_digest --date D` to backfill a missed day's
-digest.
+`build_news_digest --days N [--date D]` to backfill missed
+days' digests (the window ends at `--date`, default today).
+Each built day fires the per-subscriber Google Task fan-out,
+so a large `--days` backfill creates one task per subscriber
+per day.
 
 ## Data model (`news/models.py`)
 
