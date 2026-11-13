@@ -13,6 +13,7 @@ import {
 } from '../format';
 import { errorDetail } from '../../shared/api/errors';
 import { cx } from '../../shared/cx';
+import { useBootstrap } from '../../shared/hooks/useBootstrap';
 import useUrlFilters from '../../shared/hooks/useUrlFilters';
 import PageContainer, {
   PageHeader,
@@ -220,6 +221,7 @@ const DAY_COLUMNS: Column<DayRowOut>[] = [
  * 401's login_url `next` round-trips the API-param spelling.
  */
 export default function Dashboard() {
+  const { is_staff: isStaff } = useBootstrap();
   const { draft, setDraft, apply, reset, searchParams } =
     useUrlFilters<DateDraft>({
       fromParams: (p) => ({
@@ -293,16 +295,18 @@ export default function Dashboard() {
           'plus daily run statistics.'
         }
         actions={
-          <Button
-            as="a"
-            href="/admin/"
-            variant="secondary"
-            leftIcon={
-              <Settings className="size-4" aria-hidden="true" />
-            }
-          >
-            Admin
-          </Button>
+          isStaff ? (
+            <Button
+              as="a"
+              href="/admin/"
+              variant="secondary"
+              leftIcon={
+                <Settings className="size-4" aria-hidden="true" />
+              }
+            >
+              Admin
+            </Button>
+          ) : null
         }
       />
       {isError && !data ? (

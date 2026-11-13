@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -68,6 +68,16 @@ function makeDashboard(
   };
 }
 
+/** The shell's #spa-bootstrap json_script — useBootstrap()
+ *  reads it once at mount, so it must exist before render. */
+function setBootstrap(payload: unknown) {
+  const el = document.createElement('script');
+  el.id = 'spa-bootstrap';
+  el.setAttribute('type', 'application/json');
+  el.textContent = JSON.stringify(payload);
+  document.body.appendChild(el);
+}
+
 function renderDashboard(entry = '/') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -82,6 +92,9 @@ function renderDashboard(entry = '/') {
 }
 
 describe('Dashboard', () => {
+  afterEach(() => {
+    document.getElementById('spa-bootstrap')?.remove();
+  });
   it('renders the jobs and day x job tables', async () => {
     mockedApiGet.mockResolvedValue(makeDashboard());
     renderDashboard();
@@ -101,13 +114,24 @@ describe('Dashboard', () => {
     ).toBeInTheDocument();
   });
 
-  it('links to the Django admin from the page header', async () => {
+  it('links to the Django admin for staff users', async () => {
+    setBootstrap({ is_staff: true });
     mockedApiGet.mockResolvedValue(makeDashboard());
     renderDashboard();
     const adminLink = await screen.findByRole('link', {
       name: 'Admin',
     });
     expect(adminLink).toHaveAttribute('href', '/admin/');
+  });
+
+  it('hides the Django admin link from non-staff users', async () => {
+    setBootstrap({ is_staff: false });
+    mockedApiGet.mockResolvedValue(makeDashboard());
+    renderDashboard();
+    await screen.findByText('SUCCESS');
+    expect(
+      screen.queryByRole('link', { name: 'Admin' }),
+    ).not.toBeInTheDocument();
   });
 
   it('passes the template-era ?from/&to= params to the API', async () => {
