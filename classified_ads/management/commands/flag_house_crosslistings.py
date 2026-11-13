@@ -5,8 +5,7 @@ Two signals, same as the ingest-time check in HousingAdScraper:
 
 1. Cross-deal twin: the ad_id also exists in HouseForSale
    (ss.com "sell or rent" dual listings share one tr_ id; ~1673
-   ids on prod as of 2026-10-29 — see
-   docs/plans/classified_ads_data_quality_implementation_plan.md).
+   ids on prod as of 2026-10-29).
 2. Heuristic: sale-scale monthly_price_per_sqm or Latvian/Russian
    sale keywords in the comment (sale_flags.is_sale_misclassified).
 

@@ -1,0 +1,55 @@
+{% extends "spa_shell.html" %}
+{% comment %}
+Server-rendered news digest inside #root — React replaces the
+container's children on mount, so human readers see this for a
+moment then get the full SPA, while crawlers and LLM agents
+that never run JavaScript read the digest HTML at the same
+canonical URL (/news/ and /news/<date>/).
+{% endcomment %}
+{% block ssr_content %}
+<main class="news-ssr mx-auto w-full
+             max-w-(--container-prose) px-4 py-10 sm:px-6">
+    <h1 class="text-2xl font-semibold tracking-tight">
+        Latvian news digest</h1>
+    <p class="mt-1 text-sm text-fg-muted">
+        Top stories ranked daily across Latvian outlets.
+        <a class="underline" href="/news/rss.xml">RSS feed</a>
+    </p>
+    {% for group in digest_groups %}
+    <section class="mt-8">
+        <h2 class="text-lg font-semibold">
+            <a href="{{ group.url }}">{{ group.date|date:"Y-m-d" }}
+            </a>
+        </h2>
+        <ol class="mt-3 grid list-decimal gap-5 pl-6">
+            {% for item in group.items %}
+            <li>
+                <h3 class="font-medium">{{ item.headline }}</h3>
+                {% if item.story.representative_lead %}
+                <p class="mt-1 text-sm text-fg-muted">
+                    {{ item.story.representative_lead }}</p>
+                {% endif %}
+                <p class="mt-1 text-xs text-fg-muted">
+                    {{ item.rationale }}</p>
+                {% if item.story.confirmed_articles %}
+                <ul class="mt-1 grid list-disc gap-1 pl-5 text-sm">
+                    {% for article in item.story.confirmed_articles %}
+                    <li>
+                        <a class="underline"
+                           href="{{ article.link }}"
+                           rel="noopener">{{ article.title }}</a>
+                        — {{ article.source.name }}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ol>
+    </section>
+    {% empty %}
+    <p class="mt-6 text-sm text-fg-muted">
+        No digests published yet.</p>
+    {% endfor %}
+</main>
+{% endblock %}

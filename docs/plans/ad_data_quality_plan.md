@@ -1,5 +1,14 @@
 # classified_ads data-quality triage plan
 
+> **Status**: Implemented (2026-10/11, `feat/ca-dq-prop-merge`
+> era). Shipped: `refetch_house_ads`, `flag_house_crosslistings`
+> + `is_sale_misclassified` on house models (#8a), `size <= 0`
+> skip at house ingest (#1/#2), `Europe/Riga` `post_date` parsing
+> (#7), "Rooms:" detail parsing (#4). Residuals never scheduled:
+> masked-phone doc note (#5), `floor > max_floor` logging (#8b),
+> `CheckConstraint(size__gt=0)`, AptSale price-floor flag (#8c).
+
+
 Read-only audit of the production Aiven DB (2026-10 snapshot) plus code
 review of `classified_ads/apartment_scraper.py` and
 `classified_ads/housing_scraper.py`. Counts below use `all_objects`

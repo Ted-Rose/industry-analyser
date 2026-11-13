@@ -4,9 +4,13 @@ from django.db import models
 
 from .models import (
     NewsArticle,
+    NewsArticleAudio,
     NewsDigest,
     NewsDigestItem,
+    NewsDigestSubscription,
+    NewsDigestTask,
     NewsSource,
+    NewsSourcePreference,
     NewsStory,
     NewsTopic,
 )
@@ -26,10 +30,11 @@ class NewsSourceAdmin(admin.ModelAdmin):
 class NewsArticleAdmin(admin.ModelAdmin):
     list_display = (
         'title', 'source', 'topic', 'published_at',
-        'story_match_status',
+        'story_match_status', 'is_backfill',
     )
     list_filter = (
         'source', 'topic', 'story_match_status', 'published_at',
+        'is_backfill',
     )
     search_fields = ('title', 'link')
     readonly_fields = ('first_seen', 'last_seen')
@@ -84,3 +89,41 @@ class NewsDigestItemInline(admin.TabularInline):
 class NewsDigestAdmin(admin.ModelAdmin):
     list_display = ('date', 'created_at')
     inlines = [NewsDigestItemInline]
+
+
+@admin.register(NewsDigestSubscription)
+class NewsDigestSubscriptionAdmin(admin.ModelAdmin):
+    # Staff can opt a user out of digest tasks via the list.
+    list_display = ('user', 'is_enabled', 'updated_at')
+    list_editable = ('is_enabled',)
+
+
+@admin.register(NewsDigestTask)
+class NewsDigestTaskAdmin(admin.ModelAdmin):
+    # Audit trail written by create_digest_task — read-only.
+    list_display = (
+        'digest', 'user', 'status', 'task_id', 'task_list_id',
+        'updated_at',
+    )
+    readonly_fields = (
+        'digest', 'user', 'task_id', 'task_list_id', 'status',
+        'error', 'created_at', 'updated_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(NewsSourcePreference)
+class NewsSourcePreferenceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'rank', 'source')
+    list_filter = ('source',)
+
+
+@admin.register(NewsArticleAudio)
+class NewsArticleAudioAdmin(admin.ModelAdmin):
+    # Machine-written rows — text/error stay read-only, and
+    # file_path too: the public audio endpoint serves whatever
+    # it points at, so an admin edit must not redirect it.
+    list_display = ('article', 'engine', 'status')
+    readonly_fields = ('text', 'error', 'file_path')

@@ -67,7 +67,13 @@ TOPICS = (
         'name': 'Valsts finansējums',
         'weight': 1.3,
         'keywords': [
-            'budžets', 'finansējums', 'subsīdij*', 'dotācija',
+            'budžets',
+            # 'finansējum*' not 'finansējums' — a plain word
+            # 4-char-stems to 'fina' and matched every
+            # 'finanšu …' phrase (sanctions, parenting
+            # features); the prefix still catches all real
+            # declensions ('finansējums'/'finansējuma').
+            'finansējum*', 'subsīdij*', 'dotācija',
             'līdzfinansējum*',
             # 'ES fondi' needs the 'es' stem — also the
             # pronoun — plus 'fond'. Both stems must hit,
@@ -97,10 +103,13 @@ TOPICS = (
             'karavīr*', 'karaspēk*', 'karadarb*',
             # 'uzbrukum*'/'pretuzbrukum*' are also sports
             # terms (attack phase/counter-attack) and
-            # 'raķeš*' covers space launches — accepted
-            # ambiguity, war usage dominates. 'dron*' even
-            # hits 'dronlaps'.
-            'uzbrukum*', 'pretuzbrukum*', 'raķeš*', 'dron*',
+            # 'raķeš*'/'raķet*' cover space launches too —
+            # accepted ambiguity, war usage dominates.
+            # 'raķeš*' alone misses the nominative
+            # 'raķete'/'raķetes', so both prefixes are seeded.
+            # 'dron*' even hits 'dronlaps'.
+            'uzbrukum*', 'pretuzbrukum*', 'raķeš*', 'raķet*',
+            'dron*',
             'sprādzi*', 'apšaud*', 'bruņot*', 'militā*',
             'armij*', 'kauj*',
             'okupācij*', 'aneksij*', 'mobilizācij*',
@@ -121,6 +130,79 @@ TOPICS = (
             'diplomā*', 'sankcij*', '=NATO', '=ANO',
             'samit*', 'vizīt*', 'vēstniek*', 'vēstniecīb*',
             'rezolūcij*', '=ārlietu', '=ārlietu ministr*',
+        ],
+    },
+    # 'crime' is deliberately LAST in TOPICS: score ties
+    # resolve to the first topic in pk order (seeds are
+    # created in tuple order), so an article equally matching
+    # crime and a higher-weighted topic keeps the heavier tag
+    # and the 0.4 weight cannot capture ambiguous hard news.
+    # The tagging itself is the demotion — an untopicked
+    # story scores at effective weight 1.0 (_refresh_story
+    # defaults NULL to 1.0), while a 'crime'-tagged story
+    # scores 0.4: a multi-outlet crime story drops below
+    # lower-coverage economics/politics stories yet still
+    # surfaces when coverage is broad.
+    {
+        'slug': 'crime',
+        'name': 'Noziedzība',
+        'weight': 0.4,
+        'keywords': [
+            'nozieg*', 'noziedz*', 'slepkav*', 'nogalin*',
+            # 'zagt*'/'zagl*' cover 'zagt'/'zagta'/'zaglis';
+            # 'zādz*' covers 'zādzība' — a different root.
+            'zādz*', 'zagl*', 'zagt*',
+            # 'cietum*' covers 'cietumsods'/'cietumā'/
+            # 'cietumnieks'; 'cietis' (suffered) stems
+            # 'cieti' — safe.
+            'cietum*', 'ieslodz*', 'noties*', 'piesprie*',
+            # '=soda'/'=sods'/'=sodu' are EXACT declensions
+            # of 'sods' (sentence/penalty); 'soda' the drink
+            # is an accepted rare false positive (precedent:
+            # 'banka*' also hits jars).
+            '=soda', '=sods', '=sodu',
+            'policij*', 'prokur*', 'kriminā*',
+            # 'tiesas*' (of court) and '=tiesa' avoid a
+            # 'ties*' stem/prefix that would hit 'tiesības'/
+            # 'tiesu'/'tieši'.
+            'tiesas*', 'tiesneš*', '=tiesa', 'prāv*',
+            # 'aiztur*' also hits 'aizture'/'aizturēšana' in
+            # the delay/suspension sense (transport holdups,
+            # benefit suspensions), not just "detained" —
+            # an accepted ambiguity.
+            'aiztur*', 'apcietin*', 'aizdom*',
+            'krāpniec*', 'krāpš*', 'blēdīb*',
+            'izvaro*', 'vardarb*', 'narkot*',
+            'nolaup*', 'teror*', 'šantāž*',
+            'dzērāj*', 'muit*', 'kontraband*',
+            # 'cilvēku tirdzniecīb*' needs BOTH the 'cilv'
+            # stem and the 'tirdzniecīb*' prefix — generic
+            # trade talk without a 'cilvēk*' token cannot
+            # hit.
+            'cilvēku tirdzniecīb*',
+            # 'Valsts robežsardz*' — border-guard smuggling/
+            # crossing cases; the 'vals' stem and the
+            # 'robežsardz*' prefix are both required.
+            'Valsts robežsardz*',
+            # Deliberately absent:
+            #  'korupc*'/'korump*'/'=KNAB' — corruption
+            #   coverage is usually politically significant
+            #   (officials, institutions); demoting it to
+            #   0.4 would bury the accountability stories
+            #   the digest exists to rank high. They keep
+            #   hitting politics/economics keywords.
+            #  'ieroc*' — weapons keywords would drag
+            #   Ukraine arms-supply stories out of 'war'
+            #   into a 0.4 topic.
+            #  'šāv*'/'nošāv*' — 'šāvējs' is a sport
+            #   shooter; sports pages would tag 'crime'.
+            #  'ties*' as a stem — hits 'tiesības'/'tiesu'/
+            #   'tieši'; the 'tiesas*'/'tiesneš*'/'=tiesa'
+            #   forms above cover court vocabulary safely.
+            #  'pārkāpum*' — too broad (sanctions/rules
+            #   violations, not just criminal offences).
+            #  'miruš*'/'miris' — obituaries and accidents
+            #   are not crime.
         ],
     },
 )

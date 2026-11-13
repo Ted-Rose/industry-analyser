@@ -19,9 +19,11 @@ from functools import partial
 from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
-from django.views.generic import RedirectView
+from accounts.api import router as accounts_router
 from fetcher import views as fetcher
 from fetcher.api import router as vacancies_router
+from news import views as news_views
+from news.api import router as news_router
 from tv_programs.api import router as tv_router
 from classified_ads.api import router as classified_ads_router
 from scrape_jobs.api import router as dashboard_router
@@ -30,43 +32,101 @@ from industry_analyser import views as project_views
 from industry_analyser.api import api
 from industry_analyser.views import react_app, react_app_public
 
-api.add_router('/vacancies/', vacancies_router)
-api.add_router('/tv/', tv_router)
-# The classified_ads SPA's URL base is hyphenated /classified-ads/;
-# the router mount follows it so spa_url_for's /api/<x>/ → /<x>/
-# login-next rewrite stays correct.
-api.add_router('/classified-ads/', classified_ads_router)
-# The dashboard SPA mounts at the site root — SPA_BASES maps
-# /api/dashboard/* 401 login_urls back to '/'.
-api.add_router('/dashboard/', dashboard_router)
-api.add_router('/receipts/', receipts_router)
-
 # The vacancies SPA owns both /vacancies/* and /companies/* — the
 # company pages are routes of the same React app (entry
 # 'vacancies'). Every GET/HEAD path renders the shell and React
 # Router resolves the page client-side; non-GET requests 404.
 react_app_vacancies = partial(
-    react_app_public, entry='vacancies', title='Vacancies'
+    react_app_public, entry='vacancies', title='Vacancies',
+    landing_desc='IT job ads scraped from cv.lv.',
 )
 react_app_companies = partial(
-    react_app_public, entry='vacancies', title='Companies'
+    react_app_public, entry='vacancies', title='Companies',
+    landing_desc='Employers behind the scraped vacancies.',
 )
-# The dashboard is the only login-required SPA (the template page it
-# replaces was @login_required) — react_app, not the public variant.
+# Dashboard and receipts are the staff-required SPAs — react_app,
+# not the public variant. `landing_title`/`landing_cta`/
+# `landing_desc` are display overrides for the / landing page's
+# mount auto-discovery (react_app swallows them via **kwargs) —
+# the CTA slot is the prominent button on /.
 react_app_dashboard = partial(
-    react_app, entry='dashboard', title='Dashboard'
+    react_app, entry='dashboard', title='Dashboard',
+    landing_title='Web scraping results', landing_cta=True,
+    landing_desc='Runs, counts and errors for every scraper.',
 )
+# The accounts SPA is the public login/register UI — react_app_public,
+# and 'accounts/' sits in _LANDING_SKIP_ROUTES so the landing page
+# skips it like the other infra mounts.
+react_app_accounts = partial(
+    react_app_public, entry='accounts', title='Sign in'
+)
+
+# This module can be imported more than once in a process: a
+# failed first import is evicted from sys.modules but the api
+# object in industry_analyser.api survives with whatever was
+# already mutated — ninja then answers every retry with a
+# frozen-API or duplicate-router ConfigError that masks the real
+# exception. So every fallible import (include() resolves its
+# urlconf eagerly via import_module()) runs BEFORE any api
+# mutation, and router mounting below is idempotent: a retry
+# either completes or fails on the real error.
+_tv_include = include('tv_programs.urls', namespace='tv_programs')
+_receipts_include = include('receipts.urls', namespace='receipts')
+_classified_ads_include = include(
+    'classified_ads.urls', namespace='classified_ads')
+_news_include = include('news.urls', namespace='news')
+_google_include = include('google_api.urls', namespace='google_api')
+
+# Mount only routers not already registered by an earlier partial
+# import (see above). api._routers already holds the default
+# router from NinjaAPI.__init__ — the app routers are what varies.
+_mounted = {router for _, router in api._routers}
+for _prefix, _router in (
+    ('/vacancies/', vacancies_router),
+    ('/tv/', tv_router),
+    # The classified_ads SPA's URL base is hyphenated
+    # /classified-ads/; the router mount follows it so
+    # spa_url_for's /api/<x>/ → /<x>/ login-next rewrite stays
+    # correct.
+    ('/classified-ads/', classified_ads_router),
+    # The dashboard SPA mounts at /dashboard/ — SPA_BASES maps
+    # /api/dashboard/* 401 login_urls back to it.
+    ('/dashboard/', dashboard_router),
+    ('/receipts/', receipts_router),
+    ('/accounts/', accounts_router),
+    ('/news/', news_router),
+):
+    if _router not in _mounted:
+        api.add_router(_prefix, _router)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('manifest.json', fetcher.pwa_manifest, name='pwa_manifest'),
     path('sw.js', fetcher.pwa_service_worker, name='pwa_service_worker'),
+    # Robot-facing files — crawler policy, the digest URL
+    # inventory and the llms.txt agent index. All public; the
+    # digest content itself lives under /news/rss.xml and the
+    # /api/news/ ops.
+    path('robots.txt', project_views.robots_txt, name='robots_txt'),
+    path('sitemap.xml', news_views.sitemap_xml, name='sitemap_xml'),
+    path('llms.txt', news_views.llms_txt, name='llms_txt'),
     # Shared ninja API — mounted before the app routes so /api/* can
-    # never be swallowed by the root catch-all SPA mount.
+    # never be swallowed by the terminal catch-all.
     path('api/', api.urls),
-    # The dashboard SPA owns the site root — the name 'home' is kept
-    # so reverse('home') still resolves to '/'.
-    path('', react_app_dashboard, name='home'),
+    # Public landing page — a directory of the project's app
+    # mounts, auto-discovered off this urlconf (see
+    # views._landing_entries). The name 'home' is kept so
+    # reverse('home') still resolves to '/'.
+    path('', project_views.landing, name='home'),
+    # The dashboard SPA moved off the root to /dashboard/ — still
+    # staff-required. It has only an index route, but the
+    # <path:subpath> mount keeps deep links working.
+    path('dashboard/', react_app_dashboard, name='dashboard'),
+    path(
+        'dashboard/<path:subpath>',
+        react_app_dashboard,
+        name='dashboard_subpath',
+    ),
     # Vacancies SPA. Route names stay so reverse()/{% url %} callers
     # keep working ('find_vacancies' reversed to /vacancies/).
     path('vacancies/', react_app_vacancies, name='find_vacancies'),
@@ -91,30 +151,33 @@ urlpatterns = [
         react_app_companies,
         name='companies_subpath',
     ),
-    # The accounts stub page is retired — 301 to the dashboard; the
-    # name is kept so any reverse('accounts') caller still resolves.
+    # The accounts SPA — public login/register pages plus the
+    # account index. The 'accounts' name is kept so reverse()
+    # callers still resolve; the catch-all serves client routes
+    # (/accounts/login/, /accounts/register/).
+    path('accounts/', react_app_accounts, name='accounts'),
     path(
-        'accounts/',
-        RedirectView.as_view(url='/', permanent=True),
-        name='accounts',
+        'accounts/<path:subpath>',
+        react_app_accounts,
+        name='accounts_subpath',
     ),
     path(
         'add_keyword/',
         fetcher.add_keyword_redirect,
         name='add_keyword',
     ),
-    path('tv/', include('tv_programs.urls', namespace='tv_programs')),
+    path('tv/', _tv_include),
     # Receipts spending dashboard — SPA cutover like /tv/: the
     # shell serves every GET/HEAD path; the name
     # 'receipts:dashboard' is kept for reverse() callers.
-    path('receipts/', include('receipts.urls', namespace='receipts')),
-    path(
-        'classified-ads/',
-        include('classified_ads.urls', namespace='classified_ads'),
-    ),
-    # Plain-template digest pages — must precede the terminal
-    # catch-all drains and the root SPA <path:subpath> below.
-    path('news/', include('news.urls', namespace='news')),
+    path('receipts/', _receipts_include),
+    path('classified-ads/', _classified_ads_include),
+    # News SPA shell — must precede the terminal catch-all
+    # drains and the root SPA <path:subpath> below.
+    path('news/', _news_include),
+    # Google OAuth web flow (/google/login/, /google/callback) —
+    # plain Django views, must precede the landing catch-all.
+    path('google/', _google_include),
 ]
 
 if settings.DEBUG:
@@ -132,20 +195,25 @@ if settings.DEBUG:
 # root SPA shell, and unslashed hits like /api/dashboard would lose
 # the APPEND_SLASH redirect CommonMiddleware only applies to 404s.
 # Legit routes under those prefixes resolve earlier, so order is safe.
+# The bare slashed form ('api/') needs its own drain — a Resolver404
+# inside the mount has an empty subpath that <path:subpath> can't
+# match, so without it /api/ would serve the landing page with a 200.
 for _prefix in ('api', 'admin', 'static'):
     urlpatterns.append(path(_prefix, project_views.terminal_404))
+    urlpatterns.append(path(f'{_prefix}/', project_views.terminal_404))
     urlpatterns.append(path(
         f'{_prefix}/<path:subpath>',
         project_views.terminal_404,
     ))
 
-# The root dashboard catch-all must be the very LAST pattern — it
-# would shadow anything appended after it (including the DEBUG-only
-# .well-known probe above). No trailing slash on <path:subpath> — it
-# matches 'x' and 'x/', so client routes don't depend on an
-# APPEND_SLASH hop; non-GET/HEAD requests 404 via react_app.
+# The terminal catch-all renders the landing page for unknown
+# paths — typos show the app directory instead of a bare 404. It
+# must be the very LAST pattern — it would shadow anything
+# appended after it (including the DEBUG-only .well-known probe
+# above). No trailing slash on <path:subpath> — it matches 'x' and
+# 'x/', and non-GET/HEAD requests 404 via landing().
 urlpatterns.append(path(
     '<path:subpath>',
-    react_app_dashboard,
-    name='dashboard_subpath',
+    project_views.landing,
+    name='landing_subpath',
 ))

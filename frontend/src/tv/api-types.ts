@@ -105,9 +105,9 @@ export interface paths {
         put?: never;
         /**
          * Add Keyword
-         * @description Create a keyword — session-auth replacement for the retired
-         *     HARD_CODED_PASSWORD form. Validation still goes through
-         *     KeywordForm so name normalization/uniqueness are unchanged.
+         * @description Create a keyword — staff-only (global scrape configuration,
+         *     not per-user data). Validation still goes through KeywordForm
+         *     so name normalization/uniqueness are unchanged.
          */
         post: operations["fetcher_api_add_keyword"];
         delete?: never;
@@ -126,6 +126,10 @@ export interface paths {
         /**
          * List Saved Filters
          * @description The caller's saved filter presets (name-ordered via Meta).
+         *
+         *     Public like the other GETs; anonymous callers get an empty
+         *     list — filter(user=AnonymousUser) would TypeError on the
+         *     int-prep of the FK, so guard rather than rely on the queryset.
          */
         get: operations["fetcher_api_list_saved_filters"];
         put?: never;
@@ -176,6 +180,8 @@ export interface paths {
          *     declared-but-dead input in the template form — it now filters on
          *     the displayed match ratio (show's when truthy, falling back to
          *     the program's like the card's |default-style fallback).
+         *     `all_content` opts out of the default movies-and-series filter
+         *     (same absent-vs-set convention as `not_content_rating`).
          */
         get: operations["tv_programs_api_list_programs"];
         put?: never;
@@ -360,6 +366,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/classified-ads/regions/rent-vs-buy/ranked/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Rent Vs Buy Ranked
+         * @description Ranked rent-vs-buy view — cells of (exact region node x
+         *     group_by dimension) sorted ascending by `months_to_buyout`,
+         *     the median whole-unit sale price divided by the median
+         *     monthly rent of ads active in the window.
+         *
+         *     Unlike /regions/rent-vs-buy/ (parent rollup, per-m² ratio)
+         *     this groups by the ad's own region FK and ranks whole-unit
+         *     prices. Rent rows are whole-unit monthly lets only
+         *     (rate_period in ('', 'month'), is_room_share=False) inside a
+         *     2–50 €/m² sanity band (drops daily-rate junk and mislisted
+         *     sale prices); sale rows under 10 €/m² are dropped as
+         *     land/garage residue. A cell needs >= min_ads active ads on
+         *     BOTH sides to rank. Ads parked on a parent region node (or
+         *     none) are residual — omitted from `residual` by default but
+         *     always counted in `n_residual_cells`.
+         *
+         *     `group_by` picks the second cell key: 'type' (default) is
+         *     the property type, 'region' merges types into one 'All'
+         *     cell per region, 'rooms' buckets on rooms ('0r'–'3r',
+         *     '4+r' — rooms=0 rows land in '0r'). kind=house with
+         *     group_by='rooms' returns an empty report — house rows
+         *     carry rooms=0.
+         */
+        get: operations["classified_ads_api_rent_vs_buy_ranked"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/classified-ads/regions/{region_id}/children/": {
         parameters: {
             query?: never;
@@ -393,8 +440,9 @@ export interface paths {
          * Region Ads List
          * @description Ads in a region subtree — mirrors the retired *_region_ads_list
          *     views except the window filter, which is F5 active-in-window: the
-         *     ad must have a sighting inside [date_from, date_to]. A
-         *     missing/blank deal_type still yields an empty table.
+         *     ad must have a sighting inside [date_from, date_to].
+         *     deal_type='ALL' returns both deals merged; a missing/blank or
+         *     unknown deal_type still yields an empty table.
          */
         get: operations["classified_ads_api_region_ads_list"];
         put?: never;
@@ -516,6 +564,296 @@ export interface paths {
         get: operations["receipts_api_receipts_dashboard"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/register/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Register */
+        post: operations["accounts_api_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/login/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Session Login */
+        post: operations["accounts_api_session_login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/logout/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Session Logout */
+        post: operations["accounts_api_session_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/accounts/me/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Me
+         * @description Auth-state probe — always 200. A 401 here would trigger
+         *     apiFetch's navigate-to-login_url path, redirecting the very
+         *     page that asked.
+         */
+        get: operations["accounts_api_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digests/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Digests
+         * @description Digest index — verbatim port of the retired digest_list
+         *     view: ?date=YYYY-MM-DD anchors a window, ?period=day|week|all
+         *     picks its size, malformed values fall back to the 7-day
+         *     window ending on the newest digest (never a 4xx/5xx).
+         */
+        get: operations["news_api_list_digests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digests/{date}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Digest Detail
+         * @description One digest day — verbatim port of the retired
+         *     digest_detail view (strptime guard → 'Invalid date format'
+         *     404, confirmed members only via the to_attr prefetch).
+         */
+        get: operations["news_api_digest_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digests/{date}/extra/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Digest Extra
+         * @description Ranked stories past the digest's stored top-N — the
+         *     /news/<date>/ 'Load more' page. Same eligibility and
+         *     ordering as build_digest (ranked_stories_for), minus the
+         *     stored stories; ranks continue after the stored items.
+         */
+        get: operations["news_api_digest_extra"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/stories/{story_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Story Card
+         * @description Story card for the inline reader — verbatim port of the
+         *     retired story_fragment view: the confirmed member article
+         *     from the reader's favorite covering outlet, or a
+         *     `?source=<slug>` override when that outlet covered it.
+         *     request.user rides the session even with auth=None, so
+         *     logged-in readers keep preference-ordered picks.
+         */
+        get: operations["news_api_story_card"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/audio/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Audio
+         * @description Public gTTS->GCS clip generator behind the digest page's
+         *     audio buttons — port of the retired audio view. Stays
+         *     unauthenticated: /news/ itself is public and the pre-warm
+         *     fan-out must work for anonymous readers; abuse is bounded
+         *     by content-addressed dedup, the text length cap and ~1s
+         *     gTTS latency per genuinely new text. Schema bounds 422 the
+         *     malformed cases the view 400ed (uniform with the rest of
+         *     the API); the `lang` shape check stays manual so 'english'
+         *     still 400s rather than 422ing.
+         */
+        get: operations["news_api_audio"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/preferences/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Preferences
+         * @description Enabled sources (-importance_weight, pk) joined to the
+         *     user's NewsSourcePreference rank map — the rows the retired
+         *     preferences form rendered.
+         */
+        get: operations["news_api_get_preferences"];
+        put?: never;
+        /**
+         * Save Preferences
+         * @description Replace the user's outlet ranking — verbatim port of the
+         *     retired preferences view's POST: presence in `rows` is the
+         *     include checkbox, checked-but-unranked sinks below every
+         *     numbered pick (canonical source order breaks the tie),
+         *     saved rows renumber 1..N, disabled/unknown slugs ignored.
+         */
+        post: operations["news_api_save_preferences"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digest-task/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Digest Task Status
+         * @description Google-Tasks digest subscription state for the card on
+         *     /news/preferences/ — session-auth; the 401 handshake's
+         *     `next` lands on that page via SPA_SUBPATHS.
+         */
+        get: operations["news_api_digest_task_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digest-task/subscribe/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Subscribe Digest Task
+         * @description Idempotent opt-in — creates or re-enables the caller's
+         *     subscription row. Succeeds (200, google_connected: false)
+         *     without a Google grant: tasks start on the next build once
+         *     the account is connected via /google/login.
+         */
+        post: operations["news_api_subscribe_digest_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/news/digest-task/unsubscribe/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unsubscribe Digest Task
+         * @description Idempotent opt-out — flips is_enabled off while keeping
+         *     the row (and all NewsDigestTask audit rows).
+         */
+        post: operations["news_api_unsubscribe_digest_task"];
         delete?: never;
         options?: never;
         head?: never;
@@ -877,6 +1215,8 @@ export interface components {
             exclude_channel_name: string | null;
             /** Show Disliked */
             show_disliked: boolean;
+            /** All Content */
+            all_content: boolean;
         };
         /** ProgramOut */
         ProgramOut: {
@@ -1219,6 +1559,93 @@ export interface components {
             median_sale_price_per_sqm: number | null;
             /** Price To Annual Rent Years */
             price_to_annual_rent_years: number | null;
+        };
+        /** RentVsBuyRankedOut */
+        RentVsBuyRankedOut: {
+            /** Kind */
+            kind: string;
+            /** Days */
+            days: number;
+            /** Min Ads */
+            min_ads: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Results */
+            results: components["schemas"]["RentVsBuyRankedRowOut"][];
+            /** Residual */
+            residual: components["schemas"]["RentVsBuyRankedRowOut"][];
+            /** N Residual Cells */
+            n_residual_cells: number;
+        };
+        /**
+         * RentVsBuyRankedRowOut
+         * @description One ranked cell of the rent-vs-buy ranking — exact region
+         *     node (the ad's own region FK, no parent rollup) x the
+         *     group_by dimension: property type (project name for
+         *     apartments, house_type for houses), the literal 'All' for
+         *     group_by='region', or a rooms bucket ('0r'–'3r', '4+r')
+         *     for group_by='rooms'.
+         *
+         *     `months_to_buyout` is the headline metric: median whole-unit
+         *     sale price / median monthly rent — months of rent needed to
+         *     cover the purchase (LOWER means buying looks cheap relative
+         *     to renting). `gross_yield_pct` is its inverse in percent:
+         *     annual median rent / median price x 100 (1200 / months —
+         *     gross, no vacancy/costs/tax deducted). `is_residual` marks
+         *     rows whose ads sit on a parent region node (or no region at
+         *     all) instead of a leaf — excluded from `results` unless
+         *     include_residual is passed, then returned under `residual`.
+         *     `region` is null only for region-less ads.
+         *     `paired_months_to_buyout` repeats the metric on same-unit
+         *     pairs (properties linked to both a rent and a sale ad in the
+         *     cell) when at least 3 pairs exist.
+         */
+        RentVsBuyRankedRowOut: {
+            region: components["schemas"]["RegionRefOut"] | null;
+            /** Region Label */
+            region_label: string;
+            /** Property Type */
+            property_type: string;
+            /** Is Residual */
+            is_residual: boolean;
+            /** N Rent Ads */
+            n_rent_ads: number;
+            /** N Sale Ads */
+            n_sale_ads: number;
+            /** Median Monthly Rent */
+            median_monthly_rent: number | null;
+            /** Median Total Price */
+            median_total_price: number | null;
+            /** Months To Buyout */
+            months_to_buyout: number | null;
+            /** Years To Buyout */
+            years_to_buyout: number | null;
+            /** Gross Yield Pct */
+            gross_yield_pct: number | null;
+            /** Median Monthly Rent Per Sqm */
+            median_monthly_rent_per_sqm: number | null;
+            /** Median Sale Price Per Sqm */
+            median_sale_price_per_sqm: number | null;
+            /** Price To Rent Ratio Per Sqm */
+            price_to_rent_ratio_per_sqm: number | null;
+            /** Median Size Rent */
+            median_size_rent: number | null;
+            /** Median Size Sale */
+            median_size_sale: number | null;
+            /** Size Comparable */
+            size_comparable: boolean;
+            /** N Paired Properties */
+            n_paired_properties: number;
+            /** Paired Months To Buyout */
+            paired_months_to_buyout: number | null;
         };
         /** RegionStatsChildrenOut */
         RegionStatsChildrenOut: {
@@ -1746,6 +2173,267 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** AuthOut */
+        AuthOut: {
+            user: components["schemas"]["UserOut"];
+        };
+        /** UserOut */
+        UserOut: {
+            /** Id */
+            id: number;
+            /** Username */
+            username: string;
+            /** Email */
+            email: string;
+            /** Is Staff */
+            is_staff: boolean;
+        };
+        /** RegisterIn */
+        RegisterIn: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+            /** Password Confirm */
+            password_confirm: string;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
+        };
+        /** LoginIn */
+        LoginIn: {
+            /** Username */
+            username: string;
+            /** Password */
+            password: string;
+        };
+        /** SuccessOut */
+        SuccessOut: {
+            /** Success */
+            success: boolean;
+        };
+        /** MeOut */
+        MeOut: {
+            user?: components["schemas"]["UserOut"] | null;
+            /** Is Authenticated */
+            is_authenticated: boolean;
+        };
+        /** DigestListItemOut */
+        DigestListItemOut: {
+            /** Story Id */
+            story_id: number;
+            /** Rank */
+            rank: number;
+            /** Headline */
+            headline: string;
+            /** Representative Lead */
+            representative_lead: string;
+        };
+        /**
+         * DigestListOut
+         * @description The whole digest_list page payload — digests plus the
+         *     effective filter state (the old template's context).
+         */
+        DigestListOut: {
+            /** Digests */
+            digests: components["schemas"]["DigestOut"][];
+            /** Period */
+            period: string;
+            /** Anchor Date */
+            anchor_date: string | null;
+            /** Range Start */
+            range_start: string | null;
+            /** Range End */
+            range_end: string | null;
+            /** Min Date */
+            min_date: string | null;
+            /** Max Date */
+            max_date: string | null;
+        };
+        /** DigestOut */
+        DigestOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Items */
+            items: components["schemas"]["DigestListItemOut"][];
+        };
+        /** ArticleRef */
+        ArticleRef: {
+            /** Title */
+            title: string;
+            /** Link */
+            link: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /** DigestDetailItemOut */
+        DigestDetailItemOut: {
+            /** Rank */
+            rank: number;
+            /** Headline */
+            headline: string;
+            /** Rationale */
+            rationale: string;
+            /** Topic Name */
+            topic_name: string | null;
+            /** Articles */
+            articles: components["schemas"]["ArticleRef"][];
+        };
+        /** DigestDetailOut */
+        DigestDetailOut: {
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Items */
+            items: components["schemas"]["DigestDetailItemOut"][];
+            /** Has More */
+            has_more: boolean;
+        };
+        /**
+         * DigestExtraItemOut
+         * @description One ranked story past the digest's stored top-N — same
+         *     render shape as DigestDetailItemOut but built live from a
+         *     NewsStory (rank continues after the stored items).
+         */
+        DigestExtraItemOut: {
+            /** Rank */
+            rank: number;
+            /** Headline */
+            headline: string;
+            /** Rationale */
+            rationale: string;
+            /** Topic Name */
+            topic_name: string | null;
+            /** Articles */
+            articles: components["schemas"]["ArticleRef"][];
+        };
+        /** DigestExtraOut */
+        DigestExtraOut: {
+            /** Items */
+            items: components["schemas"]["DigestExtraItemOut"][];
+            /** Offset */
+            offset: number;
+            /** Has Next */
+            has_next: boolean;
+        };
+        /** StoryArticleOut */
+        StoryArticleOut: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+            /** Lead */
+            lead: string;
+            /** Link */
+            link: string;
+            /** Image Url */
+            image_url: string;
+            /** Published At */
+            published_at: string | null;
+            /** Source Slug */
+            source_slug: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /**
+         * StoryCardOut
+         * @description The _story_card.html context as JSON.
+         */
+        StoryCardOut: {
+            /** Story Id */
+            story_id: number;
+            article: components["schemas"]["StoryArticleOut"];
+            /** Audio Url */
+            audio_url: string | null;
+            /** Other Articles */
+            other_articles: components["schemas"]["StorySourceRef"][];
+        };
+        /** StorySourceRef */
+        StorySourceRef: {
+            /** Source Slug */
+            source_slug: string;
+            /** Source Name */
+            source_name: string;
+        };
+        /** AudioOut */
+        AudioOut: {
+            /** Audio Url */
+            audio_url: string;
+        };
+        /** PreferenceRowOut */
+        PreferenceRowOut: {
+            /** Slug */
+            slug: string;
+            /** Name */
+            name: string;
+            /** Checked */
+            checked: boolean;
+            /** Rank */
+            rank: number | null;
+        };
+        /** PreferencesOut */
+        PreferencesOut: {
+            /** Rows */
+            rows: components["schemas"]["PreferenceRowOut"][];
+        };
+        /** PreferencesSavedOut */
+        PreferencesSavedOut: {
+            /** Success */
+            success: boolean;
+            /** Saved */
+            saved: number;
+            /** Message */
+            message: string;
+        };
+        /** PreferenceRowIn */
+        PreferenceRowIn: {
+            /** Slug */
+            slug: string;
+            /** Rank */
+            rank?: number | null;
+        };
+        /**
+         * PreferencesIn
+         * @description Presence in `rows` = the include-<slug> checkbox.
+         */
+        PreferencesIn: {
+            /** Rows */
+            rows: components["schemas"]["PreferenceRowIn"][];
+        };
+        /** DigestTaskLastOut */
+        DigestTaskLastOut: {
+            /**
+             * Digest Date
+             * Format: date
+             */
+            digest_date: string;
+            /** Status */
+            status: string;
+            /** Error */
+            error: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** DigestTaskStatusOut */
+        DigestTaskStatusOut: {
+            /** Oauth Configured */
+            oauth_configured: boolean;
+            /** Google Connected */
+            google_connected: boolean;
+            /** Subscribed */
+            subscribed: boolean;
+            last_task: components["schemas"]["DigestTaskLastOut"] | null;
+        };
     };
     responses: never;
     parameters: never;
@@ -1983,6 +2671,7 @@ export interface operations {
                 channel?: string | null;
                 exclude_channel?: string | null;
                 show_disliked?: boolean;
+                all_content?: boolean;
             };
             header?: never;
             path?: never;
@@ -2198,6 +2887,32 @@ export interface operations {
             };
         };
     };
+    classified_ads_api_rent_vs_buy_ranked: {
+        parameters: {
+            query: {
+                kind: "apartment" | "house";
+                days?: number;
+                min_ads?: number;
+                include_residual?: boolean;
+                group_by?: "type" | "region" | "rooms";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentVsBuyRankedOut"];
+                };
+            };
+        };
+    };
     classified_ads_api_region_stats_children: {
         parameters: {
             query: {
@@ -2368,6 +3083,315 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReceiptsDashboardOut"];
+                };
+            };
+        };
+    };
+    accounts_api_register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterIn"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+        };
+    };
+    accounts_api_session_login: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthOut"];
+                };
+            };
+        };
+    };
+    accounts_api_session_logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessOut"];
+                };
+            };
+        };
+    };
+    accounts_api_me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeOut"];
+                };
+            };
+        };
+    };
+    news_api_list_digests: {
+        parameters: {
+            query?: {
+                date?: string | null;
+                period?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestListOut"];
+                };
+            };
+        };
+    };
+    news_api_digest_detail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestDetailOut"];
+                };
+            };
+        };
+    };
+    news_api_digest_extra: {
+        parameters: {
+            query?: {
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestExtraOut"];
+                };
+            };
+        };
+    };
+    news_api_story_card: {
+        parameters: {
+            query?: {
+                source?: string | null;
+            };
+            header?: never;
+            path: {
+                story_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoryCardOut"];
+                };
+            };
+        };
+    };
+    news_api_audio: {
+        parameters: {
+            query: {
+                text: string;
+                lang?: string | null;
+                filename?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AudioOut"];
+                };
+            };
+        };
+    };
+    news_api_get_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesOut"];
+                };
+            };
+        };
+    };
+    news_api_save_preferences: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreferencesIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreferencesSavedOut"];
+                };
+            };
+        };
+    };
+    news_api_digest_task_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestTaskStatusOut"];
+                };
+            };
+        };
+    };
+    news_api_subscribe_digest_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestTaskStatusOut"];
+                };
+            };
+        };
+    };
+    news_api_unsubscribe_digest_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestTaskStatusOut"];
                 };
             };
         };

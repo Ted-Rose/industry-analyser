@@ -2,23 +2,67 @@
 
 Ported from django-apps' django_apps/views.py. One shell view renders
 <div id="root"> plus the {% vite_asset %} tags for a given Vite entry;
-`react_app` (login-required) and `react_app_public` wrap it so every
+`react_app` (staff-required) and `react_app_public` wrap it so every
 app mount shares the same GET/HEAD→shell, non-GET→404 contract.
 """
 import json
 import os
 import re
+from functools import partial
 
 from django.conf import settings
-from django.contrib.auth.decorators import login_required
+from django.contrib.admin.views.decorators import (
+    staff_member_required,
+)
 from django.http import (
     Http404,
+    HttpResponse,
     HttpResponsePermanentRedirect,
     JsonResponse,
 )
 from django.shortcuts import redirect, render
-from django.urls import is_valid_path
+from django.urls import URLPattern, get_resolver, is_valid_path
+from django.utils.cache import patch_cache_control
+from django.views.decorators.cache import cache_control
 from django.views.decorators.csrf import ensure_csrf_cookie
+
+# Shared edge-cache policy for public surfaces whose content only
+# changes after the daily 19:50 UTC all-jobs run: shared caches may
+# serve a copy for an hour and a stale one for a day while
+# revalidating; browsers always revalidate (max-age=0). The
+# decorator form wraps plain Django views; patch_edge_cache()
+# applies the same policy to a response object (ninja ops mutate
+# an injected HttpResponse instead of wrapping a view).
+_EDGE_CACHE_KWARGS = {
+    'public': True,
+    'max_age': 0,
+    's_maxage': 3600,
+    'stale_while_revalidate': 86400,
+}
+edge_public_cache = cache_control(**_EDGE_CACHE_KWARGS)
+
+
+def patch_edge_cache(response):
+    """Apply the edge_public_cache policy to an existing response."""
+    return patch_cache_control(response, **_EDGE_CACHE_KWARGS)
+
+
+@edge_public_cache
+def robots_txt(request):
+    """Crawler policy at /robots.txt — the public app pages and
+    the digest API stay crawlable; only the auth/admin plumbing
+    is disallowed. The Sitemap line points robots at the digest
+    URL inventory."""
+    sitemap_url = request.build_absolute_uri('/sitemap.xml')
+    body = '\n'.join([
+        'User-agent: *',
+        'Disallow: /admin/',
+        'Disallow: /accounts/',
+        '',
+        f'Sitemap: {sitemap_url}',
+        '',
+    ])
+    return HttpResponse(body, content_type='text/plain')
 
 
 def chrome_devtools_probe(request):
@@ -83,8 +127,11 @@ def _manifest_has_entry(manifest_path, entry_key):
         return False
 
 
-def _spa_shell(request, entry, title=''):
-    """Undecorated core: render the shared React SPA shell.
+def _spa_shell_context(request, entry, title='', feed_url='',
+                       feed_title=''):
+    """The spa_shell.html context, factored out so an app can
+    render a template that extends the shell with extra context
+    (news SSRs the digest inside #root — see news/views.py).
 
     `entry` is the app folder under frontend/src/ (e.g. 'vacancies' →
     src/vacancies/main.tsx). `manifest_ready` tells the template
@@ -92,7 +139,9 @@ def _spa_shell(request, entry, title=''):
     (VITE_DEV=1, where django-vite hits the dev server and never reads
     the manifest), or in prod only when manifest.json exists and
     contains the entry key. Otherwise the page shows a diagnostic
-    instead of crashing.
+    instead of crashing. `feed_url`/`feed_title` emit a
+    <link rel="alternate"> RSS autodiscovery tag for apps that
+    publish a feed (news).
     """
     if not SPA_ENTRY_RE.fullmatch(entry):
         raise Http404(f'Unknown SPA entry: {entry}')
@@ -103,15 +152,30 @@ def _spa_shell(request, entry, title=''):
         os.path.join(settings.BASE_DIR, 'frontend_dist',
                      'manifest.json'),
     )
-    return render(request, 'spa_shell.html', {
+    return {
         'title': title,
         'vite_entry': vite_entry,
+        'feed_url': feed_url,
+        'feed_title': feed_title,
         'manifest_ready': (
             vite_config.get('dev_mode')
             or _manifest_has_entry(manifest_path, vite_entry)
         ),
         'bootstrap': {
             'user': request.user.get_username() or None,
+            # The auto-discovered app mounts + auth flags — the
+            # SPA TopNav builds its AppSwitcher and login/logout
+            # state off these instead of a hardcoded list (same
+            # contract the / landing page renders).
+            'apps': _landing_entries(),
+            'is_authenticated': request.user.is_authenticated,
+            'is_staff': getattr(request.user, 'is_staff', False),
+            # Lets the accounts SPA hide the "Sign in with
+            # Google" section when no OAuth client is configured
+            # — static config, so no API op.
+            'google_oauth_configured': bool(
+                getattr(settings, 'GOOGLE_APP_SECRETS_PATH', '')
+            ),
             # Web Sentry config ships inside the page — the SPA reads
             # it before createRoot, so no VITE_* build vars are
             # needed. Empty dsn leaves the browser SDK uninitialized.
@@ -121,26 +185,47 @@ def _spa_shell(request, entry, title=''):
                 'release': settings.SENTRY_RELEASE,
             },
         },
-    })
+    }
 
 
-@login_required
+def _spa_shell(request, entry, title='', feed_url='', feed_title=''):
+    """Undecorated core: render the shared React SPA shell."""
+    return render(
+        request, 'spa_shell.html',
+        _spa_shell_context(
+            request, entry, title=title,
+            feed_url=feed_url, feed_title=feed_title,
+        ),
+    )
+
+
+@staff_member_required
 @ensure_csrf_cookie
-def spa_shell(request, entry, title=''):
-    """Login-required shell — for apps whose pages need auth (e.g.
-    the root dashboard)."""
-    return _spa_shell(request, entry, title=title)
+def spa_shell(request, entry, title='', feed_url='', feed_title=''):
+    """Staff-required shell — for apps whose pages are staff-only
+    (the dashboard and receipts SPAs). staff_member_required
+    bounces anonymous AND authenticated non-staff visitors to the
+    admin login, which explains the missing staff rights."""
+    return _spa_shell(
+        request, entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
 @ensure_csrf_cookie
-def spa_shell_public(request, entry, title=''):
+def spa_shell_public(request, entry, title='', feed_url='',
+                     feed_title=''):
     """Public shell — most industry-analyser pages are public today,
     so their SPA mounts must not bounce anonymous visitors to login."""
-    return _spa_shell(request, entry, title=title)
+    return _spa_shell(
+        request, entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
-def react_app(request, entry, title='', subpath='', **kwargs):
-    """React SPA shell shared by every login-required app mount.
+def react_app(request, entry, title='', subpath='', feed_url='',
+              feed_title='', **kwargs):
+    """React SPA shell shared by every staff-required app mount.
 
     Mount with functools.partial (or a thin wrapper) binding `entry`
     (the frontend/src/<entry>/ folder and vite input key) and
@@ -160,22 +245,154 @@ def react_app(request, entry, title='', subpath='', **kwargs):
     """
     if request.method not in ('GET', 'HEAD'):
         raise Http404
-    return spa_shell(request, entry=entry, title=title)
+    return spa_shell(
+        request, entry=entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
 
 
-def react_app_public(request, entry, title='', subpath='', **kwargs):
-    """Same contract as `react_app` but without login_required — for
-    apps whose pages are public today (vacancies, tv, classified-ads).
-    Mutations still require auth at the /api/ layer.
+def react_app_public(request, entry, title='', subpath='', feed_url='',
+                     feed_title='', **kwargs):
+    """Same contract as `react_app` but without staff_member_required
+    — for apps whose pages are public today (vacancies, tv,
+    classified-ads, accounts, news). Mutations still require auth
+    at the /api/ layer.
 
     `subpath` is captured by <path:subpath> catch-alls; `kwargs`
     swallows any named converters (e.g. <uuid:pk> on a named route
     kept for reverse() callers) — React Router resolves the page
-    either way.
+    either way. `feed_url`/`feed_title` bind an RSS autodiscovery
+    link into the shell <head> (the news digest feed).
     """
     if request.method not in ('GET', 'HEAD'):
         raise Http404
-    return spa_shell_public(request, entry=entry, title=title)
+    return spa_shell_public(
+        request, entry=entry, title=title,
+        feed_url=feed_url, feed_title=feed_title,
+    )
+
+
+# --- Landing page ---
+
+# Top-level routes that never become landing entries: infra
+# mounts (the JSON API, admin, the whitenoise pass-through) and
+# the accounts utility SPA (auth pages, not a mini-app).
+# Everything else is discovered — a new app mount needs no edit
+# here.
+_LANDING_SKIP_ROUTES = {'api/', 'admin/', 'static/', 'accounts/'}
+
+
+def _is_spa_partial(callback):
+    """True when `callback` is a functools.partial of one of the
+    shared SPA shells (the way every SPA mount is wired in
+    urlpatterns)."""
+    return (
+        isinstance(callback, partial)
+        and callback.func in (react_app, react_app_public)
+    )
+
+
+def _spa_entry_fields(callback):
+    """Landing entry fields off an SPA shell partial.
+
+    `title` is the page title kwarg every mount already binds;
+    `landing_title`/`landing_desc` are optional display overrides
+    and `landing_cta` promotes the entry to the prominent
+    call-to-action slot — all swallowed by react_app's **kwargs.
+    The auth flag follows from which shell was bound — react_app
+    mounts are staff-required."""
+    keywords = callback.keywords
+    return {
+        'title': (
+            keywords.get('landing_title')
+            or keywords.get('title', '')
+        ),
+        'desc': keywords.get('landing_desc', ''),
+        'cta': bool(keywords.get('landing_cta')),
+        'login_required': callback.func is react_app,
+    }
+
+
+def _resolver_entry_fields(resolver, route):
+    """Title/auth/desc for an include() mount.
+
+    The mounted urlconf's first SPA-shell partial supplies them
+    (tv, receipts, classified_ads all bind `title` there); a mount
+    whose urlconf serves plain-template views instead (news) gets
+    a humanized path segment and is public. An empty urlconf is
+    not a page — None skips it.
+    """
+    inner = resolver.url_patterns
+    if not inner:
+        return None
+    for inner_pattern in inner:
+        if isinstance(inner_pattern, URLPattern) and _is_spa_partial(
+            inner_pattern.callback
+        ):
+            return _spa_entry_fields(inner_pattern.callback)
+    return {
+        'title': (
+            route.rstrip('/')
+            .replace('-', ' ')
+            .replace('_', ' ')
+            .title()
+        ),
+        'desc': '',
+        'cta': False,
+        'login_required': False,
+    }
+
+
+def _landing_entries():
+    """Auto-discover the top-level app mounts for the landing page.
+
+    Introspects the root urlconf — per request, never at import
+    time (urls.py imports this module, so touching the resolver at
+    module scope would recurse). Only single-segment literal
+    routes ending in '/' qualify: converters ('companies/<uuid:pk>/'),
+    the root '' itself, the <path:subpath> drains, file routes
+    (manifest.json, sw.js) and the _LANDING_SKIP_ROUTES prefixes
+    are all skipped. A newly added top-level mount — SPA partial
+    or include() — appears on / without touching this view.
+    """
+    entries = []
+    for url_pattern in get_resolver().url_patterns:
+        route = getattr(url_pattern.pattern, '_route', '')
+        if (
+            '<' in route
+            or route in _LANDING_SKIP_ROUTES
+            or not route.endswith('/')
+            or '/' in route[:-1]
+        ):
+            continue
+        if isinstance(url_pattern, URLPattern):
+            if not _is_spa_partial(url_pattern.callback):
+                continue
+            fields = _spa_entry_fields(url_pattern.callback)
+        else:
+            fields = _resolver_entry_fields(url_pattern, route)
+            if fields is None:
+                continue
+        entries.append({'url': f'/{route}', **fields})
+    return entries
+
+
+def landing(request, subpath=''):
+    """Public landing page at / — a directory of the project's
+    mini-apps, auto-discovered via _landing_entries().
+
+    Also serves the terminal <path:subpath> catch-all: unknown
+    paths render the directory instead of a bare 404 (the
+    dashboard SPA the catch-all used to mount has only an index
+    route — no client deep links worth preserving).
+    """
+    if request.method not in ('GET', 'HEAD'):
+        raise Http404
+    entries = _landing_entries()
+    return render(request, 'landing.html', {
+        'apps': [e for e in entries if not e['cta']],
+        'cta_apps': [e for e in entries if e['cta']],
+    })
 
 
 def app_redirect(request, base, subpath=''):

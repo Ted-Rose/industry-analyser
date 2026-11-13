@@ -3,16 +3,17 @@
 // PWA_CACHE_VERSION constant in fetcher/views.py.
 const CACHE_NAME = 'industry-analyser-{{ cache_version }}';
 const STATIC_URL = '{% get_static_prefix %}';
-// '/' is login_required — precaching it stored the anonymous login
-// bounce as the offline fallback. A static offline page is the
-// last-resort navigation response instead.
+// '/' was login_required — precaching it stored the anonymous login
+// bounce as the offline fallback (the login-required page is now
+// /dashboard/; the same caching concern applies there). A static
+// offline page is the last-resort navigation response instead.
 const OFFLINE_URL = STATIC_URL + 'fetcher/offline.html';
 const PRECACHE_URLS = [OFFLINE_URL];
 
 // Paths the worker must never serve from cache — auth flows and, most
 // importantly, /api/ JSON (a stale API response would silently corrupt
-// SPA state).
-const BYPASS_PATHS = ['/admin', '/api'];
+// SPA state). /google covers the OAuth round-trip navigations.
+const BYPASS_PATHS = ['/admin', '/api', '/accounts', '/google'];
 
 self.addEventListener('install', event => {
     // skipWaiting inside waitUntil so installation can't report

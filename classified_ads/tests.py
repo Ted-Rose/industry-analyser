@@ -17,9 +17,14 @@ from classified_ads.models import (
     ApartmentForRent, ApartmentForRentSighting, ApartmentForSale,
     ApartmentForSaleSighting, ApartmentProperty, HouseForRent,
     HouseForRentSighting, HouseForSale, HouseForSaleSighting,
-    HouseProperty, Region, Seller,
+    HouseProperty, Project, Region, Seller,
 )
 from classified_ads.sale_flags import is_sale_misclassified
+from classified_ads.rent_flags import (
+    apartment_rate_period_posthoc, comment_rate_period,
+    detect_rate_period, has_short_stay_comment,
+    house_rate_period_posthoc, is_room_share,
+)
 from classified_ads.property_matcher import (
     _ad_apartment_no, extract_apartment_no, match_property,
     normalize_street_name, normalize_street_no,
@@ -37,8 +42,10 @@ class ClassifiedAdsApiTests(TestCase):
     API = '/api/classified-ads'
 
     def setUp(self):
+        # Region-config POSTs are staff-only (global scrape
+        # configuration) — the user they authenticate as is staff.
         self.user = get_user_model().objects.create_user(
-            username='alice', password='pw'
+            username='alice', password='pw', is_staff=True
         )
         self.region = Region.objects.create(
             name='Riga',
@@ -410,8 +417,24 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(
             resp.json()['login_url'],
-            '/admin/login/?next=%2Fclassified-ads%2F',
+            '/accounts/login/?next=%2Fclassified-ads%2F',
         )
+
+    def test_region_config_post_non_staff_403(self):
+        """Global scrape configuration is staff-only — a registered
+        non-staff user gets 403 {error: 'forbidden'}, no login_url."""
+        registered = get_user_model().objects.create_user(
+            username='bob', password='pw'
+        )
+        self.client.force_login(registered)
+        resp = self.client.post(
+            f'{self.API}/regions/config/',
+            data=json.dumps({'kind': 'apartment', 'regions': []}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()['error'], 'forbidden')
+        self.assertNotIn('login_url', resp.json())
 
     def test_region_config_post_success(self):
         self.child.scrape_enabled = True
@@ -611,6 +634,67 @@ class ClassifiedAdsApiTests(TestCase):
         )
         self.assertEqual(resp.json()['total_count'], 0)
 
+    def test_region_ads_list_all_deal_type(self):
+        """deal_type=ALL merges both tables across the subtree —
+        the rent-vs-buy ranked rows link here. Per-row `deal`
+        stays accurate on the mixed list."""
+        rent_ad = self._rent_ad(region=self.child)
+        sale_ad = self._sale_ad(region=self.region)
+        today = date.today()
+        ApartmentForRentSighting.objects.create(
+            ad=rent_ad, seen_on=today
+        )
+        ApartmentForSaleSighting.objects.create(
+            ad=sale_ad, seen_on=today
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        body = resp.json()
+        self.assertEqual(body['total_count'], 2)
+        deals = {ad['ad_id']: ad['deal'] for ad in body['ads']}
+        self.assertEqual(
+            deals, {rent_ad.ad_id: 'Rent', sale_ad.ad_id: 'Sell'}
+        )
+
+    def test_region_ads_list_all_orders_by_first_seen(self):
+        """The merged list interleaves both tables by -first_seen
+        (auto_now_add can't be set at create → direct UPDATE)."""
+        old_sale = self._sale_ad(region=self.region)
+        new_rent = self._rent_ad(region=self.region)
+        today = date.today()
+        for model, ad in (
+            (ApartmentForSaleSighting, old_sale),
+            (ApartmentForRentSighting, new_rent),
+        ):
+            model.objects.create(ad=ad, seen_on=today)
+        ApartmentForSale.objects.filter(pk=old_sale.pk).update(
+            first_seen=timezone.now() - timedelta(days=10)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        ads = resp.json()['ads']
+        self.assertEqual(
+            [a['ad_id'] for a in ads],
+            [new_rent.ad_id, old_sale.ad_id],
+        )
+
+    def test_region_ads_list_all_deal_type_respects_window(self):
+        """deal_type=ALL keeps the F5 active-in-window filter —
+        ads sighted only outside the window are dropped."""
+        stale = self._rent_ad()
+        ApartmentForRentSighting.objects.create(
+            ad=stale, seen_on=date.today() - timedelta(days=60)
+        )
+        resp = self.client.get(
+            f'{self.API}/regions/{self.region.id}/ads/',
+            {'kind': 'apartment', 'deal_type': 'ALL'},
+        )
+        self.assertEqual(resp.json()['total_count'], 0)
+
     # --- GET /api/classified-ads/regions/rent-vs-buy/ ---
 
     def test_rent_vs_buy_medians_ratio_and_counts(self):
@@ -764,6 +848,447 @@ class ClassifiedAdsApiTests(TestCase):
         self.assertAlmostEqual(
             row['price_to_annual_rent_years'], 1200.0 / (5.0 * 12)
         )
+
+    # --- GET /api/classified-ads/regions/rent-vs-buy/ranked/ ---
+
+    def _ranked(self, **params):
+        params.setdefault('kind', 'apartment')
+        return self.client.get(
+            f'{self.API}/regions/rent-vs-buy/ranked/', params
+        )
+
+    def _sighted_cell(self, region, rent_kw, sale_kw, n=2):
+        """n rent + n sale ads in `region`, each sighted today."""
+        today = date.today()
+        for _ in range(n):
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(region=region, **rent_kw),
+                seen_on=today,
+            )
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(region=region, **sale_kw),
+                seen_on=today,
+            )
+
+    def test_rvb_ranked_metric_and_sort(self):
+        """Whole-unit metric: months_to_buyout = median total sale
+        price / median monthly rent; rows sort ascending. Cells
+        split on region x project name."""
+        other = Region.objects.create(
+            name='Pļavnieki',
+            url='https://www.ss.com/en/real-estate/flats/riga/'
+                'plavnieki/',
+            category='APARTMENT',
+            parent=self.region,
+        )
+        project = Project.objects.create(name='Panelai')
+        today = date.today()
+        for monthly in (400.0, 500.0, 600.0):
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child, project=project,
+                    monthly_price=monthly,
+                ),
+                seen_on=today,
+            )
+        for total in (90000.0, 100000.0, 110000.0):
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child, project=project,
+                    total_price=total,
+                ),
+                seen_on=today,
+            )
+        # Cheaper cell (100 months) sorts first; its rent/sale
+        # size medians differ by >25% → size_comparable False.
+        self._sighted_cell(
+            other,
+            dict(monthly_price=300.0, size=50.0),
+            dict(total_price=30000.0, size=30.0),
+        )
+        resp = self._ranked(min_ads=1)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body['residual'], [])
+        rows = body['results']
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            [r['months_to_buyout'] for r in rows], [100.0, 200.0]
+        )
+        cheap, pricey = rows
+        self.assertEqual(cheap['region_label'], 'Riga / Pļavnieki')
+        self.assertEqual(cheap['property_type'], 'Unknown')
+        self.assertFalse(cheap['is_residual'])
+        self.assertEqual(cheap['n_rent_ads'], 2)
+        self.assertEqual(cheap['n_sale_ads'], 2)
+        self.assertEqual(cheap['median_monthly_rent'], 300.0)
+        self.assertEqual(cheap['median_total_price'], 30000.0)
+        self.assertAlmostEqual(cheap['years_to_buyout'], 100.0 / 12)
+        self.assertEqual(cheap['median_size_rent'], 50.0)
+        self.assertEqual(cheap['median_size_sale'], 30.0)
+        self.assertFalse(cheap['size_comparable'])
+        self.assertEqual(cheap['n_paired_properties'], 0)
+        self.assertIsNone(cheap['paired_months_to_buyout'])
+        self.assertEqual(pricey['region_label'], 'Riga / Centrs')
+        self.assertEqual(pricey['property_type'], 'Panelai')
+        self.assertTrue(pricey['size_comparable'])
+        self.assertAlmostEqual(pricey['months_to_buyout'], 200.0)
+
+    def test_rvb_ranked_rent_filters(self):
+        """Short-stay (day/week rate_period) and room-share rent
+        ads never feed the ranking."""
+        today = date.today()
+        good = self._rent_ad(region=self.child, rate_period='month')
+        flagged = [
+            self._rent_ad(region=self.child, rate_period='day'),
+            self._rent_ad(region=self.child, rate_period='week'),
+            self._rent_ad(region=self.child, is_room_share=True),
+            self._rent_ad(
+                region=self.child, is_sale_misclassified=True
+            ),
+        ]
+        for ad in [good, *flagged]:
+            ApartmentForRentSighting.objects.create(
+                ad=ad, seen_on=today
+            )
+        ApartmentForSaleSighting.objects.create(
+            ad=self._sale_ad(region=self.child), seen_on=today
+        )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_rent_ads'], 1)
+        self.assertEqual(row['n_sale_ads'], 1)
+
+    def test_rvb_ranked_sale_price_per_sqm_floor(self):
+        """Sale ads under 10 €/m² are land/garage residue — they
+        don't count toward the sale side."""
+        today = date.today()
+        ApartmentForRentSighting.objects.create(
+            ad=self._rent_ad(region=self.child), seen_on=today
+        )
+        for ppsm in (5.0, 2000.0):
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child, price_per_sqm=ppsm
+                ),
+                seen_on=today,
+            )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_sale_ads'], 1)
+
+    def test_rvb_ranked_rent_price_per_sqm_band(self):
+        """Rent rows outside 2–50 €/m² never feed the ranking:
+        under the floor sits daily-rate junk, over the cap sits
+        mislisted sale prices that slipped is_sale_misclassified.
+        The band is inclusive — 2.0 and 50.0 €/m² both count."""
+        today = date.today()
+        for ppsm in (1.0, 2.0, 9.0, 50.0, 100.0):
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child,
+                    monthly_price_per_sqm=ppsm,
+                ),
+                seen_on=today,
+            )
+        ApartmentForSaleSighting.objects.create(
+            ad=self._sale_ad(region=self.child), seen_on=today
+        )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_rent_ads'], 3)
+        self.assertEqual(row['median_monthly_rent_per_sqm'], 9.0)
+
+    def test_rvb_ranked_gross_yield_pct(self):
+        """gross_yield_pct is the inverse metric in percent —
+        1200 / months_to_buyout (annual rent over price)."""
+        self._sighted_cell(
+            self.child,
+            dict(monthly_price=300.0),
+            dict(total_price=30000.0),
+        )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertAlmostEqual(row['months_to_buyout'], 100.0)
+        self.assertAlmostEqual(row['gross_yield_pct'], 12.0)
+
+    def test_rvb_ranked_group_by_region_merges_cells(self):
+        """group_by=region keys cells on region only — type
+        splits that each fail min_ads merge into one 'All'
+        cell that passes."""
+        panelai = Project.objects.create(name='Panelai')
+        m602 = Project.objects.create(name='602.')
+        self._sighted_cell(
+            self.child,
+            dict(monthly_price=300.0, project=panelai),
+            dict(total_price=30000.0, project=panelai),
+            n=1,
+        )
+        self._sighted_cell(
+            self.child,
+            dict(monthly_price=400.0, project=m602),
+            dict(total_price=80000.0, project=m602),
+            n=1,
+        )
+        # Default 'type' split: neither project cell reaches
+        # min_ads=2 on its own.
+        self.assertEqual(
+            self._ranked(min_ads=2).json()['results'], []
+        )
+        rows = self._ranked(
+            min_ads=2, group_by='region'
+        ).json()['results']
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['property_type'], 'All')
+        self.assertEqual(row['n_rent_ads'], 2)
+        self.assertEqual(row['n_sale_ads'], 2)
+        # Median rent 350, median price 55000 → ~157.1 months.
+        self.assertAlmostEqual(
+            row['months_to_buyout'], 55000.0 / 350.0
+        )
+
+    def test_rvb_ranked_group_by_rooms_buckets(self):
+        """group_by=rooms buckets cells on room count — '0r' for
+        rooms=0 rows, '1r'..'3r', with >=4 folded into '4+r'
+        (n=4 sits on the fold boundary)."""
+        for rooms in (0, 1, 3, 4, 5):
+            self._sighted_cell(
+                self.child,
+                dict(monthly_price=300.0, rooms=rooms),
+                dict(total_price=30000.0, rooms=rooms),
+                n=1,
+            )
+        rows = self._ranked(
+            min_ads=1, group_by='rooms'
+        ).json()['results']
+        self.assertEqual(
+            {r['property_type'] for r in rows},
+            {'0r', '1r', '3r', '4+r'},
+        )
+
+    def test_rvb_ranked_group_by_rooms_houses_empty(self):
+        """House rows all carry rooms=0 — kind=house with
+        group_by=rooms short-circuits to an empty report."""
+        today = date.today()
+        HouseForRentSighting.objects.create(
+            ad=self._house_rent_ad(), seen_on=today
+        )
+        HouseForSaleSighting.objects.create(
+            ad=self._house_sale_ad(), seen_on=today
+        )
+        body = self._ranked(
+            kind='house', group_by='rooms', min_ads=1
+        ).json()
+        self.assertEqual(body['results'], [])
+        self.assertEqual(body['residual'], [])
+        self.assertEqual(body['n_residual_cells'], 0)
+
+    def test_rvb_ranked_bad_group_by_422s(self):
+        resp = self._ranked(group_by='bogus')
+        self.assertEqual(resp.status_code, 422)
+
+    def test_rvb_ranked_n_residual_cells(self):
+        """n_residual_cells counts gate-passing residual cells
+        even when `residual` stays empty (include_residual off)."""
+        # Ads on 'Riga' (a parent node) are residual.
+        self._sighted_cell(self.region, {}, {})
+        self._sighted_cell(self.child, {}, {})
+        body = self._ranked(min_ads=1).json()
+        self.assertEqual(len(body['results']), 1)
+        self.assertEqual(body['residual'], [])
+        self.assertEqual(body['n_residual_cells'], 1)
+        body = self._ranked(min_ads=1, include_residual=1).json()
+        self.assertEqual(len(body['residual']), 1)
+        self.assertEqual(body['n_residual_cells'], 1)
+
+    def test_rvb_ranked_residual_parent_regions(self):
+        """Ads on a parent node are residual — hidden by default,
+        flagged under `residual` with include_residual. A
+        childless top-level region is a normal leaf cell."""
+        daugavpils = Region.objects.create(
+            name='Daugavpils',
+            url='https://www.ss.com/en/real-estate/flats/'
+                'daugavpils/',
+            category='APARTMENT',
+        )
+        # 'Riga' has children — ads sitting on it are residual.
+        self._sighted_cell(self.region, {}, {})
+        self._sighted_cell(self.child, {}, {})
+        self._sighted_cell(daugavpils, {}, {})
+        body = self._ranked(min_ads=1).json()
+        labels = {r['region_label'] for r in body['results']}
+        self.assertEqual(
+            labels, {'Riga / Centrs', 'Daugavpils'}
+        )
+        self.assertEqual(body['residual'], [])
+        body = self._ranked(min_ads=1, include_residual=1).json()
+        self.assertEqual(len(body['residual']), 1)
+        res = body['residual'][0]
+        self.assertTrue(res['is_residual'])
+        self.assertEqual(res['region_label'], 'Riga')
+        self.assertEqual(res['region']['id'], self.region.id)
+
+    def test_rvb_ranked_min_ads_gate(self):
+        """A cell needs >= min_ads on BOTH sides."""
+        today = date.today()
+        ApartmentForRentSighting.objects.create(
+            ad=self._rent_ad(region=self.child), seen_on=today
+        )
+        for _ in range(2):
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(region=self.child), seen_on=today
+            )
+        self.assertEqual(
+            self._ranked(min_ads=2).json()['results'], []
+        )
+        body = self._ranked(min_ads=1).json()
+        self.assertEqual(len(body['results']), 1)
+
+    def test_rvb_ranked_paired_properties(self):
+        """Same-unit pairs: properties linked to both a rent and
+        a sale ad get a paired median at >=3 pairs."""
+        today = date.today()
+        for i in range(5):
+            prop = ApartmentProperty.objects.create(
+                district='Centrs',
+                street_name='Čaka iela',
+                street_no=str(i + 1),
+                rooms=2,
+                size=50.0,
+                floor=3,
+                max_floor=5,
+                first_seen=timezone.now(),
+                last_seen=timezone.now(),
+            )
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child, monthly_price=500.0,
+                    property=prop, property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child,
+                    total_price=50000.0 * (i + 1),
+                    property=prop, property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_paired_properties'], 5)
+        # Pair ratios are 100,200,300,400,500 → median 300.
+        self.assertAlmostEqual(
+            row['paired_months_to_buyout'], 300.0
+        )
+
+    def test_rvb_ranked_paired_at_three_pairs(self):
+        """Exactly 3 same-unit pairs now yields a paired median —
+        the RVB_MIN_PAIRS threshold lowered from 5 to 3 because
+        paired properties are rare (~100 globally)."""
+        today = date.today()
+        for i in range(3):
+            prop = ApartmentProperty.objects.create(
+                district='Centrs',
+                street_name='Čaka iela',
+                street_no=str(i + 1),
+                rooms=2,
+                size=50.0,
+                floor=3,
+                max_floor=5,
+                first_seen=timezone.now(),
+                last_seen=timezone.now(),
+            )
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child, monthly_price=500.0,
+                    property=prop, property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child,
+                    total_price=50000.0 * (i + 1),
+                    property=prop, property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_paired_properties'], 3)
+        # Pair ratios are 100, 200, 300 → median 200.
+        self.assertAlmostEqual(
+            row['paired_months_to_buyout'], 200.0
+        )
+
+    def test_rvb_ranked_pairs_under_three_null(self):
+        """Under 3 same-unit pairs the paired median stays null;
+        unmatched ads (status 'unmatched') never pair."""
+        today = date.today()
+        for i in range(2):
+            prop = ApartmentProperty.objects.create(
+                district='Centrs', street_name='Čaka iela',
+                street_no=str(i + 1), rooms=2, size=50.0, floor=3,
+                max_floor=5, first_seen=timezone.now(),
+                last_seen=timezone.now(),
+            )
+            ApartmentForRentSighting.objects.create(
+                ad=self._rent_ad(
+                    region=self.child, property=prop,
+                    property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+            ApartmentForSaleSighting.objects.create(
+                ad=self._sale_ad(
+                    region=self.child, property=prop,
+                    property_match_status='auto',
+                ),
+                seen_on=today,
+            )
+        # An unmatched rent ad never pairs, even on a linked
+        # property.
+        prop = ApartmentProperty.objects.get(street_no='1')
+        ApartmentForRentSighting.objects.create(
+            ad=self._rent_ad(
+                region=self.child, property=prop,
+                property_match_status='unmatched',
+            ),
+            seen_on=today,
+        )
+        row = self._ranked(min_ads=1).json()['results'][0]
+        self.assertEqual(row['n_paired_properties'], 2)
+        self.assertIsNone(row['paired_months_to_buyout'])
+
+    def test_rvb_ranked_house_kind(self):
+        """Houses group on house_type ('' → 'unknown')."""
+        today = date.today()
+        HouseForRentSighting.objects.create(
+            ad=self._house_rent_ad(house_type='Koka'),
+            seen_on=today,
+        )
+        HouseForSaleSighting.objects.create(
+            ad=self._house_sale_ad(house_type='Koka'),
+            seen_on=today,
+        )
+        HouseForRentSighting.objects.create(
+            ad=self._house_rent_ad(monthly_price=800.0),
+            seen_on=today,
+        )
+        HouseForSaleSighting.objects.create(
+            ad=self._house_sale_ad(total_price=80000.0),
+            seen_on=today,
+        )
+        rows = self._ranked(kind='house', min_ads=1).json()['results']
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(
+            [r['months_to_buyout'] for r in rows], [100.0, 300.0]
+        )
+        self.assertEqual(
+            {r['property_type'] for r in rows},
+            {'Koka', 'unknown'},
+        )
+
+    def test_rvb_ranked_bad_kind_422s(self):
+        resp = self._ranked(kind='yacht')
+        self.assertEqual(resp.status_code, 422)
 
     # --- GET /api/classified-ads/sightings/ ---
 
@@ -4472,3 +4997,655 @@ class HouseTypeApiTest(TestCase):
         row = resp.json()['ad_rows'][0]
         self.assertEqual(row['ad_id'], ad.ad_id)
         self.assertEqual(row['house_type'], 'Brick house')
+
+
+class RentFlagDetectionTest(TestCase):
+    """rent_flags helpers — price-cell period markers, room-share
+    keywords and the post-hoc backfill detectors."""
+
+    def test_price_cell_markers(self):
+        cases = [
+            ('35 €/day', 'day'),
+            ('25 €/dienā', 'day'),
+            ('€40/day', 'day'),
+            ('100 €/week', 'week'),
+            ('300 €/nedēļā', 'week'),
+            ('500', 'month'),
+            ('450/mon.', 'month'),
+            ('500 €/mēn.', 'month'),
+            ('-', 'month'),
+        ]
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(detect_rate_period(text), expected)
+
+    def test_either_price_cell_may_carry_marker(self):
+        self.assertEqual(detect_rate_period('10', '750/day'), 'day')
+        self.assertEqual(detect_rate_period('30/dienā', '900'), 'day')
+        self.assertEqual(detect_rate_period('10', '500'), 'month')
+
+    def test_room_share_keywords(self):
+        hits = [
+            'Izīrē istabu dzīvoklī',
+            'Īrē istabu 3 istabu dzīvoklī',
+            'Сдаётся комната',
+            'room for rent in shared flat',
+            'Īrē mājas daļu',
+            'часть дома сдаётся',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertTrue(is_room_share(comment))
+        misses = [
+            '',
+            'Pārdod 2 istabu dzīvokli',
+            'Īrē 3 istabu dzīvokli centrumā',
+            'Māja daļēji renovēta',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertFalse(is_room_share(comment))
+
+    def test_comment_rate_period(self):
+        self.assertEqual(comment_rate_period('40 dienā'), 'day')
+        self.assertEqual(
+            comment_rate_period('Сдаётся посуточно'), 'day'
+        )
+        self.assertEqual(
+            comment_rate_period('cena nedēļā 200'), 'week'
+        )
+        self.assertEqual(
+            comment_rate_period('īstermiņa īre'), ''
+        )
+        self.assertEqual(comment_rate_period('parasta īre'), '')
+
+    def test_apartment_posthoc_ratio(self):
+        # monthly=750, ppsqm=0.5, size=50 → ratio 30 → one cell
+        # was a converted daily rate.
+        self.assertEqual(
+            apartment_rate_period_posthoc(750, 0.5, 50, ''), 'day'
+        )
+        # inverse direction
+        self.assertEqual(
+            apartment_rate_period_posthoc(
+                25, 15.0, 50, ''
+            ),
+            'day',
+        )
+        # weekly conversion band (~4)
+        self.assertEqual(
+            apartment_rate_period_posthoc(
+                800, 4.0, 50, ''
+            ),
+            'week',
+        )
+        # consistent monthly ad → no evidence
+        self.assertEqual(
+            apartment_rate_period_posthoc(600, 12.0, 50, ''), ''
+        )
+
+    def test_house_posthoc(self):
+        self.assertEqual(
+            house_rate_period_posthoc(18.0, ''), 'day'
+        )
+        self.assertEqual(
+            house_rate_period_posthoc(5.0, 'īstermiņa īre'), 'day'
+        )
+        self.assertEqual(
+            house_rate_period_posthoc(5.0, 'parasta māja'), ''
+        )
+
+
+class RentFlagIngestTest(TestCase):
+    """rate_period / is_room_share set at ingest by both scrapers
+    and kept additive on re-enrichment (_heal)."""
+
+    APT_ROW = (
+        '<tr id="{ad_id}"><td></td>'
+        '<td><a href="/msg/en/{ad_id}.html">x</a></td><td>note</td>'
+        '<td>Street 1</td><td>2</td><td>50</td><td>3/5</td>'
+        '<td>New</td><td>{sqm_price}</td><td>{price}</td></tr>'
+    )
+    HOUSE_ROW = (
+        '<tr id="{ad_id}"><td></td>'
+        '<td><a href="/msg/en/{ad_id}.html">x</a></td>'
+        '<td>note</td><td>Street 1</td><td>{size}</td>'
+        '<td>2</td><td>type</td><td>500</td>'
+        '<td>{price}</td></tr>'
+    )
+
+    def setUp(self):
+        self.region = Region.objects.create(
+            name='Riga',
+            url='https://www.ss.com/en/real-estate/flats/riga/',
+            category='APARTMENT',
+        )
+
+    def _apt_scraper(self, deal='RENT'):
+        scraper = ApartmentAdScraper()
+        scraper._current_region = self.region
+        scraper._current_deal_type = deal
+        return scraper
+
+    def _apt_parse(self, sqm_price, price, ad_id='tr_ss'):
+        html = (
+            '<table>' + self.APT_ROW.format(
+                ad_id=ad_id, sqm_price=sqm_price, price=price
+            ) + '</table>'
+        ).encode()
+        return self._apt_scraper().parse_results(
+            SimpleNamespace(data=html)
+        )
+
+    def _apt_result(self, **kw):
+        result = dict(
+            ad_id='tr_apt',
+            deal_type='RENT',
+            district='Centrs',
+            region_name='Riga',
+            link='https://example.com/rent/tr_apt',
+            comment='',
+            street_name='Čaka iela',
+            street_no='1',
+            apartment_no='',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            project_raw='New',
+            project=None,
+            price_per_sqm=15.0,
+            alt_price_per_sqm=180.0,
+            total_price=750.0,
+            alt_price=90000.0,
+            rate_period='day',
+        )
+        result.update(kw)
+        return result
+
+    def _house_result(self, **kw):
+        result = dict(
+            ad_id='tr_house',
+            deal_type='RENT',
+            district='Mežaparks',
+            region_name='Riga houses',
+            link='https://example.com/hrent/tr_house',
+            comment='',
+            street_name='Ezera iela',
+            street_no='1',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            land_area_sqm=800.0,
+            total_price=1500.0,
+            alt_price=180000.0,
+            rate_period='day',
+        )
+        result.update(kw)
+        return result
+
+    def test_parse_results_marks_day_rate(self):
+        (result,) = self._apt_parse('15', '750/day')
+        self.assertEqual(result['rate_period'], 'day')
+
+    def test_parse_results_marks_lv_day_rate(self):
+        (result,) = self._apt_parse('15', '750/dienā')
+        self.assertEqual(result['rate_period'], 'day')
+
+    def test_parse_results_monthly_default(self):
+        (result,) = self._apt_parse('12', '600')
+        self.assertEqual(result['rate_period'], 'month')
+
+    def test_initiate_resource_sets_apartment_flags(self):
+        scraper = self._apt_scraper()
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                comment='Izīrē istabu dzīvoklī',
+                rate_period='week',
+            )
+        )
+        self.assertEqual(ad.rate_period, 'week')
+        self.assertTrue(ad.is_room_share)
+
+    def test_initiate_resource_sets_house_flags(self):
+        html = (
+            '<table>' + self.HOUSE_ROW.format(
+                ad_id='tr_house', size='120', price='50/day'
+            ) + '</table>'
+        ).encode()
+        scraper = HousingAdScraper()
+        scraper._current_region = self.region
+        scraper._current_deal_type = 'RENT'
+        (result,) = scraper.parse_results(SimpleNamespace(data=html))
+        self.assertEqual(result['rate_period'], 'day')
+        result['comment'] = 'Īrē mājas daļu'
+        ad = scraper.initiate_resource(result)
+        self.assertEqual(ad.rate_period, 'day')
+        self.assertTrue(ad.is_room_share)
+
+    def test_sale_row_flags_untouched(self):
+        scraper = self._apt_scraper(deal='SELL')
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                deal_type='SELL',
+                comment='Izīrē istabu dzīvoklī',
+                rate_period='day',
+            )
+        )
+        self.assertIsInstance(ad, ApartmentForSale)
+        self.assertEqual(ad.rate_period, '')
+        self.assertFalse(ad.is_room_share)
+
+    def test_heal_keeps_stored_flags(self):
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_apt',
+            link='https://example.com/rent/tr_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=15.0,
+            total_price=750.0,
+            monthly_price=750.0,
+            monthly_price_per_sqm=15.0,
+            total_price_120m=90000.0,
+            price_per_sqm_120m=180.0,
+            rate_period='day',
+            is_room_share=True,
+        )
+        scraper = self._apt_scraper()
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                _heal=True, rate_period='month', comment='plain'
+            )
+        )
+        self.assertEqual(ad.rate_period, 'day')
+        self.assertTrue(ad.is_room_share)
+
+    def test_bulk_update_writes_flags(self):
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_apt',
+            link='https://example.com/rent/tr_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=15.0,
+            total_price=750.0,
+            monthly_price=750.0,
+            monthly_price_per_sqm=15.0,
+            total_price_120m=90000.0,
+            price_per_sqm_120m=180.0,
+        )
+        scraper = self._apt_scraper()
+        ad = scraper.initiate_resource(
+            self._apt_result(
+                rate_period='day',
+                comment='Сдаётся комната',
+            )
+        )
+        scraper.create_or_update_resources([ad])
+        stored = ApartmentForRent.all_objects.get(ad_id='tr_apt')
+        self.assertEqual(stored.rate_period, 'day')
+        self.assertTrue(stored.is_room_share)
+
+    def test_flags_do_not_hide_rows(self):
+        # Flagged rows stay visible in the default manager — the
+        # flags inform analysis/UI filtering, they don't shrink
+        # the visible rent inventory.
+        ApartmentForRent.all_objects.create(
+            ad_id='tr_apt',
+            link='https://example.com/rent/tr_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=15.0,
+            total_price=750.0,
+            monthly_price=750.0,
+            monthly_price_per_sqm=15.0,
+            total_price_120m=90000.0,
+            price_per_sqm_120m=180.0,
+            rate_period='day',
+            is_room_share=True,
+        )
+        self.assertEqual(ApartmentForRent.objects.count(), 1)
+
+
+class FlagShortStayAdsCommandTest(TestCase):
+    """flag_short_stay_ads — post-hoc backfill of rate_period and
+    is_room_share on existing rent rows."""
+
+    def setUp(self):
+        self._counter = 0
+
+    def _apt_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'apt_{self._counter}',
+            comment='',
+            link=f'https://example.com/rent/{self._counter}',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=12.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=12.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=1440.0,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _house_ad(self, **kw):
+        self._counter += 1
+        defaults = dict(
+            ad_id=f'hrent_{self._counter}',
+            comment='',
+            link=f'https://example.com/hrent/{self._counter}',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def test_flags_posthoc_evidence(self):
+        ratio = self._apt_ad(
+            monthly_price=750.0,
+            monthly_price_per_sqm=0.5,
+        )
+        keyword = self._apt_ad(comment='Сдаётся посуточно')
+        weekly = self._apt_ad(
+            comment='cena nedēļā 200',
+        )
+        room = self._apt_ad(comment='Izīrē istabu dzīvoklī')
+        house_ppsqm = self._house_ad(monthly_price_per_sqm=18.0)
+        house_kw = self._house_ad(comment='īstermiņa īre')
+        clean_apt = self._apt_ad(comment='Parasta īre')
+        clean_house = self._house_ad(comment='Liela māja')
+        monthly = self._apt_ad(
+            comment='посуточно', rate_period='month'
+        )
+
+        call_command('flag_short_stay_ads')
+
+        expectations = [
+            (ratio, 'day', False),
+            (keyword, 'day', False),
+            (weekly, 'week', False),
+            (room, '', True),
+            (house_ppsqm, 'day', False),
+            (house_kw, 'day', False),
+            (clean_apt, '', False),
+            (clean_house, '', False),
+            (monthly, 'month', False),
+        ]
+        for ad, period, room_flag in expectations:
+            ad.refresh_from_db()
+            self.assertEqual(ad.rate_period, period, ad.ad_id)
+            self.assertEqual(ad.is_room_share, room_flag, ad.ad_id)
+
+    def test_dry_run_writes_nothing(self):
+        from io import StringIO
+
+        self._apt_ad(monthly_price=750.0, monthly_price_per_sqm=0.5)
+        out = StringIO()
+        call_command(
+            'flag_short_stay_ads', '--dry-run', stdout=out
+        )
+        self.assertIn('DRY-RUN', out.getvalue())
+        self.assertIn(
+            'rate_period day/week total', out.getvalue()
+        )
+        ad = ApartmentForRent.all_objects.get(ad_id='apt_1')
+        self.assertEqual(ad.rate_period, '')
+
+    def test_idempotent(self):
+        self._apt_ad(comment='Сдаётся посуточно')
+        call_command('flag_short_stay_ads')
+        call_command('flag_short_stay_ads')
+        ad = ApartmentForRent.all_objects.get(ad_id='apt_1')
+        self.assertEqual(ad.rate_period, 'day')
+
+
+class RentFlagPatternPrecisionTest(TestCase):
+    """Tightened comment patterns — regressions from the first
+    backfill run's false positives ('dien'/'sezon'/'комнат'
+    substrings matching ordinary ad copy)."""
+
+    def test_everyday_dien_words_are_not_short_stay(self):
+        # 'diena'/'dienā'/'dienu' substrings lived inside
+        # everyday words — none of these name a rate period
+        misses = [
+            'ērtības ikdienas dzīvei',
+            'viss ikdienā nepieciešamais',
+            'pusdienas netālu',
+            'mūsdienām atbilstošs',
+            'pieejams brīvdienās',
+            'atvērts darbdienās un sestdienās',
+            'dienas saule dzīvoklī',
+            'mierīgs pilsētas dienas ritms',
+            'diena-nakts žalūzijas',
+            'naktsgaldiņi pie gultas',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertEqual(comment_rate_period(comment), '')
+                self.assertFalse(has_short_stay_comment(comment))
+
+    def test_service_and_season_boilerplate_ignored(self):
+        misses = [
+            'diennakts apsardze un concierge',
+            'diennakts resepsija',
+            'ēkā ir diennakts apsardze, video novērošana',
+            'ekonomisks apkures sezonā',
+            'atkarīgs no apkures sezonas',
+            'sezonālais tirdziņš',
+            'ideāli atpūtai',
+            'ideāla vieta atpūtai pie jūras',
+            'logi vērsti uz dienvidiem',
+            'daudz gaismas pa dienu',
+            'kur pavadīt nedēļas nogales',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertEqual(comment_rate_period(comment), '')
+                self.assertFalse(has_short_stay_comment(comment))
+
+    def test_day_rate_wording_still_detected(self):
+        hits = [
+            'Cena 60€ diennaktī',
+            '30€/nakts, 2 pers. - 40€/nakts',
+            'cena par nakti 60 eur',
+            'īre pa dienām',
+            'izīrēts divistabu dzīvoklis uz dienu',
+            'sākot no 2 diennaktīm',
+            'minimālais īres termiņš – 2 naktis',
+            'uz diennakti cena 25€',
+            'diennakts īrei',
+            '45 eur/dienā līdz 3 personām',
+            'Сдаётся посуточно',
+            '75€ за ночь',
+            '21 ночь - 500€',
+            'per night rate',
+            'cena 40 eur nakšņošanai',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertEqual(
+                    comment_rate_period(comment), 'day'
+                )
+
+    def test_week_rate_wording_detected(self):
+        hits = [
+            'cena par 1 nedēļu - 500 euro',
+            'nedēļa 140 eur, mēnesis 360 eur',
+            'uz vairākām nedēļām vai mēnešiem',
+            '3000 eur/ nedēļā',
+            'Цена за 1 неделю',
+            'per week only',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertEqual(
+                    comment_rate_period(comment), 'week'
+                )
+
+    def test_generic_short_stay_wording(self):
+        hits = [
+            'īstermiņa īre',
+            'Brīvdienu māja pie jūras',
+            'naktsmītnes Rīgas centrā',
+            'minimālā uzturēšanās 3 naktis',
+            'short-term rent available',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                # generic wording carries no pinned period but is
+                # still short-stay evidence
+                self.assertTrue(has_short_stay_comment(comment))
+
+    def test_room_share_context_required(self):
+        hits = [
+            'Izīrē istabu dzīvoklī',
+            'izīrēju 1 istabu, 4 istabu dzīvoklī',
+            'izīrē atsevišķu istabu trīs istabu dzīvoklī',
+            'īrē istabu studentu dzīvoklī',
+            'izīrēšu istabu privātmājā',
+            'istaba tiek izīrēta vienam cilvēkam',
+            'plašas istabas īrei privātā villā',
+            'istabu studentei',
+            'kopmītņu tipa mājā',
+            'Сдаётся комната',
+            'комната сдаётся студентке',
+            'сдаю комнату девушке в 3-комнатной',
+            'Īrē mājas daļu',
+            'īrē dvīņu mājas pusi',
+            'часть дома сдаётся',
+            'private room in shared apartment',
+        ]
+        for comment in hits:
+            with self.subTest(comment=comment):
+                self.assertTrue(is_room_share(comment))
+
+    def test_whole_unit_wording_is_not_room_share(self):
+        misses = [
+            '',
+            'Īrē 3 istabu dzīvokli centrumā',
+            'īrējam 2 istabu dzīvokli, istabas izolētas',
+            'īrei 1 istabas dzīvoklī',
+            '2 istabu studio tipa dzīvoklis',
+            'istabu skaits: 3, stāvs: 2',
+            'vienistabas dzīvoklis ar balkonu',
+            'Сдаётся 2 комнатная квартира',
+            'однокомнатная квартира с мебелью',
+            'двухкомнатная квартира в центре',
+            'logi vērsti uz abām mājas pusēm',
+            'guļamistabas īrei nav',
+            '6 gultas vietas, ideāla vieta atpūtai',
+            '2 спальных места в гостиной',
+        ]
+        for comment in misses:
+            with self.subTest(comment=comment):
+                self.assertFalse(is_room_share(comment))
+
+
+class FlagShortStayAdsMisclassifiedTest(TestCase):
+    """flag_short_stay_ads skips is_sale_misclassified rows —
+    they are sale ads, not rent data, and their sale-scale
+    prices poison the ppsqm detector."""
+
+    def _apt_ad(self, **kw):
+        defaults = dict(
+            ad_id='mis_apt',
+            comment='',
+            link='https://example.com/rent/mis_apt',
+            district='Centrs',
+            street_name='Čaka iela',
+            rooms=2,
+            size=50.0,
+            floor=3,
+            max_floor=5,
+            price_per_sqm=12.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=12.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=1440.0,
+        )
+        defaults.update(kw)
+        return ApartmentForRent.all_objects.create(**defaults)
+
+    def _house_ad(self, **kw):
+        defaults = dict(
+            ad_id='mis_house',
+            comment='',
+            link='https://example.com/hrent/mis_house',
+            district='Mežaparks',
+            street_name='Ezera iela',
+            rooms=4,
+            size=120.0,
+            floors=2,
+            price_per_sqm=5.0,
+            total_price=600.0,
+            monthly_price=600.0,
+            monthly_price_per_sqm=5.0,
+            total_price_120m=72000.0,
+            price_per_sqm_120m=600.0,
+        )
+        defaults.update(kw)
+        return HouseForRent.all_objects.create(**defaults)
+
+    def test_misclassified_rows_are_skipped(self):
+        from io import StringIO
+
+        apt = self._apt_ad(
+            is_sale_misclassified=True,
+            comment='Сдаётся посуточно',
+            monthly_price_per_sqm=0.5,
+            monthly_price=750.0,
+        )
+        house = self._house_ad(
+            is_sale_misclassified=True,
+            monthly_price_per_sqm=2500.0,
+        )
+        hidden = self._apt_ad(
+            ad_id='hidden_apt',
+            is_hidden=True,
+            comment='Сдаётся посуточно',
+        )
+        out = StringIO()
+        call_command('flag_short_stay_ads', stdout=out)
+        text = out.getvalue()
+        self.assertIn(
+            'Skipped is_sale_misclassified', text
+        )
+        apt.refresh_from_db()
+        house.refresh_from_db()
+        hidden.refresh_from_db()
+        # misclassified rows untouched — even with short-stay
+        # wording or a sale-scale stored price
+        self.assertEqual(apt.rate_period, '')
+        self.assertFalse(apt.is_room_share)
+        self.assertEqual(house.rate_period, '')
+        # hidden rows are still rent ads — they are flagged
+        self.assertEqual(hidden.rate_period, 'day')

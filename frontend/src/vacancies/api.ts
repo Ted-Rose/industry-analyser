@@ -137,9 +137,9 @@ export function addKeyword(input: KeywordIn): Promise<KeywordSavedOut> {
   return apiPost<KeywordSavedOut>('/api/vacancies/keywords/', input);
 }
 
-/* Saved vacancy filters — all session-authed (per-user), so callers
- * must only fire them when the bootstrap says a user is logged in;
- * an anonymous 401 bounces the whole page to /admin/login/. */
+/* Saved vacancy filters — the GET is public ([] for anonymous) but
+ * mutations are session-authed and presets are per-user, so callers
+ * only fire them when the bootstrap says a user is logged in. */
 
 /** GET /api/vacancies/filters/ — the caller's presets. */
 export function fetchSavedFilters(): Promise<SavedFilterOut[]> {

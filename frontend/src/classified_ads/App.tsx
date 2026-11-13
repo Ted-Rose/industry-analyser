@@ -1,6 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import NavButtons from './components/NavButtons';
-import Toasts from '../shared/components/Toasts';
+import AppShell from '../shared/layout/AppShell';
 import Index from './routes/Index';
 import AdsTable from './routes/AdsTable';
 import RegionConfig from './routes/RegionConfig';
@@ -8,6 +7,7 @@ import RegionStats from './routes/RegionStats';
 import RegionStatsChildren from './routes/RegionStatsChildren';
 import RegionAdsList from './routes/RegionAdsList';
 import DailySightings from './routes/DailySightings';
+import RentVsBuy from './routes/RentVsBuy';
 import PropertyList from './routes/PropertyList';
 import PropertyDetail from './routes/PropertyDetail';
 
@@ -16,13 +16,28 @@ import PropertyDetail from './routes/PropertyDetail';
  * Client routes mirror the pre-cutover URL names one-to-one, so
  * existing bookmarks and {% url 'classified_ads:…' %} reversals keep
  * working. /apartments and /houses were redirects to the rent tables —
- * kept as client-side Navigate. Unknown paths land back on the index.
+ * kept as client-side Navigate (plus /properties for the tab). Unknown
+ * paths land back on the index.
+ *
+ * AppShell owns the global chrome — TopNav with the NavTabs sections
+ * below and the Toasts mount.
  */
 export default function App() {
   return (
-    <>
-      <NavButtons />
-      <Toasts />
+    <AppShell
+      appTitle="Classified Ads"
+      navItems={[
+        { to: '/apartments', label: 'Apartments' },
+        { to: '/houses', label: 'Houses' },
+        { to: '/properties', label: 'Properties' },
+        {
+          to: '/daily-sightings',
+          label: 'Reports',
+          // Both report routes live under the one tab.
+          activePaths: ['/rent-vs-buy'],
+        },
+      ]}
+    >
       <Routes>
         <Route path="/" element={<Index />} />
         <Route
@@ -82,6 +97,11 @@ export default function App() {
           element={<RegionAdsList kind="house" />}
         />
         <Route path="/daily-sightings" element={<DailySightings />} />
+        <Route path="/rent-vs-buy" element={<RentVsBuy />} />
+        <Route
+          path="/properties"
+          element={<Navigate to="/properties/apartments" replace />}
+        />
         <Route
           path="/properties/apartments"
           element={<PropertyList kind="apartment" />}
@@ -100,6 +120,6 @@ export default function App() {
         />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+    </AppShell>
   );
 }

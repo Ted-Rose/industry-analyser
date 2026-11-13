@@ -162,6 +162,8 @@ class ApartmentForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'monthly_price',
         'monthly_price_per_sqm',
         'is_sale_misclassified',
+        'rate_period',
+        'is_room_share',
         'post_date',
         'seller',
         'days_active',
@@ -169,12 +171,18 @@ class ApartmentForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
     ]
     list_filter = [
         'is_sale_misclassified',
+        'rate_period',
+        'is_room_share',
         'property_match_status',
         'region',
         'district',
         'project',
     ]
-    list_editable = ['is_sale_misclassified']
+    list_editable = [
+        'is_sale_misclassified',
+        'rate_period',
+        'is_room_share',
+    ]
     search_fields = [
         'district',
         'street_name',
@@ -262,6 +270,8 @@ class HouseForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
         'monthly_price',
         'monthly_price_per_sqm',
         'is_sale_misclassified',
+        'rate_period',
+        'is_room_share',
         'post_date',
         'seller',
         'days_active',
@@ -269,12 +279,18 @@ class HouseForRentAdmin(PropertyLinkActionsMixin, admin.ModelAdmin):
     ]
     list_filter = [
         'is_sale_misclassified',
+        'rate_period',
+        'is_room_share',
         'property_match_status',
         'region',
         'district',
         'house_type',
     ]
-    list_editable = ['is_sale_misclassified']
+    list_editable = [
+        'is_sale_misclassified',
+        'rate_period',
+        'is_room_share',
+    ]
     search_fields = [
         'district',
         'street_name',

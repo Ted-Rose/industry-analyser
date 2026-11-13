@@ -56,13 +56,12 @@ JOBS = [
     # whichever day a fallback scrape actually ran.
     ('link_ads_to_properties', 'command', ['--older-than-days', '3'],
      'daily'),
-    # News digest pipeline: scrape feeds, cluster into stories,
-    # build the daily digest — in that order. local:daily —
-    # the feeds are scraped from the maintainer's machine;
-    # Cloud Run must never run them.
-    ('scrape_news', 'command', [], 'local:daily'),
-    ('link_news_stories', 'command', [], 'local:daily'),
-    ('build_news_digest', 'command', [], 'local:daily'),
+    # News pipeline as one checkpointed job: scrape feeds,
+    # cluster into stories, retag article/story topics, build
+    # the daily digest — in that order, resumable per phase.
+    # local:daily — the feeds are scraped from the maintainer's
+    # machine; Cloud Run must never run them.
+    ('news_pipeline', 'command', [], 'local:daily'),
     # ('sync_apartment_regions', 'command', [], 'manual'),
     # ('sync_housing_regions', 'command', [], 'manual'),
 ]

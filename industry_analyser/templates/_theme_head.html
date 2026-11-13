@@ -1,0 +1,22 @@
+{% comment %}
+No-flash theme bootstrap — include FIRST in <head> on every
+Django-rendered page (spa_shell, landing, news) so the resolved
+theme lands before first paint.
+
+localStorage['theme'] = 'auto'|'light'|'dark' — the same key and
+values Django 5.2 admin's toggle uses (plan §4.3), so one
+preference covers SPAs, landing, news and admin. `.dark` on
+<html> is the resolved mode; data-theme keeps the stored value.
+The dual theme-color metas follow the OS while 'auto'
+(#ffffff light / #18181b dark); shared/theme.ts and
+theme-toggle.js rewrite them on an explicit pick.
+{% endcomment %}
+<meta name="theme-color" content="#ffffff"
+      media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18181b"
+      media="(prefers-color-scheme: dark)">
+<script>(function(){try{var t=localStorage.getItem('theme')||'auto';
+var d=t==='dark'||(t==='auto'&&matchMedia(
+'(prefers-color-scheme: dark)').matches);
+var h=document.documentElement;h.classList.toggle('dark',d);h.dataset.theme=t;}
+catch(e){}})();</script>

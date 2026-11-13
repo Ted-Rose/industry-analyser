@@ -168,7 +168,7 @@ describe('Companies', () => {
     renderList('/companies');
     await screen.findAllByText('We build payment infrastructure.');
     const siteLink = await screen.findByRole('link', {
-      name: 'site ↗',
+      name: 'site',
     });
     expect(siteLink).toHaveAttribute(
       'href',
@@ -177,14 +177,12 @@ describe('Companies', () => {
   });
 
   it('renders the mobile card layout alongside the table', async () => {
-    const { container } = renderList('/companies');
+    renderList('/companies');
     await screen.findAllByText('Acme SIA');
     expect(
-      container.querySelector('.d-md-none'),
+      screen.getByTestId('company-card'),
     ).toBeInTheDocument();
-    expect(
-      container.querySelector('.d-none.d-md-block table'),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
   });
 
   it('hides the preference buttons for anonymous users', async () => {

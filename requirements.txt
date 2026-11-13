@@ -2,7 +2,7 @@ asgiref==3.10.0
 beautifulsoup4==4.12.3
 bs4==0.0.2
 cffi==2.0.0
-Django
+Django==5.2.19
 django-environ>=0.11,<1.0
 django-crontab==0.7.1
 pycparser==2.22
@@ -26,3 +26,16 @@ pydantic==2.9.2
 pypdf==6.21.1
 # DSN-gated error monitoring — SDK is inert without SENTRY_DSN.
 sentry-sdk==2.73.0
+# News digest audio (/news/audio/): gTTS synthesis -> GCS
+# signed playback URLs.
+gTTS==2.5.4
+langdetect==1.0.9
+google-cloud-storage==3.17.1
+click==8.1.8  # gTTS 2.5.4 pins click<8.2
+six==1.17.0  # langdetect dep
+# Google OAuth + Tasks API for the news-digest Google task
+# (google_api app). google-auth was transitive — pinned now
+# that google_api imports it directly.
+google-auth==2.59.0
+google-auth-oauthlib==1.5.0
+google-api-python-client==2.201.0

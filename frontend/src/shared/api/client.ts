@@ -104,13 +104,13 @@ export async function apiFetch<T = unknown>(
 
   // With `redirect: 'manual'` a 30x response comes back as an
   // opaque-redirect stub (status 0, empty body) — session expiry on
-  // non-ninja endpoints (@login_required → 302 to /admin/login/),
-  // APPEND_SLASH redirects, middleware redirects. Treat it like the
-  // auth path: bounce the browser to login instead of throwing a
-  // meaningless status-0 ApiError.
+  // non-ninja endpoints (@login_required → 302 to
+  // /accounts/login/), APPEND_SLASH redirects, middleware
+  // redirects. Treat it like the auth path: bounce the browser to
+  // login instead of throwing a meaningless status-0 ApiError.
   if (response.type === 'opaqueredirect' || response.status === 0) {
     const next = window.location.pathname + window.location.search;
-    navigate(`/admin/login/?next=${encodeURIComponent(next)}`);
+    navigate(`/accounts/login/?next=${encodeURIComponent(next)}`);
     return new Promise<T>(() => {});
   }
 

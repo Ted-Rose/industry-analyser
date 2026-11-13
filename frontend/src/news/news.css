@@ -1,0 +1,262 @@
+/* News SPA component classes — moved out of
+   shared/styles/site.css during the /news/ React cutover (the
+   old plain-template pages were the only consumers of these
+   rules; site.css keeps .prose for ui/Prose). Same @layer
+   components so Tailwind utilities can still override —
+   imported by src/news/main.tsx after app.css. */
+@layer components {
+  /* .news-prose — h1–h4/ul/a/img styling for flow content,
+     mirroring site.css's .prose rules (plan §6 ui/Prose). */
+  .news-prose {
+    color: var(--ia-fg);
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+
+  .news-prose :where(h1, h2, h3, h4) {
+    color: var(--ia-fg);
+    font-weight: 600;
+    margin: 1.25em 0 0.5em;
+  }
+
+  .news-prose h1 {
+    font-size: 1.375rem;
+    line-height: 1.875rem;
+  }
+
+  .news-prose h2 {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
+
+  .news-prose :where(h3, h4) {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+
+  .news-prose :where(p, ul, ol) {
+    margin: 0.75em 0;
+  }
+
+  .news-prose :where(ul, ol) {
+    padding-left: 1.25rem;
+    list-style: revert;
+  }
+
+  .news-prose a {
+    color: var(--ia-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .news-prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+
+  .muted {
+    color: var(--ia-fg-subtle);
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  .digest {
+    margin-bottom: 2rem;
+  }
+
+  /* Dates and article titles read as plain text, not accent
+     hyperlinks — they still navigate/expand on click and only
+     underline on hover (same affordance as the page title). */
+  .digest h2 a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .digest h2 a:hover {
+    text-decoration: underline;
+  }
+
+  .articles a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .articles a:hover {
+    text-decoration: underline;
+  }
+
+  .item {
+    margin-bottom: 1.5rem;
+  }
+
+  nav.back {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  nav.back a {
+    color: var(--ia-accent-text);
+  }
+
+  /* The anonymous "Log in to rank portals" link marks itself
+     .muted — nav.back a's accent color would otherwise win. */
+  nav.back a.muted {
+    color: var(--ia-fg-subtle);
+  }
+
+  .story-toggle {
+    padding: 0;
+    border: 0;
+    border-radius: 0.25rem;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .story-toggle:hover {
+    text-decoration: underline;
+  }
+
+  .story-slot {
+    margin: 0.5rem 0 1rem;
+  }
+
+  /* Card treatment for the lazy-loaded story card. */
+  .story-card {
+    padding: 1rem;
+    border: 1px solid var(--ia-border);
+    border-radius: 0.5rem;
+    background-color: var(--ia-surface);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  }
+
+  /* "Arī:" row → chip links. */
+  .story-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .story-switcher .story-switch {
+    display: inline-block;
+    padding: 0.125rem 0.625rem;
+    border: 1px solid var(--ia-border-strong);
+    border-radius: 9999px;
+    color: var(--ia-fg-muted);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    text-decoration: none;
+    cursor: pointer;
+    background: none;
+  }
+
+  .story-switcher .story-switch:hover {
+    background-color: var(--ia-surface-2);
+    color: var(--ia-fg);
+  }
+
+  .story-card audio {
+    width: 100%;
+    height: 2.5rem;
+  }
+
+  /* Button treatment for Saglabāt and the disabled Klausīties
+     button — matches ui/Button primary (h-10, disabled fade).
+     .audio-btn is exempted — it stays a subtle link-style
+     trigger (see the audio-bar rules below). */
+  .news-prose button:not(.story-toggle):not(.audio-btn):not(
+      .story-switch):not([role='radio']) {
+    display: inline-flex;
+    height: 2.5rem;
+    align-items: center;
+    padding: 0 1rem;
+    border: 0;
+    border-radius: 0.375rem;
+    background-color: var(--ia-accent);
+    color: var(--ia-accent-fg);
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+
+  .news-prose button:not(.story-toggle):not(.audio-btn):not(
+      .story-switch):not([role='radio']):hover {
+    background-color: var(--ia-accent-hover);
+  }
+
+  .news-prose button:not(.story-toggle):not(.audio-btn):not(
+      .story-switch):not([role='radio']):disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Preferences form → Field/Input treatments. */
+  table.prefs td {
+    padding: 0.375rem 0.75rem 0.375rem 0;
+    vertical-align: middle;
+  }
+
+  .prefs input[type='checkbox'] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--ia-accent);
+  }
+
+  .prefs input[type='number'] {
+    border: 1px solid var(--ia-border-strong);
+    border-radius: 0.375rem;
+    background-color: var(--ia-surface);
+    padding: 0.25rem 0.5rem;
+    color: var(--ia-fg);
+    /* iOS zoom guard — under-16px inputs trigger page zoom. */
+    font-size: 1rem;
+  }
+
+  @media (min-width: 40rem) {
+    .prefs input[type='number'] {
+      font-size: 0.875rem;
+    }
+  }
+
+  /* Audio bar — the per-item ▶ triggers stay subtle
+     link-style buttons so they don't compete with real
+     actions; .audio-stop keeps the .news-prose
+     primary-button treatment. */
+  .audio-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .audio-btn {
+    padding: 0 0.125rem;
+    border: 0;
+    background: none;
+    color: var(--ia-accent-text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .audio-btn:hover {
+    text-decoration: underline;
+  }
+
+  .audio-btn[data-state='loading']::after {
+    content: '⏳';
+  }
+
+  .audio-btn[data-state='error'] {
+    color: var(--ia-fg-subtle);
+  }
+
+  .audio-btn[data-state='error']::after {
+    content: '⚠';
+  }
+}

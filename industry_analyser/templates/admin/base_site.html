@@ -1,0 +1,24 @@
+{% extends "admin/base.html" %}
+{% load i18n design_system %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | Industry Analyser{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+{% comment %}
+The design-system admin theme (frontend_dist admin entry).
+ds_head renders nothing when the manifest entry is missing,
+so a stale build degrades to the default admin look instead
+of 500ing (plan §11.2).
+{% endcomment %}
+{% ds_head 'admin' %}
+{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="/">Industry Analyser</a></div>
+{% if user.is_anonymous %}
+  {% include "admin/color_theme_toggle.html" %}
+{% endif %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

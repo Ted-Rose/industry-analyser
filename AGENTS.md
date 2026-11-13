@@ -2,11 +2,10 @@
 
 Guidance for AI agents working in this repository. Read it before
 editing; **trust the code over any doc that disagrees with it**.
-Known-stale docs: `DOCUMENTATION_INDEX.md` (frozen 2026-08-25 —
-links dead files like `docs/cvlv_api_integration_task.md`);
-`docs/plans/*.md` describe design intent, not always shipped
-state; `docs/plans/react_frontend_migration/README.md` references
-two `docs/plans/` guideline files that do not exist in this repo;
+Known-stale docs: `docs/plans/*.md` describe design intent, not
+always shipped state (each carries a status header);
+`docs/plans/react_frontend_migration/README.md` references two
+`docs/plans/` guideline files that do not exist in this repo;
 `LOCAL_SETUP.md` predates the prod-by-default `DATABASE_URL` and
 the `ai_agent` read-only role. Where they conflict, this file and
 the code win.
@@ -22,12 +21,13 @@ infra in `terraform/`.
 
 Single git repo: `origin` is the user's own
 `Ted-Rose/industry-analyser` (verified NOT a fork), default
-branch `master`. CI/deploy: `.github/workflows/` on push to
-`master` + `frontend-checks.yml` on every PR.
+branch `main`. CI/deploy: `.github/workflows/` on push to
+`main` + `frontend-checks.yml` on every PR.
 
-Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for design
-plans, `docs/` for audits/reports. `DOCUMENTATION_INDEX.md` is a
-doc map but partly stale (see preamble).
+Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for
+historical design plans (frozen — see rule 11), `docs/` for
+runbooks and `docs/research/` for audits/reports.
+`DOCUMENTATION_INDEX.md` is the doc map.
 
 ## Layout (actual)
 
@@ -37,10 +37,13 @@ doc map but partly stale (see preamble).
 | `classified_ads/` | Rent & sale ads; `/classified-ads/` | ss.com |
 | `blogs/` | Blog pages + AI theme analysis | spoki.lv |
 | `tv_programs/` | TV schedule + movie classif.; `/tv/` | tet.lv |
+| `news/` | RSS news + sitemap backfill; `/news/` digest | see feeds.py |
 | `core_scraper/` | `BaseScraper` + `BaseRefetchCommand` ABCs | — |
-| `accounts/` | Retired stub — `/accounts/` → 301 `/` | — |
-| `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/` SPA | — |
+| `accounts/` | `/accounts/` auth SPA + `/api/accounts/` | — |
+| `scrape_jobs/` | ScrapeJob/Run bookkeeping; `/dashboard/` SPA | — |
 | `ai_providers/` | AI config tables + JobClient runtime | — |
+| `google_api/` | Google OAuth2 credential store; `/google/` flows | — |
+| `receipts/` | Email receipt ingest; staff `/receipts/` SPA | — |
 | `industry_analyser/` | Django project (settings, urls, wsgi) | — |
 | `frontend/` | React/Vite SPA sources, per-app dirs | — |
 | `frontend_dist/` | Committed build output (see Known gaps) | — |
@@ -69,6 +72,32 @@ Files agents reach for most:
   `export_openapi_schema` + `npm run gen:types` (CI drift check).
 - `scrape_jobs/runner.py` — cycle-scoped scrape runner.
 
+## Landing page & app mounts
+
+`/` is a public, server-rendered landing page
+(`industry_analyser.views.landing` +
+`industry_analyser/templates/landing.html`) that auto-discovers
+the top-level app mounts by introspecting the root urlconf per
+request — `_landing_entries()` reads `title` (and optional
+`landing_title`/`landing_desc`/`landing_cta` overrides,
+swallowed by `react_app`'s `**kwargs`) off the
+`functools.partial` SPA callbacks, flags a mount staff-required
+(the `login_required` key — `react_app` shells bounce
+non-staff users to `/admin/login/`) when `react_app` (not
+`react_app_public`) was bound, and
+inspects `include()` mounts' inner urlconf for an SPA partial
+(plain-template apps like `news` fall back to a humanized path
+segment). The `api/`/`admin/`/`static/`/`accounts/` prefixes,
+converter routes, file routes and the `''` root itself are
+skipped, so a
+new top-level `path('<app>/', …)` mount appears on `/` with no
+edit to the landing view; `landing_cta=True` on a mount's
+partial promotes it to the prominent call-to-action slot (today:
+the dashboard's "Web scraping results"). The staff-required
+dashboard SPA lives at `/dashboard/`; the terminal
+`<path:subpath>` catch-all renders the landing page for unknown
+paths (typos get the app directory, not a 404).
+
 ## Scraper architecture (the shared contract)
 
 All scrapers subclass `core_scraper.base.BaseScraper`. The flow
@@ -77,8 +106,15 @@ is: `run()` → `get_search_urls()` → `scrape_portal()` →
 `extract_resources()` → `create_or_update_resources()`.
 
 Subclass flags control behavior: `enrich_search_results` (fetch
-each detail page), `validate_result`, `ai_analysis` (Gemini),
-`bulk_save`. HTTP goes through a shared `urllib3.PoolManager`
+each detail page), `validate_result`, `excluded_resources`
+(list of rejected results), `ai_analysis`, `stop_on_redirect`.
+The first three MUST be declared in the subclass `__init__` —
+the base sets no default, so omitting one raises
+`AttributeError` mid-run; `ai_analysis` and `stop_on_redirect`
+default `False` on the base (the AI provider is resolved from
+the DB per job, not hardcoded). `bulk_save` is initialized but
+never read — vestigial. HTTP goes through a shared
+`urllib3.PoolManager`
 with retries (429/5xx, backoff 30s) and per-domain throttling in
 `sleep()` — never bypass it with raw `requests`/`urllib3` calls
 in subclasses.
@@ -92,7 +128,8 @@ Key domain patterns:
   duplicates — so sightings are still recorded for existing ads.
 - **Custom managers**: ad models' default `objects` manager hides
   `is_hidden=True` rows (and `is_sale_misclassified=True` on
-  `ApartmentForRent`). Use `all_objects` in admin, refetch
+  the for-rent models `ApartmentForRent` and `HouseForRent`).
+  Use `all_objects` in admin, refetch
   commands, and data-fix scripts. A `ModelAdmin` must override
   `get_queryset` to use `all_objects`, or flagged rows are
   invisible in admin (see `docs/django_notes.md`).
@@ -284,7 +321,10 @@ ids to `Industry.name` (e.g. `"10"` → `"it"`). The legacy
 ```bash
 # Setup (venv at ./venv, not .venv)
 source venv/bin/activate
-pip install -r requirements.txt   # requirements.txt is canonical
+pip install -r requirements.txt   # local/Docker deps — new deps
+                                  # must ALSO go in pyproject.toml
+                                  # + `uv lock` (Vercel installs
+                                  # from the lockfile, see below)
 
 # Verify
 python manage.py check
@@ -314,6 +354,15 @@ python manage.py scrape_apartment_ads --max-pages 10
 python manage.py scrape_housing_ads
 python manage.py scrape_blogs [--theme NAME] [--reanalyze]
 python manage.py scrape_tv_programs [--force] [--dry-run]
+python manage.py news_pipeline [--fresh] [--from PHASE] \
+  [--dry-run]
+python manage.py scrape_news \
+  [--backfill] [--since YYYY-MM-DD] [--until YYYY-MM-DD] \
+  [--max-minutes N]
+python manage.py link_news_stories [--days N] [--dry-run]
+python manage.py build_news_digest [--date D] [--days N] \
+  [--top-n N]
+python manage.py reclassify_news_articles [--all] [--days N]
 python manage.py backfill_program_shows [--dry-run]
 python manage.py enrich_tv_shows [--status pending] [--limit N]
 python manage.py sync_apartment_regions / sync_housing_regions
@@ -331,6 +380,25 @@ python manage.py run_all_jobs \
 Command detail: `scrape_vacancies` runs all configured portals
 by default; `--no-ocr` skips file fetch/AI transcription and
 `--ignore-cooldown` bypasses the per-portal fallback gate.
+`news_pipeline` is the daily news entry point —
+one checkpointed job (`news.pipeline`, `local:daily` in
+`run_all_jobs`) that calls `scrape_news` → `link_news_stories`
+→ `reclassify_news_articles` → `build_news_digest` in order,
+resuming at the first unfinished phase; `--fresh` re-runs all
+phases (forwarded to `scrape_news`), `--from PHASE` resumes at
+a named phase. The four delegated commands stay standalone —
+`link_news_stories --days N` is the outage catch-up and
+`build_news_digest --days N` backfills missed days.
+`scrape_news` polls RSS feeds; `--backfill` instead
+walks each enabled source's historical sitemaps/archives into
+`NewsArticle` rows (job `news.backfill`, constant `backfill`
+cycle so re-invocations resume DONE partitions; `--since`/
+`--until` bound which pending partitions process, never the
+synced set; `--max-minutes` ends the run PARTIAL when the
+wall-clock budget runs out). Backfilled rows carry
+`is_backfill=True` and always have `published_at` (undateable
+articles are skipped — a NULL date would enter today's
+clustering window via `first_seen`).
 `scrape_blogs --max-api-requests N` caps paid AI
 calls. `scrape_tv_programs` also takes `--days-past N`,
 `--days-future N`, `--no-enrich`. `enrich_tv_shows` statuses:
@@ -340,8 +408,8 @@ apartment|house`. `link_vacancies_to_companies` takes `--ids` and
 `--employers-only`. `refetch_vacancies` takes
 `--exclude-keywords`, `--no-ocr` — see
 `docs/vacancy_refetch_usage.md`. `run_all_jobs` is the master
-`all-jobs` Cloud Run entry point — the only Cloud Run job left
-after the Phase-2 consolidation: the `all-jobs-daily` Cloud
+`all-jobs` Cloud Run entry point — the only scheduled Cloud Run
+job left after the Phase-2 consolidation: the `all-jobs-daily` Cloud
 Scheduler fires it at 19:50 UTC and its `JOBS` list runs each
 sub-job whose UTC schedule matches today (the JOBS list is the
 enable/disable point). Scrape entries are `daily` — GCP is a
@@ -409,6 +477,25 @@ schedule, `--dry-run` prints the plan.
   `use_cheap_tier`; its legacy `max_api_requests` key only seeds
   the `AIJob` row once (the live cap is
   `AIJob.max_requests_per_run`).
+- News digest → Google task (`news/tasks.py`, runs inside
+  `build_digest` after commit; best-effort, dedup via the
+  `NewsDigestTask` link row): `GOOGLE_OAUTH_CLIENT_JSON` (the
+  `{"web": {...}}` client secrets doc, materialized to
+  `GOOGLE_APP_SECRETS_PATH` at settings import) alone gates the
+  feature — recipients are the enabled `NewsDigestSubscription`
+  rows, one task per subscriber in their own Google account's
+  list titled `GOOGLE_TASKS_LIST_TITLE` (default `News`).
+  Re-auth after a revoked grant is `GET {BASE_URL}/google/login`
+  — the `/google/callback` redirect URI must be registered on
+  the shared `django-apps-7345` OAuth client.
+- `GET /google/signin/` is the public "Sign in with Google"
+  flow — same `/google/callback` (dispatched on the session's
+  `oauth_flow` key), OIDC scopes plus `auth/tasks` when
+  `?tasks=1`. The callback resolves the user via
+  `google_api.signin.resolve_google_user` (stored `google_sub`
+  → verified `email__iexact` → new non-staff user with an
+  unusable password) and stores the grant on the same
+  `google_oauth_credentials` row the digest fan-out reads.
 - React/Vite serving (detail: `docs/plans/react_frontend_migration/`):
   `DJANGO_VITE.dev_mode = DEBUG and VITE_DEV=1` → SPA asset URLs
   point at the vite dev server (`VITE_PORT`, default **5274**;
@@ -446,93 +533,139 @@ Repo conventions:
   concrete rent/sale models.
 - Views are function-based; URLs live in each app's `urls.py`
   with an `app_name` namespace.
-- `requirements.txt` is the canonical dependency list (not
-  `pyproject.toml`); pin new deps.
+- Dependencies live in TWO places that MUST stay in sync:
+  `requirements.txt` (canonical — local venv, Dockerfile/Cloud
+  Run) and `pyproject.toml` `dependencies` + the committed
+  `uv.lock` (what the Vercel serverless deploy actually
+  installs — see Known gaps). A requirements-only addition
+  ships a Vercel bundle missing the package, and since the
+  root urlconf imports app urlconfs eagerly, one missing dep
+  500s EVERY route on Vercel (this exact outage happened:
+  `ModuleNotFoundError: google_auth_oauthlib`). Pin new deps
+  in both files, then regenerate the lockfile with `uv lock`
+  (`--system-certs` behind TLS-intercepting proxies).
 - More detail: `.devin/rules/` (`code-style.md`,
   `django-model-conventions.md`, `migrations.md`,
   `scraping-pipeline.md`, `secrets-and-local-files.md`).
 
-Universal rules (apply to every task):
+Universal rules — follow exactly:
 
-1. **Commit format**: `Type: Capitalized message` — `Feat:` /
-   `Fix:` / `Docs:` / `Refactor:` / `Test:` / `Chore:`.
-2. **Branching/staging**: commit on feature branches only, never
-   `master`. Stage ONLY files created or modified this session,
-   by path — never `git add -A`, `git add .`, or `git commit -a`;
-   confirm the staged set with `git status` first. Leave the
-   user's own dirty files alone. Never commit plan/scratch
-   markdown (`*-plan.md` drafts outside `docs/plans/`,
-   `PR_DESCRIPTION.md`, `pr-body.md`).
-3. **Dangerous commands — never run** (see Guardrails for why):
-   `python manage.py migrate`/`sqlmigrate` against the default
-   `DATABASE_URL` (prod), `python manage.py test` against the
-   default `DATABASE_URL` (creates a test DB on the prod
-   server), `terraform apply` or any mutating `gcloud` command,
-   `deploy-cloudrun.sh`, `gcloud run jobs execute` deploys,
-   force-pushes/history rewrites on `master`. `makemigrations`
-   is safe (touches no DB); `migrate`/`test` are fine ONLY with
-   the `DATABASE_URL=sqlite:///db.sqlite3` prefix. If a task
-   needs a forbidden command, write the change and tell the user
-   the command to run.
-4. **Scoped tests**: run tests only for the app(s) you changed —
-   `DATABASE_URL=sqlite:///db.sqlite3 python manage.py test
-   <app>` — not the whole suite unless the change is broad.
-5. **PR creation**: write the body to a temp file and use
-   `gh pr create --body-file` — never inline `--body` (shell
-   quoting breaks on multi-line bodies). See
-   `.devin/workflows/create-pr.md`; delete the temp file after.
-6. **Every PR body includes a UI verification / QC section**:
-   concrete manual steps (which pages, which clicks, expected
-   result) exercising the change end-to-end through the UI. Omit
-   only when genuinely unreachable from UI — then give an
-   equivalent (curl command, log line to check).
-7. **Fork rule**: `origin` is the user's own repo (not a fork).
-   If a fork/upstream setup ever appears, ALL GitHub operations
-   — issues, PRs, comments, releases — target the fork, never
-   upstream, unless asked.
-8. **No secrets in code**: secrets live in gitignored `.env`,
-   `private_settings.json`, `ca.pem`, `blogs/config.yaml`,
-   `fetcher/config_v2.json`, `terraform/*.tfvars|tfstate`, and
-   in prod in GCP Secret Manager + GitHub Actions secrets
-   (`GCP_SA_KEY`, `TF_VAR_*`). Never commit, print, or copy them
-   into code/docs. `private_settings.json` may be READ at
-   runtime for the `ai_agent` read-only creds — never print the
-   password.
-9. **Update the docs after functionality changes** — this repo's
-   developer-guide equivalents are `DOCUMENTATION_INDEX.md`
-   (doc map), the relevant `docs/` file, and app
-   `README.md`/`ARCHITECTURE.md`/`QUICK_REFERENCE.md` where they
-   exist (`fetcher/` has all three). If a change has no fitting
-   doc, note it in the PR body.
-10. **Plans live in `docs/plans/`** as `<feature>-plan.md`
-    (multi-file plans get a subdirectory, e.g.
-    `docs/plans/react_frontend_migration/`), each with a status
-    header: implemented / partial / in progress / not
-    implemented / reverted.
-11. **Test login**: none documented — the app uses Django
-    session auth; `python manage.py createsuperuser` creates a
-    local admin. Ask the user whether a shared test account
-    exists before inventing credentials.
-12. **AGENTS.md is self-updating.** When you hit local-setup,
-    infrastructure, or missing-tooling friction — a CLI that
-    isn't installed (e.g. `gh` — `brew install gh`), a
-    non-obvious way to run the project locally, a required
-    version or local path — don't grind through many failing
-    alternatives. Missing tool → tell the user what to install.
-    Working flow or local quirk discovered → write it into this
-    file so the next agent uses it directly, and commit that doc
-    update alongside the work that discovered it.
+1. **Max 79 chars per line, every file type.** Verify:
+   `awk 'length > 79 {print FILENAME":"NR}' <file>`. Fix
+   violations you introduce plus long lines in files already
+   being modified. Exempt: formatter output (e.g. Prettier at
+   printWidth 80 may emit 80-char lines) and vendored upstream
+   skill files under `.agents/skills/` and `.devin/skills/`
+   (`openspec-*`, `vercel-react-best-practices/`) — refresh
+   tools own them.
+2. **Commit format** `Type: Capitalized message` —
+   `Feat:`/`Fix:`/`Docs:`/`Refactor:`/`Test:`/`Chore:`.
+3. **Commit on feature branches only, never `main`.**
+   Name branches `<type>/<slug>` with the commit types
+   (`feat/`, `fix/`, `docs/`, `refactor/`, `test/`, `chore/`).
+   Stage only files changed this session, by path — never
+   `git add -A`, `git add .` or `git commit -a`; confirm the
+   staged set with `git status` first; leave the user's own
+   dirty files alone; never commit plan/scratch markdown.
+4. **Dangerous commands — never run** the destructive/deploy
+   commands listed under "Repo-specific rules" below; write
+   the change and tell the user the command to run instead.
+5. **Scoped verification** — run only the tests/checks for
+   what you changed, not the whole suite.
+6. **PR bodies go to a temp file** + `gh pr create
+   --body-file`, never inline `--body`; delete the temp file
+   after. See `.devin/skills/create-pr/`.
+7. **Every PR body includes a UI verification / QC section** —
+   concrete steps (pages, clicks, expected result) exercising
+   the change end-to-end through the UI. Omit only when
+   genuinely unreachable from the UI — then give an
+   equivalent (curl command, log line, file to inspect).
+8. **GitHub remote targeting**: when `origin` is the user's
+   fork (an `upstream` remote exists), ALL GitHub operations
+   — issues, PRs, comments, releases — target the fork via
+   `--repo <owner>/<fork>`; never upstream unless asked.
+   Otherwise `origin` is the target.
+9. **No secrets in code.** Secrets live in gitignored local
+   files / env vars / GCP Secret Manager. Never create new
+   Secret Manager secrets — append KEY=VALUE lines to the
+   shared `env-file` secret (each extra secret adds cost).
+10. **Update docs after functionality changes** — this file
+    and the repo's other contract docs (README /
+    DEVELOPER_GUIDE / docs/*) — in the same change.
+11. **`docs/plans/` is frozen** — existing files stay as
+    history with their status headers (implemented / partial /
+    in progress / not implemented / reverted); nothing new is
+    added there or anywhere else — all new planning goes
+    through OpenSpec (`openspec-propose` for changes,
+    `openspec-explore`/change artifacts for investigations).
+12. **This file is self-updating.** Missing tool → tell the
+    user what to install instead of grinding through failing
+    alternatives. Discovered flow/local quirk → write it into
+    the relevant AGENTS.md and commit that doc update
+    alongside the work that discovered it.
+
+### Repo-specific rules
+
+- **Dangerous commands — never run** (see Guardrails for why):
+  `python manage.py migrate`/`sqlmigrate` against the default
+  `DATABASE_URL` (prod), `python manage.py test` against the
+  default `DATABASE_URL` (creates a test DB on the prod
+  server), `terraform apply` or any mutating `gcloud`
+  command, `deploy-cloudrun.sh`, `gcloud run jobs execute`
+  deploys, force-pushes/history rewrites on `main`.
+  `makemigrations` is safe (touches no DB);
+  `migrate`/`test` are fine ONLY with the
+  `DATABASE_URL=sqlite:///db.sqlite3` prefix.
+- **GitHub targeting**: `origin` is the user's own repo
+  (`Ted-Rose/industry-analyser`, verified NOT a fork) — all
+  `gh` operations target it.
+- **Branch naming**: issue-fix branches keep the skill's
+  `fix/issue-<N>-<slug>` form; everything else follows
+  rule 3's `<type>/<slug>`.
+- **Work in a git worktree, never the main checkout** —
+  `git fetch origin`, then `git worktree add
+  ../industry-analyser-wt/<slug> -b <type>/<slug>
+  origin/main` and do all work (commits, push, PR) inside
+  it. The main checkout may hold the user's uncommitted work
+  or another agent's session; never switch branches there.
+  Once the PR's checks are green and no work remains, clean
+  up IMMEDIATELY — don't wait for the merge (the PR lives on
+  the remote branch; removing the local worktree/branch does
+  not touch it, and the remote branch is deleted at merge
+  time). From the main checkout: `git worktree remove
+  ../industry-analyser-wt/<slug>` + `git branch -D
+  <type>/<slug>` (`-D`, not `-d` — squash-merges leave the
+  branch "unmerged"). Abandoned work gets the same cleanup;
+  follow-up requests get a FRESH worktree — never reuse an
+  old one. Goal state: `git worktree list` shows only the
+  main checkout when the task ends. Each worktree needs its
+  own `venv/` + `.env` (both gitignored).
+- **Local secrets** (gitignored, never commit/print): `.env`,
+  `private_settings.json`, `ca.pem`, `blogs/config.yaml`,
+  `fetcher/config_v2.json`, `terraform/*.tfvars`/`tfstate`.
+  `private_settings.json` may be READ at runtime for the
+  `ai_agent` read-only creds — never print the password.
+- **Test login**: none documented — the app uses Django
+  session auth; `python manage.py createsuperuser` creates a
+  local admin. Ask the user whether a shared test account
+  exists before inventing credentials.
+- **Contract docs to keep in sync**: `DOCUMENTATION_INDEX.md`
+  (the doc map), the relevant `docs/` file, and per-app docs
+  like `fetcher/`'s `README.md`/`ARCHITECTURE.md`/
+  `QUICK_REFERENCE.md`. If no doc fits a change, note that in
+  the PR body.
 
 ## Agent config
 
 - `.devin/skills/fix-good-first-issue/` — pick a "good first
   issue", fix on a branch, draft PR, iterate checks.
-- `.devin/skills/implement-plan/` — execute a
-  `docs/plans/*-plan.md` file with subagents (implement → fresh
+- `.devin/skills/implement-plan/` — execute a plan file (an
+  `openspec/changes/<id>/` change or a legacy
+  `docs/plans/*-plan.md`) with subagents (implement → fresh
   reviewers → fix rounds).
 - `.devin/skills/vercel-react-best-practices/` — vendored React
   perf rules for `frontend/` work.
-- `.devin/workflows/create-pr.md` — the `--body-file` PR rule.
+- `.devin/skills/create-pr/` — the `--body-file` PR rule.
 - `.devin/rules/*.md` — always-on project rules (code style,
   migrations, secrets, model conventions, scraper pipeline).
 - `.devin/skills/openspec-*/` — OpenSpec workflow skills
@@ -548,15 +681,21 @@ Universal rules (apply to every task):
 capability specs — **current behavior as source of truth**
 (code wins over docs; verify claims against source):
 `scraper-pipeline`, `ai-jobs`, `spa-api-contract`,
-`data-layer`. `openspec/changes/` + `changes/archive/` hold
+`data-layer`, `user-auth` (run `openspec list --specs` for the
+current set). `openspec/changes/` +
+`changes/archive/` hold
 the change lifecycle; `openspec/config.yaml` carries project
 context.
 
 - **Run `openspec` commands only from the repo root** — a
   fixed convention, not upward root-resolution.
 - The CLI is a global npm install in `/opt/homebrew/bin` —
-  agent shells lack it on PATH, so
-  `export PATH="/opt/homebrew/bin:$PATH"` first.
+  not on agent-shell PATH (see the machine-environment notes
+  in `~/.config/devin/AGENTS.md`).
+- **Always run `openspec validate --all --strict` after
+  touching `openspec/`** — proposing, spec edits, sync,
+  archive. It must pass before committing; strict mode catches
+  >500-char requirement bodies and spec/delta drift.
 - Workflow: `openspec-propose` → implement via
   `openspec-apply-change` → `openspec-archive-change`. The
   upstream skills live in `.agents/skills/openspec-*/`
@@ -564,12 +703,25 @@ context.
   copies in `.devin/skills/openspec-*/` are the same files with
   frontmatter stripped to `name`/`description` — **re-copy and
   re-strip after every `openspec update`**.
+- **Archive in the developing PR — always.** Before marking
+  an implementing PR ready, run `openspec archive <id>` so
+  specs, code and history land atomically; a merged change
+  left unarchived leaves `specs/` stale. In-PR archive is
+  required, not optional — if it was somehow missed, archive
+  immediately after merge in a follow-up PR.
+- **Update specs in the same PR as the code.** Any change that
+  alters behavior covered by `openspec/specs/` MUST update the
+  affected spec in the same PR — whether it came through
+  `openspec changes` (that update is the archive) or not (edit
+  the spec directly). A spec that no longer matches shipped
+  behavior is a bug, not documentation drift.
 - `tasks.md` items MUST be prefixed `backend:` / `frontend:` /
   `both:` to name the layer they touch.
-- **`docs/plans/` is frozen for NEW feature plans** — new
-  feature work goes through `openspec changes`. Existing
-  `docs/plans/*` stay as history; investigation/report docs
-  (non-feature) still belong there per rule 10.
+- **`docs/plans/` is frozen** — new feature work AND
+  investigations go through `openspec changes`
+  (`openspec-propose` for changes, `openspec-explore` for
+  investigations), never new plan-MD files. Existing
+  `docs/plans/*` stay as history — see rule 11.
 - Vendored-skill files are exempt from the 79-char rule — see
   Conventions.
 
@@ -583,25 +735,68 @@ context.
 - `frontend_dist/` IS committed on purpose (per `.gitignore`:
   Vercel-style deploys ship built assets) — rebuild and recommit
   it when frontend sources change.
-- `accounts/` is a retired stub: `/accounts/` 301-redirects to
-  `/`. `api/` is a one-file stub. Both are intentional.
+- `api/` is a one-file stub — intentional. `accounts/` is the
+  real auth app: public `/accounts/` SPA (login/register/
+  account), the `/api/accounts/` session-auth router,
+  `CaseInsensitiveAuthBackend` for iexact login, and
+  `staff_auth`/`StaffSessionAuth` in
+  `industry_analyser/api.py` gating staff-only ops.
 - `db.sqlite3` exists but is dormant — the default
   `DATABASE_URL` is prod; SQLite is used only via explicit
   override.
-- `vercel.json`, `cloudbuild.yaml`, `deploy-cloudrun.sh`,
-  `build_files.sh`, and the `pyproject.toml` deps list are
-  legacy artifacts; the live pipeline is `.github/workflows/` +
-  `Dockerfile`, and `requirements.txt` is canonical.
+- TWO deploy targets are live: Cloud Run
+  (`.github/workflows/` + `Dockerfile`, pip-installs
+  `requirements.txt`) and a Vercel serverless deployment
+  (deps install from `pyproject.toml`/`uv.lock` into
+  `/var/task/_vendor`). Vercel has NO working build step —
+  no `buildCommand` in `vercel.json` and
+  `[tool.vercel.scripts]` needs a framework preset this
+  project doesn't get — so `build_files.sh` and
+  `collectstatic` never run there; `WHITENOISE_USE_FINDERS`
+  serves static from the finders (`STATICFILES_DIRS` =
+  committed `frontend_dist/`). `vercel.json` pins
+  `regions: ["arn1"]` (nearest Vercel region to Latvia and
+  to the presumed-Finland Aiven DB), rewrites
+  `/static/<vite-entry>/…` to `/frontend_dist/…` so hashed
+  SPA assets are served by the CDN before the function
+  (filesystem-first; `/static/admin/:file` is
+  single-segment so Django's own `admin/` assets still
+  reach WhiteNoise), sets immutable `Cache-Control` on
+  hash-shaped `/static/` and `/frontend_dist/` paths, and
+  `_whitenoise_add_headers` in settings adds
+  `Vercel-CDN-Cache-Control` to immutable files still
+  served through the lambda. `.vercelignore` keeps
+  secrets/local state and repo meta out of the deployment
+  — every shipped file is publicly fetchable — and
+  `edge_public_cache`/`patch_edge_cache` in
+  `industry_analyser/views.py` stamp `s-maxage=3600,
+  stale-while-revalidate=86400` on the daily-freshness
+  public surfaces (robots.txt, sitemap.xml, llms.txt,
+  /news/rss.xml, `GET /api/news/digests*`). Only
+  `cloudbuild.yaml` and `deploy-cloudrun.sh` are
+  legacy artifacts. Keep both dependency lists in sync — a
+  requirements-only addition ships a Vercel bundle missing
+  the package, and the eager root-urlconf imports turn it
+  into a site-wide 500.
+- Vercel production deploys can lag `main`: observed 2026-11-11 —
+  merges to `main` produced only (SSO-gated) Preview deployments,
+  so `industryanalyser.vercel.app` kept serving the previous
+  Production build. After merging deploy-affecting changes
+  (`vercel.json`, `.vercelignore`), verify with
+  `gh api repos/Ted-Rose/industry-analyser/deployments` — the
+  newest `Production` entry must postdate the merge, else the
+  public-fetch surface has NOT changed yet.
 - `blogs/config.yaml`'s `max_api_requests` still exists but only
   seeds the `AIJob` row once — the live cap is in admin.
 - Thin test coverage is a known state: many `tests.py` are
   stubs (`ai_providers`, `scrape_jobs`, `industry_analyser`
   carry the real tests).
-- Two plans are referenced but never committed:
-  `docs/plans/address_parsing_fix_plan.md` and
-  `docs/plans/ai_provider_abstraction_plan.md`; likewise
-  `docs/cvlv_api_integration_task.md` is a dead link in
-  `DOCUMENTATION_INDEX.md`.
+- These plans are referenced but never committed:
+  `docs/plans/address_parsing_fix_plan.md`,
+  `docs/plans/ai_provider_abstraction_plan.md` and
+  `docs/plans/sentry-integration-plan.md`; likewise
+  `docs/cvlv_api_integration_task.md` is a dead link
+  referenced from git history only.
 - `HARD_CODED_PASSWORD` is still read in settings but the
   password-form login was retired — the SPA uses Django session
   auth.
@@ -624,13 +819,16 @@ context.
 
 ## Deployment
 
-Push to `master` triggers GitHub Actions
+Push to `main` triggers GitHub Actions
 (`.github/workflows/deploy-scraper-jobs.yml` and
 `deploy-web-service.yml`): Docker build/push to Artifact
-Registry → update the `all-jobs` Cloud Run job + web service.
-Legacy
-`cloudbuild.yaml`, `deploy-cloudrun.sh`, and `vercel.json` also
-exist (see Known gaps). Don't hand-edit Terraform-managed
+Registry → `python manage.py migrate` via the ad-hoc
+`run-migrations` Cloud Run job (main-only step) → update the
+`all-jobs` Cloud Run job + web service.
+The Vercel deployment (see Known gaps — `vercel.json` +
+`.vercelignore` + `api/index.py`) is a live second target,
+not CI-managed; `cloudbuild.yaml` and `deploy-cloudrun.sh`
+are the legacy artifacts. Don't hand-edit Terraform-managed
 resources; change `terraform/*.tf` and let CI apply — never run
 `terraform apply` locally.
 
@@ -647,8 +845,7 @@ JSON (`bootstrap.sentry.{dsn,environment,release}`) — no VITE_*
 build vars. Environment tag: `SENTRY_ENVIRONMENT` → `VERCEL_ENV`
 → `production` on Cloud Run (`K_SERVICE`) → `development`.
 Release: `K_REVISION` → `VERCEL_GIT_COMMIT_SHA`. Helpers live in
-`industry_analyser/sentry.py`; plan:
-`docs/plans/sentry-integration-plan.md`.
+`industry_analyser/sentry.py`.
 
 **Verified live** since the PR#33 deploy: events tagged
 `error_code:internal_error` land from Cloud Run and the
@@ -691,14 +888,12 @@ That issue list IS the fix queue; `GET
 /issues/<id>/` with `{"status":"resolvedInNextRelease"}` — only
 after the fix merges.
 
-Local-only quirk: this dev machine sits behind a Netskope
-TLS-intercepting proxy — Python→Sentry egress FAILS SILENTLY
-(`SSLCertVerificationError` inside the SDK transport; `flush()`
-returns but events never arrive) unless `SSL_CERT_FILE` points
-at a CA bundle that includes the Netskope root — build one by
-concatenating `certifi.where()` output with
-`/Library/Application Support/Netskope/STAgent/data/nscacert.pem`.
-Prod (Cloud Run) is unaffected.
+Local-only quirk: Python→Sentry egress fails SILENTLY from
+this machine (`flush()` returns but events never arrive)
+behind the TLS-intercepting proxy — the `SSL_CERT_FILE`
+CA-bundle fix lives in the global machine-environment notes
+(`~/.config/devin/AGENTS.md`). Prod (Cloud Run) is
+unaffected.
 
 ## Guardrails
 
@@ -713,13 +908,12 @@ Prod (Cloud Run) is unaffected.
 - **Migrations**: generate files freely (`makemigrations`
   touches no DB) and apply them only against the SQLite override
   above — never `migrate` against the default prod connection.
-  There is no CI migration step (the `run-migrations` Cloud Run
-  job and its workflow were removed): prod migrations are
-  applied manually by the maintainer — after the migration
-  files land on `master`, the maintainer runs
-  `python manage.py migrate` against the prod `DATABASE_URL`
-  (the `.env` default) or via a one-off job in the GCP
-  console.
+  Prod migrations run in CI: the `build-and-deploy` job in
+  `deploy-web-service.yml` deploys a `run-migrations` Cloud Run
+  job from the just-built image and executes it before the new
+  service revision goes live (a failed `migrate` aborts the
+  deploy). Manual `migrate` against prod is reserved for
+  recovery only.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate`, `.devin/config.local.json` —

@@ -21,7 +21,10 @@ from industry_analyser.views import react_app_public
 
 app_name = 'tv_programs'
 
-react_app_tv = partial(react_app_public, entry='tv', title='TV')
+react_app_tv = partial(
+    react_app_public, entry='tv', title='TV',
+    landing_desc='TV schedule with program details and airings.',
+)
 
 urlpatterns = [
     # '' is the program feed — the name is kept for

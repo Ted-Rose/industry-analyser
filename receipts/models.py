@@ -1,4 +1,4 @@
-"""Receipt data model (docs/plans/grocery_receipt_email_pipeline_plan.md §4).
+"""Receipt data model.
 
 Follows project conventions: explicit ``db_table``/``unique_together``,
 ``DecimalField`` for money, ``logging.getLogger('receipts')``. PDF bytes

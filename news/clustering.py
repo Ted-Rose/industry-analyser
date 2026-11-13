@@ -4,8 +4,9 @@ different outlets covering the same story.
 Blocking precedent: classified_ads/property_matcher.py —
 candidate stories are narrowed to published_date +- 1 day, then
 scored by token-set Jaccard against member article titles
-(fallback: the story title). Outcomes: 'auto' link, 'candidate'
-link (admin-reviewable) or a fresh NewsStory.
+(fallback: the story title). Outcomes: 'auto' link or a fresh
+NewsStory — the 'candidate' review status remains only for
+legacy rows; no new candidate links are produced.
 
 Latvian is heavily inflected ("budžetu"/"budžets",
 "Saeima"/"Saeimā"), so tokens are compared as 4-char prefix
@@ -22,6 +23,7 @@ budž+gada alone).
 import logging
 import re
 import unicodedata
+from collections import Counter
 from datetime import timedelta
 
 from django.db.models import Q
@@ -31,12 +33,12 @@ from .models import (
     CONFIRMED_MATCH_STATUSES,
     NewsArticle,
     NewsStory,
+    NewsTopic,
 )
 
 logger = logging.getLogger('news')
 
-AUTO_THRESHOLD = 0.45
-CANDIDATE_THRESHOLD = 0.30
+AUTO_THRESHOLD = 0.30
 # Token prefix length — collapses Latvian declension endings.
 STEM_LEN = 4
 # Auto-merge needs at least this many shared stems that are not
@@ -117,7 +119,7 @@ def _best_story(article_tokens, stories):
     stem count): a member title that clears the auto bar on its
     own beats a higher-scoring title whose overlap is date
     boilerplate — otherwise the argmax title alone would decide
-    auto-vs-candidate for the whole story.
+    auto-merge for the whole story.
     (None, best_score, frozenset()) when nothing is close."""
     best_story = None
     best_key = (False, 0.0, 0)
@@ -145,17 +147,34 @@ def _best_story(article_tokens, stories):
 
 
 def _refresh_story(story, dry_run=False):
-    """Recompute source_count and importance_score from member
-    articles; save() bumps last_seen via auto_now.
+    """Recompute topic, source_count and importance_score from
+    member articles; save() bumps last_seen via auto_now.
 
     Only confirmed members ('auto'/'manual') count — 'candidate'
     links await admin review and must not inflate the digest.
     A story with zero confirmed members degrades to
-    source_count/importance_score 0."""
+    source_count/importance_score 0.
+
+    The topic is re-derived on every refresh as the modal
+    non-NULL topic across confirmed members, ties broken by the
+    lowest topic pk — so a story picks up a topic as tagged
+    members accrue (article topics can be retagged after the
+    story was created) and falls back to NULL only when every
+    confirmed member is untopicked."""
     members = [
         a for a in story.articles.select_related('source')
         if a.story_match_status in CONFIRMED_MATCH_STATUSES
     ]
+    counts = Counter(
+        a.topic_id for a in members if a.topic_id is not None
+    )
+    if counts:
+        top = max(counts.values())
+        story.topic = NewsTopic.objects.get(
+            pk=min(t for t, n in counts.items() if n == top)
+        )
+    else:
+        story.topic = None
     sources = {a.source_id for a in members}
     story.source_count = len(sources)
     weight = story.topic.weight if story.topic_id else 1.0
@@ -229,14 +248,14 @@ def link_unmatched_articles(days=2, dry_run=False):
             and len(substantive) >= MIN_SHARED_SUBSTANTIVE
         ):
             status = 'auto'
-        elif story is not None and score >= CANDIDATE_THRESHOLD:
-            status = 'candidate'
         else:
-            # No story close enough — start a new cluster.
+            # No story close enough — start a new cluster. The
+            # topic is left for _refresh_story to derive from
+            # confirmed members — a single code path, so the
+            # story topic is never a frozen creation-time value.
             story = NewsStory(
                 title=article.title[:500],
                 representative_lead=article.lead,
-                topic=article.topic,
                 published_date=day,
             )
             status = 'auto'

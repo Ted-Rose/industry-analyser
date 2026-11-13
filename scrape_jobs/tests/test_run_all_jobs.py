@@ -160,15 +160,14 @@ class RunAllJobsTests(SimpleTestCase):
     def test_normal_pass_runs_only_due_entries_in_order(self):
         # Every daily entry is due on a local pass;
         # last_day_of_month (sync_receipt_emails) is not. The
-        # local:daily news jobs are due locally as well.
+        # local:daily news pipeline is due locally as well.
         with _patched_today(date(2026, 10, 19)):
             run, _ = self._handle()
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'scrape_vacancy',
-             'link_ads_to_properties', 'scrape_news',
-             'link_news_stories', 'build_news_digest'],
+             'link_ads_to_properties', 'news_pipeline'],
         )
 
     def test_dry_run_prints_plan_and_runs_nothing(self):
@@ -185,9 +184,7 @@ class RunAllJobsTests(SimpleTestCase):
         self.assertIn('RUN  scrape_apartment_ads', out)
         self.assertIn('RUN  link_ads_to_properties', out)
         self.assertIn('RUN  scrape_vacancy', out)
-        self.assertIn('RUN  scrape_news', out)
-        self.assertIn('RUN  link_news_stories', out)
-        self.assertIn('RUN  build_news_digest', out)
+        self.assertIn('RUN  news_pipeline', out)
         self.assertIn('skip sync_receipt_emails', out)
         for label, _kind, _argv, _schedule in JOBS:
             self.assertIn(label, out)
@@ -216,22 +213,20 @@ class RunAllJobsTests(SimpleTestCase):
             ['sync_receipt_emails', 'scrape_tv_programs',
              'scrape_housing_ads', 'scrape_apartment_ads',
              'scrape_vacancy', 'link_ads_to_properties',
-             'scrape_news', 'link_news_stories',
-             'build_news_digest'],
+             'news_pipeline'],
         )
 
     def test_failure_continues_and_exits_nonzero(self):
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom')] + [None] * 7
+                run.side_effect = [RuntimeError('boom')] + [None] * 5
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'scrape_vacancy',
-             'link_ads_to_properties', 'scrape_news',
-             'link_news_stories', 'build_news_digest'],
+             'link_ads_to_properties', 'news_pipeline'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -241,7 +236,7 @@ class RunAllJobsTests(SimpleTestCase):
         # so the loop is unaffected either way.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [RuntimeError('boom')] + [None] * 7
+                run.side_effect = [RuntimeError('boom')] + [None] * 5
                 with mock.patch(
                     f'{MODULE}.capture_internal_exception'
                 ) as capture:
@@ -257,15 +252,14 @@ class RunAllJobsTests(SimpleTestCase):
         # not allowed to abort the remaining entries.
         with _patched_today(date(2026, 10, 19)):
             with mock.patch.object(Command, '_run_entry') as run:
-                run.side_effect = [SystemExit(1)] + [None] * 7
+                run.side_effect = [SystemExit(1)] + [None] * 5
                 with self.assertRaises(CommandError) as ctx:
                     call_command('run_all_jobs')
         self.assertEqual(
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'scrape_vacancy',
-             'link_ads_to_properties', 'scrape_news',
-             'link_news_stories', 'build_news_digest'],
+             'link_ads_to_properties', 'news_pipeline'],
         )
         self.assertIn('scrape_tv_programs', str(ctx.exception))
 
@@ -363,8 +357,8 @@ class RunAllJobsTests(SimpleTestCase):
 
     def test_local_pass_includes_news_jobs(self):
         # A local pass runs every `daily` entry plus the
-        # local:daily news jobs (only last_day_of_month is not
-        # due on the 20th).
+        # local:daily news pipeline (only last_day_of_month is
+        # not due on the 20th).
         with _patched_today(date(2026, 10, 20)):
             with mock.patch(
                 f'{MODULE}.detect_executed_by',
@@ -375,8 +369,7 @@ class RunAllJobsTests(SimpleTestCase):
             self._labels(run),
             ['scrape_tv_programs', 'scrape_housing_ads',
              'scrape_apartment_ads', 'scrape_vacancy',
-             'link_ads_to_properties', 'scrape_news',
-             'link_news_stories', 'build_news_digest'],
+             'link_ads_to_properties', 'news_pipeline'],
         )
 
     def test_gcp_pass_skips_news_jobs(self):
@@ -405,9 +398,7 @@ class RunAllJobsTests(SimpleTestCase):
         run.assert_not_called()
         self.assertIn('executor: gcp_cloud_run', out)
         self.assertIn('RUN  scrape_vacancy', out)
-        self.assertIn('skip scrape_news', out)
-        self.assertIn('skip link_news_stories', out)
-        self.assertIn('skip build_news_digest', out)
+        self.assertIn('skip news_pipeline', out)
 
     def test_force_still_skips_local_jobs_on_gcp(self):
         # --force overrides the calendar, not the executor —
@@ -417,9 +408,7 @@ class RunAllJobsTests(SimpleTestCase):
             return_value='gcp_cloud_run',
         ):
             run, _ = self._handle(force=True)
-        self.assertNotIn('scrape_news', self._labels(run))
-        self.assertNotIn('link_news_stories', self._labels(run))
-        self.assertNotIn('build_news_digest', self._labels(run))
+        self.assertNotIn('news_pipeline', self._labels(run))
 
     def test_only_still_overrides_the_gate(self):
         # --only is the deliberate operator escape hatch —
@@ -428,5 +417,5 @@ class RunAllJobsTests(SimpleTestCase):
             f'{MODULE}.detect_executed_by',
             return_value='gcp_cloud_run',
         ):
-            run, _ = self._handle(only='scrape_news')
-        self.assertEqual(self._labels(run), ['scrape_news'])
+            run, _ = self._handle(only='news_pipeline')
+        self.assertEqual(self._labels(run), ['news_pipeline'])

@@ -54,6 +54,6 @@ the base manager via `get_queryset`. The same applies to inline admins
 
 ## Related Documents
 
-- [Misclassified sale ads analysis](misclassified_sale_ads_analysis.md)
+- [Misclassified sale ads analysis](research/misclassified_sale_ads_analysis.md)
   — full analysis of the data quality issue that led to introducing
   `is_sale_misclassified`

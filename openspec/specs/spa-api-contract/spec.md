@@ -70,36 +70,64 @@ status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
 
 ### Requirement: 401 login-redirect handshake
 
-Authentication failures SHALL return `{error:
-'unauthenticated', login_url: '/admin/login/?next=<spa_url>'}`
-where `spa_url_for()` rewrites the `/api/<app>/<sub>` request
-path to the SPA page that issued it — `login_url`/`next` MUST
-never point back at an `/api/` path. `SPA_BASES` and
-`SPA_SUBPATHS` map APIs whose owning page lives elsewhere
-(e.g. `dashboard` → `/`, `vacancies/companies` → `/companies/`).
+Authentication failures SHALL return 401 `{error:
+'unauthenticated', login_url:
+'/accounts/login/?next=<spa_url>'}` where `spa_url_for()`
+rewrites the `/api/<app>/<sub>` request path to the SPA page
+that issued it — `login_url`/`next` MUST never point back at
+an `/api/` path.
 
-#### Scenario: Dashboard API 401 maps to site root
+#### Scenario: Dashboard API 401 maps to the SPA mount
 
 - **WHEN** `GET /api/dashboard/` returns 401
-- **THEN** `login_url` is `/admin/login/?next=/` (the
-  dashboard SPA mounts at the root)
+- **THEN** `login_url` is `/accounts/login/?next=/dashboard/`
+  (`SPA_BASES` pins `dashboard` → `/dashboard/`; `/` itself is
+  the public landing page)
 
 #### Scenario: Query string is preserved
 
-- **WHEN** `GET /api/vacancies/filters/?page=2` returns 401
-- **THEN** the `next` parameter carries
-  `/vacancies/?page=2` (`filters` remaps to the vacancy list
-  page via `SPA_SUBPATHS` and the query survives)
+- **WHEN** `POST /api/vacancies/filters/` returns 401
+- **THEN** the `next` parameter carries `/vacancies/`
+  (`filters` remaps to the vacancy list page via `SPA_SUBPATHS`;
+  GET /filters/ itself is public — `auth=None`)
+
+#### Scenario: Authenticated non-staff gets 403, not a bounce
+
+- **WHEN** an authenticated non-staff request reaches a
+  staff-only endpoint (e.g. `GET /api/receipts/`)
+- **THEN** the response is 403 `{error: 'forbidden'}` — no
+  `login_url`, since logging in again cannot help
+
+#### Scenario: Sub-path remap lands on the owning SPA page
+
+- **WHEN** an authed op under a remapped sub-path 401s — e.g.
+  `PUT /api/vacancies/companies/{pk}/preference/`
+- **THEN** `next` is `/companies/` via `SPA_SUBPATHS`, not the
+  nonexistent `/vacancies/companies/`
+
+#### Scenario: Login surface is the single login_url target
+
+- **WHEN** any API 401 emits a `login_url`
+- **THEN** it targets the public `/accounts/login/` SPA route;
+  the `/admin/login/` page stays reachable for staff but is
+  never emitted by the API
+
+#### Scenario: Credential failure on the login endpoint
+
+- **WHEN** the login endpoint itself rejects credentials
+- **THEN** the response is a 401 WITHOUT `login_url` (see the
+  user-auth spec)
 
 ### Requirement: Shared SPA shell
 
-Every SPA mount SHALL serve `react_app` (login-required) or
+Except for the `/news/` SSR carve-out below, every SPA mount
+SHALL serve `react_app` (staff-required) or
 `react_app_public`: GET/HEAD renders `spa_shell.html` with
 `vite_entry = src/<entry>/main.tsx`; any other method 404s.
 `entry` must match `[a-z0-9_]+` and maps to a
 `frontend/src/<entry>/` folder and manifest key. The shell
-injects a `bootstrap` JSON carrying `user` and
-`sentry.{dsn,environment,release}` — no VITE_* build vars.
+injects a `bootstrap` JSON — no VITE_* build vars reach the
+page.
 
 #### Scenario: Client-side route loads the shell
 
@@ -125,8 +153,63 @@ injects a `bootstrap` JSON carrying `user` and
 - **WHEN** a request misses under `/api/`, `/admin/`, or
   `/static/` after the real mounts
 - **THEN** a `terminal_404` drain answers 404 (replicating
-  APPEND_SLASH when the slashed variant resolves) — the root
-  catch-all SPA is always the last url pattern
+  APPEND_SLASH when the slashed variant resolves) — the
+  terminal catch-all (which renders the public landing page)
+  is always the last url pattern
+
+#### Scenario: Non-staff visitor hits a staff SPA mount
+
+- **WHEN** an anonymous OR authenticated non-staff GET hits a
+  `react_app` mount (`/dashboard/`, `/receipts/` — staff-only
+  pages)
+- **THEN** `staff_member_required` redirects to the admin
+  login instead of serving a bundle whose API calls would all
+  403
+
+#### Scenario: Plain login_required surfaces use LOGIN_URL
+
+- **WHEN** an anonymous user hits a per-user login-required
+  page outside the SPA shell
+- **THEN** ordinary `login_required` redirects to `LOGIN_URL`
+  (`/accounts/login/`), not the admin login; equivalently, a
+  per-user `django_auth` API op (e.g. `/api/news/preferences/`)
+  answers the 401 `login_url` handshake that lands on the same
+  login surface
+
+#### Scenario: Auth flags ride the bootstrap payload
+
+- **WHEN** any SPA shell renders for an authenticated staff
+  user
+- **THEN** `bootstrap` carries `user`, `is_authenticated`
+  (true), `is_staff` (true) and
+  `sentry.{dsn,environment,release}`; anonymous renders carry
+  false for both flags
+
+### Requirement: News server-rendered digest routes
+
+The `/news/` mount SHALL keep four Django routes outside the
+plain shell while sharing `_spa_shell_context` and the
+GET/HEAD-only contract (non-GET → 404): `''` and
+`'<str:date>/'` render `news/digest_shell.html` (extends
+`spa_shell.html`) with digest markup inside `#root` — a
+non-date `date` serves the plain shell, a date with no
+`NewsDigest` 404s; `'rss.xml'` serves the `NewsDigestFeed`
+XML; `'article/<int:pk>/audio/'` serves the audio binary.
+
+#### Scenario: Digest pages server-render inside the shell
+
+- **WHEN** a GET hits `/news/` or `/news/<YYYY-MM-DD>/` and
+  the digest exists
+- **THEN** `news/digest_shell.html` renders the digest markup
+  inside `#root` — React replaces it on mount, crawlers read
+  the HTML
+
+#### Scenario: Non-date subpath falls back to the plain shell
+
+- **WHEN** a GET hits `/news/<subpath>` where the segment is
+  not a parseable date (typos, retired client routes)
+- **THEN** the plain `spa_shell.html` renders and React
+  Router's `*` route owns the page
 
 ### Requirement: Frontend client honors the contract
 
@@ -136,7 +219,7 @@ from the `csrftoken` cookie on unsafe methods, and throw
 `ApiError` (status + parsed body) for other non-2xx. On 401
 with `login_url`/`authorization_url` it navigates there and
 returns a never-resolving promise; opaque redirects/status 0
-navigate to `/admin/login/?next=<current path>`.
+navigate to `/accounts/login/?next=<current path>`.
 
 #### Scenario: 401 with login_url
 

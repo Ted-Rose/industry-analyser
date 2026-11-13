@@ -14,6 +14,7 @@ from pathlib import Path
 import io
 import logging
 import os
+import re
 import sys
 import getpass
 from urllib.parse import quote_plus
@@ -106,6 +107,35 @@ OMDB_KEY = env('OMDB_KEY', default='')
 # Receipts collector Gmail inbox (plan §7); app-password auth.
 RECEIPTS_IMAP_USER = env('RECEIPTS_IMAP_USER', default='')
 RECEIPTS_IMAP_PASSWORD = env('RECEIPTS_IMAP_PASSWORD', default='')
+# GCS bucket for /news/ digest audio clips (gTTS -> signed
+# URL). Empty disables the feature — the endpoint answers 502.
+GCS_AUDIO_BUCKET = env('GCS_AUDIO_BUCKET', default='')
+# Google OAuth client secrets document ({"web": {...}} JSON,
+# delivered by .env locally / the env-file secret on Cloud Run),
+# materialized to a file because google-auth-oauthlib flows read
+# a path. Empty disables /google/login (503) and the news-digest
+# Google task. Per-user filename — django-apps shares /tmp and
+# must not read this file.
+GOOGLE_OAUTH_CLIENT_JSON = env('GOOGLE_OAUTH_CLIENT_JSON', default='')
+GOOGLE_APP_SECRETS_PATH = ''
+if GOOGLE_OAUTH_CLIENT_JSON:
+    GOOGLE_APP_SECRETS_PATH = (
+        f'/tmp/industry-analyser-google-secrets-'
+        f'{getpass.getuser()}.json'
+    )
+    with open(GOOGLE_APP_SECRETS_PATH, 'w') as f:
+        f.write(GOOGLE_OAUTH_CLIENT_JSON)
+# News digest -> Google Tasks (news/tasks.py). Each enabled
+# NewsDigestSubscription gets a task in the list titled
+# GOOGLE_TASKS_LIST_TITLE (auto-created when absent) inside
+# that subscriber's own Google account.
+GOOGLE_TASKS_LIST_TITLE = env('GOOGLE_TASKS_LIST_TITLE', default='News')
+# The digest URL inside the task's notes — the job runs on the
+# maintainer's machine where BASE_URL is localhost, so this can
+# point at the deployed site instead.
+GOOGLE_TASKS_LINK_BASE_URL = env(
+    'GOOGLE_TASKS_LINK_BASE_URL', default=BASE_URL
+)
 
 # Allowlist of settings that may hold AI provider API keys; an
 # AIProvider row can only reference one of these (never SECRET_KEY or
@@ -168,13 +198,22 @@ if SENTRY_DSN:
         traces_sample_rate=0.1,
     )
 
-# Admin is the only login UI; the root dashboard bounces anonymous
-# visitors there via login_required.
-LOGIN_URL = '/admin/login/'
+# The public accounts SPA is the login UI — plain login_required
+# surfaces bounce there. Staff-only pages use
+# staff_member_required, which short-circuits to the admin login
+# and never consults LOGIN_URL.
+LOGIN_URL = '/accounts/login/'
+
+# Session login resolves usernames case-insensitively (registration
+# enforces iexact uniqueness so the lookup stays deterministic).
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.CaseInsensitiveAuthBackend',
+]
 
 ALLOWED_HOSTS = [
+    # 127.0.0.1 stays unconditional: local prod-parity runs use
+    # DEBUG=False but are still reached over http://127.0.0.1.
     '127.0.0.1',
-    '0.0.0.0',
     'industry-analyser-180632294935.europe-north1.run.app',
     # Covers staging/PR Cloud Run services (e.g. industry-analyser-staging).
     '.run.app',
@@ -197,6 +236,19 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.vercel.app',
 ]
 
+# Cloud Run and Vercel both terminate TLS upstream and forward the
+# original scheme in X-Forwarded-Proto. Trust it on those platforms
+# only, so request.is_secure(), the http→https redirect, HSTS and
+# Secure cookies engage in production while local http dev (which
+# also runs DEBUG=False) keeps working.
+if os.environ.get('VERCEL') or os.environ.get('K_SERVICE'):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -214,6 +266,7 @@ INSTALLED_APPS = [
     'scrape_jobs',
     'receipts',
     'news',
+    'google_api',
     'django_vite',
     'ninja',
     # The project package itself must be installed so APP_DIRS finds
@@ -237,7 +290,10 @@ ROOT_URLCONF = 'industry_analyser.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Project-level DIRS so templates/admin/base_site.html wins
+        # over the admin's own — industry_analyser is last in
+        # INSTALLED_APPS, after django.contrib.admin (plan §9.9).
+        'DIRS': [BASE_DIR / 'industry_analyser' / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -245,6 +301,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                # nav_apps for _topbar.html on every
+                # Django-rendered page (landing, news).
+                'industry_analyser.context_processors.global_nav',
             ],
         },
     },
@@ -352,8 +411,27 @@ WHITENOISE_IMMUTABLE_FILE_TEST = r'\.[0-9A-Za-z_-]{8}\.'
 # Vercel deploys this project as file-based api/ functions with no
 # usable build step (buildCommand fails every deploy), so collectstatic
 # never runs there — serve from the finders instead. Cloud Run still
-# uses collectstatic output via the Dockerfile.
+# uses collectstatic output via the Dockerfile. On Vercel the
+# vercel.json rewrites intercept /static/<vite-entry>/ and serve the
+# committed frontend_dist/ files straight from the CDN, so the
+# finders mostly answer for admin/app assets and misses.
 WHITENOISE_USE_FINDERS = bool(os.environ.get('VERCEL'))
+
+_WHITENOISE_IMMUTABLE_RE = re.compile(WHITENOISE_IMMUTABLE_FILE_TEST)
+
+
+def _whitenoise_add_headers(headers, path, url):
+    """Extra header on every WhiteNoise-served file (runs after the
+    built-in cache headers). On Vercel a static response that still
+    flows through the function is only edge-cached when it carries
+    s-maxage/CDN-Cache-Control, so immutable (content-hashed) assets
+    get Vercel-CDN-Cache-Control here. The header is ignored on
+    Cloud Run and anywhere else."""
+    if _WHITENOISE_IMMUTABLE_RE.search(url):
+        headers['Vercel-CDN-Cache-Control'] = 'max-age=31536000'
+
+
+WHITENOISE_ADD_HEADERS_FUNCTION = _whitenoise_add_headers
 
 # django-vite bridge: dev_mode (VITE_DEV=1) emits dev-server asset
 # URLs; otherwise entries resolve through frontend_dist/manifest.json.
@@ -483,6 +561,11 @@ LOGGING = {
             'propagate': True,
         },
         'news': {
+            'handlers': ['console', 'file_debug'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'google_api': {
             'handlers': ['console', 'file_debug'],
             'level': 'DEBUG',
             'propagate': True,

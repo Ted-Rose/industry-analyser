@@ -1,6 +1,5 @@
 """Enrich pending/failed/not_found Shows via OMDb (+ AI title
-translation and the key-free Cinemeta fallback) without rescraping
-(tv_show_normalization_plan.md §5).
+translation and the key-free Cinemeta fallback) without rescraping.
 
 Builds a ``TVProgramScraper`` instance purely for its throttled
 ``make_request`` — run() is never called.

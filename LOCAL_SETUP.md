@@ -3,6 +3,15 @@
 Complete guide to setting up the Industry Analyser project on your local
 machine for development.
 
+> **Note (2026-11):** written for a fresh local setup where
+> `DATABASE_URL=sqlite:///db.sqlite3`. The maintainer checkout's
+> `.env` instead points `DATABASE_URL` at the **production**
+> database with an admin user — every `manage.py` command hits
+> prod by default there. For read-only prod queries use the
+> `ai_agent` role in `private_settings.json`, and always prefix
+> tests/migrations with `DATABASE_URL=sqlite:///db.sqlite3`.
+> See `AGENTS.md` → Configuration for the current conventions.
+
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
@@ -807,7 +816,8 @@ After completing the setup:
 If you encounter issues:
 
 1. Check this guide's [Common Issues](#common-issues) section
-2. Review the fetcher troubleshooting guide: `fetcher/README.md#troubleshooting`
+2. Review the fetcher troubleshooting guide:
+   `fetcher/README.md#troubleshooting`
 3. Check recent git commits for context
 4. Review the task documentation in `docs/`
 
@@ -824,7 +834,7 @@ If you encounter issues:
 | `OMDB_KEY` | No | - | OMDB API key (for movie data) |
 | `BASE_URL` | No | `http://127.0.0.1:8000` | Base URL for the application |
 | `ALLOWED_HOST_IP` | No | - | Additional allowed host (e.g., LAN IP) |
-| `FETCHER_PORTALS_JSON` | No | - | Portal config (production only, uses file locally) |
+| `FETCHER_PORTALS_JSON` | No | - | Portal config (prod only) |
 | `DB_SSL_CERT` | No | - | Database SSL certificate (production only) |
 
 ## Quick Start Checklist

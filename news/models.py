@@ -1,5 +1,6 @@
 """News app models — RSS articles, topic classification, story
 clusters and the daily digest (docs/plans/news_digest_plan.md)."""
+from django.conf import settings
 from django.db import models
 
 
@@ -132,6 +133,9 @@ class NewsArticle(models.Model):
         db_index=True,
     )
     feed_categories = models.JSONField(default=list, blank=True)
+    # True when the row came from a sitemap/archive backfill,
+    # not the RSS feed (external_id is a link hash, not a guid).
+    is_backfill = models.BooleanField(default=False)
     topic = models.ForeignKey(
         NewsTopic,
         null=True,
@@ -195,3 +199,126 @@ class NewsDigestItem(models.Model):
 
     def __str__(self):
         return f'#{self.rank} {self.headline}'
+
+
+class NewsDigestTask(models.Model):
+    """Link row: the Google task created for one subscriber's
+    copy of a digest. One row per (digest, user) pair gives
+    rebuild dedup (skip when status='created') plus a per-user
+    audit trail for failed attempts."""
+
+    STATUSES = [
+        ('pending', 'Pending'),
+        ('created', 'Created'),
+        ('failed', 'Failed'),
+    ]
+
+    digest = models.ForeignKey(
+        NewsDigest,
+        on_delete=models.CASCADE,
+        related_name='google_tasks',
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='news_digest_tasks',
+    )
+    task_id = models.CharField(max_length=200, blank=True)
+    task_list_id = models.CharField(max_length=200, blank=True)
+    status = models.CharField(
+        max_length=8,
+        choices=STATUSES,
+        default='pending',
+        db_index=True,
+    )
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'news_digest_task'
+        unique_together = (('digest', 'user'),)
+
+    def __str__(self):
+        return f'{self.digest} -> {self.user}: {self.status}'
+
+
+class NewsDigestSubscription(models.Model):
+    """A user's opt-in to receiving the daily digest as a Google
+    task. `is_enabled=False` is an unsubscribe — the row stays
+    for admin audit and a re-subscribe flips it back."""
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='news_digest_subscription',
+    )
+    is_enabled = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'news_digest_subscription'
+
+    def __str__(self):
+        state = 'on' if self.is_enabled else 'off'
+        return f'{self.user}: digest tasks {state}'
+
+
+class NewsSourcePreference(models.Model):
+    """A user's ranked favorite news outlets — rank 1 is tried
+    first when picking which member article a story shows."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='news_source_preferences',
+    )
+    source = models.ForeignKey(
+        NewsSource,
+        on_delete=models.CASCADE,
+        related_name='user_preferences',
+    )
+    rank = models.PositiveSmallIntegerField()
+
+    class Meta:
+        db_table = 'news_source_preference'
+        unique_together = (('user', 'source'),)
+        ordering = ('rank',)
+
+    def __str__(self):
+        return f'{self.user}:{self.rank}:{self.source}'
+
+
+class NewsArticleAudio(models.Model):
+    """Audio seam for a future TTS feature — one rendered
+    narration of an article's spoken text per engine+voice.
+    No generator exists yet; the table and endpoint are the
+    contract it will fill."""
+    STATUSES = [
+        ('pending', 'Pending'),
+        ('ready', 'Ready'),
+        ('failed', 'Failed'),
+    ]
+    article = models.ForeignKey(
+        NewsArticle, on_delete=models.CASCADE,
+        related_name='audio',
+    )
+    engine = models.CharField(max_length=32)
+    voice = models.CharField(max_length=64, blank=True)
+    text = models.TextField()
+    text_sha256 = models.CharField(max_length=64)
+    status = models.CharField(
+        max_length=8, choices=STATUSES,
+        default='pending', db_index=True,
+    )
+    file_path = models.CharField(max_length=300, blank=True)
+    error = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'news_article_audio'
+        unique_together = (('article', 'engine', 'voice'),)
+
+    def __str__(self):
+        return f'{self.article_id}:{self.engine}:{self.status}'

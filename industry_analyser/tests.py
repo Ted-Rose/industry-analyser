@@ -1,13 +1,20 @@
-"""Root-urlconf routing tests — the <path:subpath> catch-all at the
-site root must not swallow misses under prefixes owned by earlier
-mounts (/api/, /admin/, /static/).
+"""Root-urlconf routing tests — the terminal <path:subpath>
+catch-all (which renders the public landing page) must not swallow
+misses under prefixes owned by earlier mounts (/api/, /admin/,
+/static/).
 """
 
 import json
+import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test import (
+    RequestFactory,
+    SimpleTestCase,
+    TestCase,
+    override_settings,
+)
 
 from industry_analyser import api as api_module
 from industry_analyser.sentry import (
@@ -15,6 +22,7 @@ from industry_analyser.sentry import (
     capture_provider_exception,
     sentry_before_send,
 )
+from industry_analyser.templatetags.design_system import ds_head
 
 
 class CatchAllDrainTests(TestCase):
@@ -66,19 +74,195 @@ class CatchAllDrainTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/admin/login/', resp['Location'])
 
-    def test_arbitrary_path_still_serves_shell(self):
-        """Client routes still reach the SPA shell via the
-        catch-all (login bounce for anon, shell for authed)."""
+    def test_arbitrary_path_serves_landing(self):
+        """Unknown paths fall through to the terminal catch-all,
+        which renders the public landing page (the app directory)
+        instead of a bare 404 — for anon and authed alike."""
         resp = self.client.get('/some/client/route')
-        self.assertEqual(resp.status_code, 302)
-        self.assertIn('/admin/login/', resp['Location'])
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Industry Analyser')
         user = get_user_model().objects.create_user(
             username='alice', password='pw'
         )
         self.client.force_login(user)
         resp = self.client.get('/some/client/route')
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'id="root"')
+        self.assertContains(resp, 'Industry Analyser')
+
+
+class LandingPageTests(TestCase):
+    """The public landing page at / auto-discovers the top-level
+    app mounts off the root urlconf (views._landing_entries) — a
+    new mount needs no edit to appear."""
+
+    def test_root_is_public_and_lists_apps(self):
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 200)
+        for url in (
+            '/vacancies/', '/companies/', '/classified-ads/',
+            '/tv/', '/receipts/', '/news/',
+        ):
+            self.assertContains(resp, f'href="{url}"')
+
+    def test_dashboard_cta_is_flagged_login_required(self):
+        resp = self.client.get('/')
+        self.assertContains(resp, 'href="/dashboard/"')
+        self.assertContains(resp, 'Web scraping results')
+        self.assertContains(resp, 'login required')
+
+    def test_infra_mounts_and_self_are_excluded(self):
+        from industry_analyser.views import _landing_entries
+        urls = {e['url'] for e in _landing_entries()}
+        for excluded in (
+            '/api/', '/admin/', '/accounts/', '/add_keyword/',
+        ):
+            self.assertNotIn(excluded, urls)
+        self.assertNotIn('/', urls)  # the page never lists itself
+
+    def test_receipts_mount_is_login_required(self):
+        from industry_analyser.views import _landing_entries
+        entries = {e['url']: e for e in _landing_entries()}
+        self.assertTrue(entries['/receipts/']['login_required'])
+        self.assertFalse(entries['/vacancies/']['login_required'])
+
+    def test_post_to_landing_404s(self):
+        self.assertEqual(self.client.post('/').status_code, 404)
+        self.assertEqual(
+            self.client.post('/typo/path').status_code, 404
+        )
+
+    def test_nav_apps_in_context(self):
+        """The global_nav context processor feeds _topbar.html's
+        app switcher — nav_apps must reach every plain-template
+        page, not just the landing view's own context."""
+        resp = self.client.get('/')
+        nav_apps = resp.context['nav_apps']
+        urls = {app['url'] for app in nav_apps}
+        self.assertIn('/vacancies/', urls)
+        self.assertIn('/dashboard/', urls)
+
+
+class SpaShellContractTests(TestCase):
+    """Shell contracts: no SPA page ships the Bootstrap CDN links
+    or the ia-bs coexistence marker (removed in the cleanup PR —
+    the design system is the only styling), and the spa-bootstrap
+    JSON payload carries the app directory + auth flags the SPA
+    TopNav reads."""
+
+    def test_no_spa_page_ships_bootstrap(self):
+        """Every mounted SPA shell renders without the CDN links
+        or the ia-bs body marker the legacy_bootstrap flag used
+        to gate — including the accounts pages migrated in the
+        cleanup PR."""
+        for path in ('/vacancies/', '/accounts/login/'):
+            resp = self.client.get(path)
+            self.assertEqual(resp.status_code, 200, path)
+            self.assertNotContains(
+                resp, 'cdn.jsdelivr.net/npm/bootstrap'
+            )
+            self.assertNotContains(resp, 'bootstrap-icons')
+            self.assertNotContains(resp, 'ia-bs')
+            self.assertContains(resp, '<body>')
+
+    def test_bootstrap_payload_carries_apps_and_auth(self):
+        resp = self.client.get('/vacancies/')
+        match = re.search(
+            r'id="spa-bootstrap" type="application/json">'
+            r'(.*?)</script>',
+            resp.content.decode(),
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        payload = json.loads(match.group(1))
+        for key in ('apps', 'is_staff', 'is_authenticated'):
+            self.assertIn(key, payload)
+        self.assertFalse(payload['is_authenticated'])
+        urls = {app['url'] for app in payload['apps']}
+        self.assertIn('/vacancies/', urls)
+
+
+@override_settings(DJANGO_VITE={'default': {'dev_mode': False}})
+class DsHeadTagTests(SimpleTestCase):
+    """{% ds_head %} degrades to an empty string when the vite
+    manifest can't supply the entry — landing and news keep
+    working unstyled on a stale frontend_dist instead of 500ing
+    (plan §11.2). dev_mode is pinned off so an exported
+    VITE_DEV=1 can't flip ds_head onto dev-server URLs."""
+
+    def test_missing_manifest_entry_returns_empty(self):
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={},
+        ):
+            self.assertEqual(ds_head(), '')
+
+    def test_unknown_entry_returns_empty(self):
+        self.assertEqual(ds_head('no-such-entry'), '')
+
+    def test_manifest_entry_emits_stylesheet_link(self):
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={'file': 'assets/site-abc123.css'},
+        ):
+            html = ds_head()
+        self.assertIn('rel="stylesheet"', html)
+        self.assertIn('assets/site-abc123.css', html)
+
+
+@override_settings(DJANGO_VITE={'default': {'dev_mode': False}})
+class AdminThemingTests(TestCase):
+    """PR-10 admin theming (plan §9.9): the project
+    admin/base_site.html override links the built admin.css vite
+    entry through the guarded {% ds_head 'admin' %} tag and
+    re-brands the header as an "Industry Analyser" link to /.
+    dev_mode is pinned off so an exported VITE_DEV=1 can't flip
+    ds_head onto dev-server URLs."""
+
+    def test_login_page_links_admin_css_and_branding(self):
+        resp = self.client.get('/admin/login/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'id="site-name"')
+        self.assertContains(
+            resp, '<a href="/">Industry Analyser</a>'
+        )
+        self.assertRegex(
+            resp.content.decode(),
+            r'rel="stylesheet" '
+            r'href="[^"]*admin/admin\.[^"]+\.css"',
+        )
+        # {% comment %} block must not leak into <head> — {# #}
+        # is single-line only, so a multi-line one would render
+        # as stray text at the top of every admin page.
+        self.assertNotContains(resp, 'design-system admin theme')
+        # Title block is re-branded too — no "Django site admin".
+        self.assertContains(resp, 'Log in | Industry Analyser')
+        self.assertNotContains(resp, 'Django site admin')
+
+    def test_staff_index_uses_themed_branding(self):
+        staff = get_user_model().objects.create_user(
+            username='root', password='pw', is_staff=True
+        )
+        self.client.force_login(staff)
+        resp = self.client.get('/admin/')
+        self.assertContains(
+            resp, '<a href="/">Industry Analyser</a>'
+        )
+
+    def test_missing_admin_manifest_entry_degrades(self):
+        """A stale frontend_dist without the admin entry must not
+        500 — the page renders with the default admin CSS."""
+        with patch(
+            'industry_analyser.templatetags.design_system'
+            '._manifest_entry',
+            return_value={},
+        ):
+            resp = self.client.get('/admin/login/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotRegex(
+            resp.content.decode(), r'admin/admin\.[^"]+\.css'
+        )
 
 
 class SentryHelpersTests(SimpleTestCase):
@@ -124,6 +308,23 @@ class SentryHelpersTests(SimpleTestCase):
         self.assertNotIn('data', result['request'])
         # URL and method survive so the event stays debuggable.
         self.assertEqual(result['request']['method'], 'POST')
+
+    def test_before_send_strips_accounts_request_body(self):
+        """Register/login bodies carry passwords — /api/accounts/
+        is a sensitive prefix like /admin/."""
+        for url in (
+            'https://x.example/api/accounts/register/',
+            'https://x.example/api/accounts/login/',
+        ):
+            event = {
+                'request': {
+                    'url': url,
+                    'method': 'POST',
+                    'data': {'password': 's3cret'},
+                }
+            }
+            result = sentry_before_send(event, {})
+            self.assertNotIn('data', result['request'], url)
 
     def test_before_send_keeps_other_request_bodies(self):
         event = {
@@ -179,3 +380,20 @@ class UnhandledApiErrorTests(SimpleTestCase):
             },
         )
         capture.assert_called_once_with(exc)
+
+
+class RobotsTxtTests(TestCase):
+    """robots.txt keeps the public app pages and digest API
+    crawlable and points robots at the sitemap."""
+
+    def test_robots_allows_public_and_points_to_sitemap(self):
+        resp = self.client.get('/robots.txt')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('text/plain', resp['Content-Type'])
+        body = resp.content.decode()
+        self.assertIn('User-agent: *', body)
+        self.assertIn('Disallow: /admin/', body)
+        self.assertIn('Sitemap: ', body)
+        self.assertIn('/sitemap.xml', body)
+        self.assertNotIn('Disallow: /news/', body)
+        self.assertNotIn('Disallow: /api/', body)

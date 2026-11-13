@@ -29,7 +29,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Query, Router, Schema
 from pydantic import Field
 
-from industry_analyser.api import ApiHttpError
+from industry_analyser.api import ApiHttpError, staff_auth
 
 from .models import (
     ApartmentForRent,
@@ -52,6 +52,20 @@ ADS_PER_PAGE = 50
 PROPERTIES_PER_PAGE = 50
 STATS_DEFAULT_DAYS = 30
 HOUSE_REGION_URL = '/homes-summer-residences/'
+
+# Ranked rent-vs-buy thresholds: sale rows under this €/m² are
+# land/garage residue, not dwellings; rent rows outside ('',
+# 'month') rate_period are short-stay monthlyized prices. The
+# rent per-m² band is a second line of defence under
+# is_sale_misclassified: below the floor sits daily-rate junk,
+# above the cap sit sale-priced "rents" (real lets run 4–20).
+RVB_MIN_SALE_PRICE_PER_SQM = 10.0
+RVB_MIN_RENT_PRICE_PER_SQM = 2.0
+RVB_MAX_RENT_PRICE_PER_SQM = 50.0
+RVB_RENT_RATE_PERIODS = ('', 'month')
+RVB_SIZE_BAND_LO = 0.8
+RVB_SIZE_BAND_HI = 1.25
+RVB_MIN_PAIRS = 3
 
 Kind = Literal['apartment', 'house']
 Deal = Literal['rent', 'sale']
@@ -340,6 +354,66 @@ class RentVsBuyOut(Schema):
     date_from: date
     date_to: date
     results: List[RentVsBuyRowOut]
+
+
+class RentVsBuyRankedRowOut(Schema):
+    """One ranked cell of the rent-vs-buy ranking — exact region
+    node (the ad's own region FK, no parent rollup) x the
+    group_by dimension: property type (project name for
+    apartments, house_type for houses), the literal 'All' for
+    group_by='region', or a rooms bucket ('0r'–'3r', '4+r')
+    for group_by='rooms'.
+
+    `months_to_buyout` is the headline metric: median whole-unit
+    sale price / median monthly rent — months of rent needed to
+    cover the purchase (LOWER means buying looks cheap relative
+    to renting). `gross_yield_pct` is its inverse in percent:
+    annual median rent / median price x 100 (1200 / months —
+    gross, no vacancy/costs/tax deducted). `is_residual` marks
+    rows whose ads sit on a parent region node (or no region at
+    all) instead of a leaf — excluded from `results` unless
+    include_residual is passed, then returned under `residual`.
+    `region` is null only for region-less ads.
+    `paired_months_to_buyout` repeats the metric on same-unit
+    pairs (properties linked to both a rent and a sale ad in the
+    cell) when at least 3 pairs exist."""
+    region: Optional[RegionRefOut]
+    region_label: str
+    property_type: str
+    is_residual: bool
+    n_rent_ads: int
+    n_sale_ads: int
+    median_monthly_rent: Optional[float]
+    median_total_price: Optional[float]
+    months_to_buyout: Optional[float]
+    years_to_buyout: Optional[float]
+    gross_yield_pct: Optional[float]
+    median_monthly_rent_per_sqm: Optional[float]
+    median_sale_price_per_sqm: Optional[float]
+    # Per-m² twin of months_to_buyout (same "months" units) —
+    # kept for transparency alongside the whole-unit metric.
+    price_to_rent_ratio_per_sqm: Optional[float]
+    median_size_rent: Optional[float]
+    median_size_sale: Optional[float]
+    # False when the rent/sale size medians differ by >25% — the
+    # cell then compares unlike units and months_to_buyout skews.
+    size_comparable: bool
+    n_paired_properties: int
+    paired_months_to_buyout: Optional[float]
+
+
+class RentVsBuyRankedOut(Schema):
+    kind: str
+    days: int
+    min_ads: int
+    date_from: date
+    date_to: date
+    results: List[RentVsBuyRankedRowOut]
+    residual: List[RentVsBuyRankedRowOut]
+    # Count of residual cells that pass the gate — populated even
+    # when `residual` is empty (include_residual off), so the
+    # frontend can hint at hidden cells without shipping rows.
+    n_residual_cells: int
 
 
 class DailySightingsRowOut(Schema):
@@ -683,6 +757,101 @@ def _compute_region_stats(kind):
     return _compute_house_region_stats
 
 
+def _paired_buyout_months(rents, sales):
+    """Median per-property buyout ratio over same-unit pairs.
+
+    A pair is a property (confirmed link only) that has at least
+    one rent ad and one sale ad inside the cell's filtered sets;
+    each pair contributes median(sale total_price) /
+    median(rent monthly_price). Returns (n_pairs, median) —
+    median is None under RVB_MIN_PAIRS pairs.
+    """
+    rent_by_prop = defaultdict(list)
+    for price, _ppsm, _size, prop_id, status in rents:
+        if prop_id is not None and status in ('auto', 'manual'):
+            rent_by_prop[prop_id].append(price)
+    sale_by_prop = defaultdict(list)
+    for price, _ppsm, _size, prop_id, status in sales:
+        if prop_id is not None and status in ('auto', 'manual'):
+            sale_by_prop[prop_id].append(price)
+    ratios = []
+    for prop_id in rent_by_prop.keys() & sale_by_prop.keys():
+        med_rent = statistics.median(rent_by_prop[prop_id])
+        if med_rent:
+            med_sale = statistics.median(sale_by_prop[prop_id])
+            ratios.append(med_sale / med_rent)
+    if len(ratios) < RVB_MIN_PAIRS:
+        return len(ratios), None
+    return len(ratios), statistics.median(ratios)
+
+
+def _rent_vs_buy_ranked_row(
+    key, rents, sales, regions, parent_ids
+):
+    """Build one RentVsBuyRankedRowOut-shaped dict for a
+    (region_id, group_label) cell. `rents`/`sales` are tuples of
+    (price, price_per_sqm, size, property_id, match_status) — the
+    values_list column order used by the op."""
+    region_id, property_type = key
+    region = regions.get(region_id) if region_id else None
+    is_residual = region is None or region.id in parent_ids
+    if region is None:
+        region_label = 'Unassigned'
+    elif region.parent_id and region.parent:
+        region_label = f'{region.parent.name} / {region.name}'
+    else:
+        region_label = region.name
+
+    med_rent = statistics.median(r[0] for r in rents)
+    med_sale = statistics.median(s[0] for s in sales)
+    med_rent_sqm = statistics.median(r[1] for r in rents)
+    med_sale_sqm = statistics.median(s[1] for s in sales)
+    med_size_rent = statistics.median(r[2] for r in rents)
+    med_size_sale = statistics.median(s[2] for s in sales)
+    months = med_sale / med_rent if med_rent else None
+    size_ratio = (
+        med_size_rent / med_size_sale if med_size_sale else None
+    )
+    n_pairs, paired_months = _paired_buyout_months(rents, sales)
+    return {
+        'region': region,
+        'region_label': region_label,
+        'property_type': property_type,
+        'is_residual': is_residual,
+        'n_rent_ads': len(rents),
+        'n_sale_ads': len(sales),
+        'median_monthly_rent': med_rent,
+        'median_total_price': med_sale,
+        'months_to_buyout': months,
+        'years_to_buyout': months / 12 if months else None,
+        # Annual rent over price — 1200/months, gross figure.
+        'gross_yield_pct': 1200 / months if months else None,
+        'median_monthly_rent_per_sqm': med_rent_sqm,
+        'median_sale_price_per_sqm': med_sale_sqm,
+        'price_to_rent_ratio_per_sqm': (
+            med_sale_sqm / med_rent_sqm if med_rent_sqm else None
+        ),
+        'median_size_rent': med_size_rent,
+        'median_size_sale': med_size_sale,
+        'size_comparable': (
+            size_ratio is not None
+            and RVB_SIZE_BAND_LO <= size_ratio <= RVB_SIZE_BAND_HI
+        ),
+        'n_paired_properties': n_pairs,
+        'paired_months_to_buyout': paired_months,
+    }
+
+
+def _buyout_sort_key(row):
+    # Ranked rows should always carry the metric (both sides pass
+    # min_ads) — a 0 rent median still slips through as None; those
+    # sort last instead of crashing the sort.
+    return (
+        row['months_to_buyout'] is None,
+        row['months_to_buyout'] or 0,
+    )
+
+
 # --- Ops ---
 
 
@@ -829,7 +998,10 @@ def region_config(request, kind: Kind):
     )
 
 
-@router.post('/regions/config/', response=RegionConfigSavedOut)
+@router.post(
+    '/regions/config/', auth=staff_auth,
+    response=RegionConfigSavedOut,
+)
 def save_region_config(request, payload: RegionConfigIn):
     """Save checked regions — session-auth replacement for the two
     retired config POST forms. Same semantics as the views: the kind's
@@ -1004,6 +1176,162 @@ def rent_vs_buy(
 
 
 @router.get(
+    '/regions/rent-vs-buy/ranked/',
+    auth=None,
+    response=RentVsBuyRankedOut,
+)
+def rent_vs_buy_ranked(
+    request,
+    kind: Kind,
+    # Window is [today - days, today] — same active-in-window
+    # sighting semantics as the rest of the region reports.
+    days: int = Query(STATS_DEFAULT_DAYS, ge=1, le=365),
+    min_ads: int = Query(15, ge=1, le=10000),
+    include_residual: bool = False,
+    # Cell dimension alongside the region: 'type' splits on the
+    # property type (project / house_type), 'region' merges all
+    # types into one 'All' cell per region, 'rooms' buckets on
+    # room count ('0r'–'3r', '4+r').
+    group_by: Literal['type', 'region', 'rooms'] = 'type',
+):
+    """Ranked rent-vs-buy view — cells of (exact region node x
+    group_by dimension) sorted ascending by `months_to_buyout`,
+    the median whole-unit sale price divided by the median
+    monthly rent of ads active in the window.
+
+    Unlike /regions/rent-vs-buy/ (parent rollup, per-m² ratio)
+    this groups by the ad's own region FK and ranks whole-unit
+    prices. Rent rows are whole-unit monthly lets only
+    (rate_period in ('', 'month'), is_room_share=False) inside a
+    2–50 €/m² sanity band (drops daily-rate junk and mislisted
+    sale prices); sale rows under 10 €/m² are dropped as
+    land/garage residue. A cell needs >= min_ads active ads on
+    BOTH sides to rank. Ads parked on a parent region node (or
+    none) are residual — omitted from `residual` by default but
+    always counted in `n_residual_cells`.
+
+    `group_by` picks the second cell key: 'type' (default) is
+    the property type, 'region' merges types into one 'All'
+    cell per region, 'rooms' buckets on rooms ('0r'–'3r',
+    '4+r' — rooms=0 rows land in '0r'). kind=house with
+    group_by='rooms' returns an empty report — house rows
+    carry rooms=0."""
+    date_to = date.today()
+    date_from = date_to - timedelta(days=days)
+    if kind == 'house' and group_by == 'rooms':
+        # House rows all carry rooms=0 — a rooms cut would be one
+        # meaningless '0r' cell, so short-circuit to empty.
+        return RentVsBuyRankedOut(
+            kind=kind,
+            days=days,
+            min_ads=min_ads,
+            date_from=date_from,
+            date_to=date_to,
+            results=[],
+            residual=[],
+            n_residual_cells=0,
+        )
+    category = 'APARTMENT' if kind == 'apartment' else 'HOUSE'
+    if kind == 'apartment':
+        rent_model, rent_sightings = (
+            ApartmentForRent, ApartmentForRentSighting
+        )
+        sale_model, sale_sightings = (
+            ApartmentForSale, ApartmentForSaleSighting
+        )
+        type_field, unknown_label = 'project__name', 'Unknown'
+    else:
+        rent_model, rent_sightings = (
+            HouseForRent, HouseForRentSighting
+        )
+        sale_model, sale_sightings = (
+            HouseForSale, HouseForSaleSighting
+        )
+        type_field, unknown_label = 'house_type', 'unknown'
+
+    def type_label(raw):
+        return (raw or '').strip() or unknown_label
+
+    def group_label(raw):
+        # Second cell key per group_by: 'type' keeps the property
+        # type, 'region' merges everything into 'All', 'rooms'
+        # buckets the rooms count (raw is the rooms column then).
+        if group_by == 'region':
+            return 'All'
+        if group_by == 'rooms':
+            n = raw or 0
+            return '4+r' if n >= 4 else f'{n}r'
+        return type_label(raw)
+
+    # For group_by='rooms' the second values_list column is the
+    # rooms count instead of the property-type column.
+    group_field = 'rooms' if group_by == 'rooms' else type_field
+
+    rent_rows = rent_model.objects.filter(
+        id__in=_sighted_ad_ids(rent_sightings, date_from, date_to),
+        rate_period__in=RVB_RENT_RATE_PERIODS,
+        is_room_share=False,
+        monthly_price_per_sqm__gte=RVB_MIN_RENT_PRICE_PER_SQM,
+        monthly_price_per_sqm__lte=RVB_MAX_RENT_PRICE_PER_SQM,
+    ).values_list(
+        'region_id', group_field, 'monthly_price',
+        'monthly_price_per_sqm', 'size', 'property_id',
+        'property_match_status',
+    )
+    sale_rows = sale_model.objects.filter(
+        id__in=_sighted_ad_ids(sale_sightings, date_from, date_to),
+        price_per_sqm__gte=RVB_MIN_SALE_PRICE_PER_SQM,
+    ).values_list(
+        'region_id', group_field, 'total_price',
+        'price_per_sqm', 'size', 'property_id',
+        'property_match_status',
+    )
+
+    # Exact-node grouping: no descendant rollup. Cells key on the
+    # ad's own region FK; ads on parent nodes are residual.
+    rent_cells = defaultdict(list)
+    for region_id, raw_type, *rest in rent_rows:
+        rent_cells[(region_id, group_label(raw_type))].append(rest)
+    sale_cells = defaultdict(list)
+    for region_id, raw_type, *rest in sale_rows:
+        sale_cells[(region_id, group_label(raw_type))].append(rest)
+
+    regions = {
+        r.id: r
+        for r in Region.objects.filter(category=category)
+        .select_related('parent')
+    }
+    parent_ids = {
+        r.parent_id for r in regions.values() if r.parent_id
+    }
+
+    results = []
+    residual = []
+    for key in rent_cells.keys() | sale_cells.keys():
+        rents = rent_cells.get(key, [])
+        sales = sale_cells.get(key, [])
+        if len(rents) < min_ads or len(sales) < min_ads:
+            continue
+        row = _rent_vs_buy_ranked_row(
+            key, rents, sales, regions, parent_ids
+        )
+        (residual if row['is_residual'] else results).append(row)
+
+    results.sort(key=_buyout_sort_key)
+    residual.sort(key=_buyout_sort_key)
+    return RentVsBuyRankedOut(
+        kind=kind,
+        days=days,
+        min_ads=min_ads,
+        date_from=date_from,
+        date_to=date_to,
+        results=results,
+        residual=residual if include_residual else [],
+        n_residual_cells=len(residual),
+    )
+
+
+@router.get(
     '/regions/{region_id}/children/',
     auth=None,
     response=RegionStatsChildrenOut,
@@ -1055,8 +1383,9 @@ def region_ads_list(
 ):
     """Ads in a region subtree — mirrors the retired *_region_ads_list
     views except the window filter, which is F5 active-in-window: the
-    ad must have a sighting inside [date_from, date_to]. A
-    missing/blank deal_type still yields an empty table."""
+    ad must have a sighting inside [date_from, date_to].
+    deal_type='ALL' returns both deals merged; a missing/blank or
+    unknown deal_type still yields an empty table."""
     region = get_object_or_404(Region, pk=region_id)
     date_from, date_to = _default_date_range(date_from, date_to)
 
@@ -1076,28 +1405,43 @@ def region_ads_list(
             HouseForSale, HouseForSaleSighting
         )
 
+    def active_ads(model, sightings):
+        return model.objects.filter(
+            region_id__in=region_ids,
+            id__in=_sighted_ad_ids(sightings, date_from, date_to),
+        ).annotate(
+            days_active_count=Count('sightings', distinct=True)
+        )
+
+    # '-pk' tiebreaks equal first_seen so pagination can't
+    # duplicate/drop a tied row across page boundaries.
     if deal_type == 'RENT':
-        ads_qs = rent_model.objects.filter(
-            region_id__in=region_ids,
-            id__in=_sighted_ad_ids(
-                rent_sightings, date_from, date_to
-            ),
-        ).order_by('-first_seen')
+        ads_qs = active_ads(rent_model, rent_sightings).order_by(
+            '-first_seen', '-pk'
+        )
     elif deal_type == 'SELL':
-        ads_qs = sale_model.objects.filter(
-            region_id__in=region_ids,
-            id__in=_sighted_ad_ids(
-                sale_sightings, date_from, date_to
-            ),
-        ).order_by('-first_seen')
+        ads_qs = active_ads(sale_model, sale_sightings).order_by(
+            '-first_seen', '-pk'
+        )
+    elif deal_type == 'ALL':
+        # Both deals merged — the rent-vs-buy ranked rows link here.
+        # The two tables can't merge in one queryset, so each is
+        # evaluated and the rows sorted in Python; Paginator accepts
+        # a plain list.
+        ads_list = sorted(
+            [
+                *active_ads(rent_model, rent_sightings),
+                *active_ads(sale_model, sale_sightings),
+            ],
+            key=lambda ad: (ad.first_seen, ad.pk),
+            reverse=True,
+        )
     else:
         ads_qs = rent_model.objects.none()
 
-    ads_qs = ads_qs.annotate(
-        days_active_count=Count('sightings', distinct=True)
+    paginator = Paginator(
+        ads_list if deal_type == 'ALL' else ads_qs, ADS_PER_PAGE
     )
-
-    paginator = Paginator(ads_qs, ADS_PER_PAGE)
     ads = paginator.get_page(page)
 
     return RegionAdsOut(

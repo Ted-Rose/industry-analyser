@@ -54,6 +54,7 @@ function makePrograms(
       channel_name: null,
       exclude_channel_name: null,
       show_disliked: false,
+      all_content: false,
     },
     ...overrides,
   };
@@ -111,6 +112,71 @@ describe('ProgramList', () => {
     expect(calledUrls()[0]).not.toContain('not_content_rating');
   });
 
+  it('omits all_content by default (server keeps only ' +
+    'movies & shows) and renders the checkbox checked', async () => {
+      renderList('/tv/');
+      await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+      expect(calledUrls()[0]).not.toContain('all_content');
+      expect(
+        screen.getByLabelText('Only movies & shows:'),
+      ).toBeChecked();
+    });
+
+  it('passes all_content through when it is in the URL', async () => {
+    renderList('/tv/?all_content=1');
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    expect(calledUrls()[0]).toContain('all_content=1');
+    expect(
+      screen.getByLabelText('Only movies & shows:'),
+    ).not.toBeChecked();
+  });
+
+  it('serializes all_content=1 when the box is unchecked on ' +
+    'submit, and drops it when re-checked', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.click(
+        screen.getByLabelText('Only movies & shows:'),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('all_content=1');
+
+      // Checking it again on the next submit omits the param —
+      // absent means the server applies the filter.
+      fireEvent.click(
+        screen.getByLabelText('Only movies & shows:'),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(3),
+      );
+      expect(calledUrls()[2]).not.toContain('all_content');
+    });
+
+  it('echoes "· all content" in the summary while the filter ' +
+    'is bypassed', async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          filters: {
+            ...makePrograms().filters,
+            all_content: true,
+          },
+        }),
+      );
+      renderList('/tv/?all_content=1');
+      await screen.findByText('Dienas ziņas');
+      expect(
+        screen.getByText(/all content/),
+      ).toBeInTheDocument();
+    });
+
   it('shows the server-effective filter defaults in the inputs',
     async () => {
       renderList('/tv/');
@@ -146,9 +212,59 @@ describe('ProgramList', () => {
       expect(mockedApiGet).toHaveBeenCalledTimes(2),
     );
     expect(calledUrls()[1]).toContain('channel=tv3');
-    // The staged 'R' exclusion submits explicitly — clearing the
-    // input would submit '' instead of re-applying the default.
-    expect(calledUrls()[1]).toContain('not_content_rating=R');
+    // The untouched 'R' draft equals the echoed server default —
+    // it is NOT serialized (the server re-applies 'R' itself),
+    // so it can't inflate the "Filters (n)" count.
+    expect(calledUrls()[1]).not.toContain('not_content_rating');
+  });
+
+  it('serializes a user-set not_content_rating on submit',
+    async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.change(screen.getByLabelText('Exclude Rating:'), {
+        target: { value: 'PG' },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('not_content_rating=PG');
+    });
+
+  it('sends an empty not_content_rating when the input is ' +
+    'cleared (disables the R exclusion)', async () => {
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    fireEvent.change(screen.getByLabelText('Exclude Rating:'), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain('not_content_rating=');
+  });
+
+  it('keeps an already-set not_content_rating on a no-op ' +
+    'submit', async () => {
+    mockedApiGet.mockResolvedValue(
+      makePrograms({
+        filters: {
+          ...makePrograms().filters,
+          not_content_rating: 'PG',
+        },
+      }),
+    );
+    renderList('/tv/?not_content_rating=PG');
+    await screen.findByText('Dienas ziņas');
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain('not_content_rating=PG');
   });
 
   it('drops non-numeric rating inputs instead of 422ing', async () => {
@@ -185,17 +301,19 @@ describe('ProgramList', () => {
     expect(imdb).toHaveAttribute('href', 'https://imdb.com/title/tt1');
     expect(screen.queryByText(/^Rating: /)).not.toBeInTheDocument();
     // Show-level pg_rating renders as a badge chip.
-    expect(screen.getByText('PG-13')).toHaveClass('pg-badge');
+    expect(screen.getByText('PG-13')).toBeInTheDocument();
     // Match Ratio is debug noise — gone from the card (the filter
     // form's "Min. Match Ratio:" label is unrelated).
     expect(
       screen.queryByText(/^Match Ratio: /),
     ).not.toBeInTheDocument();
+    // The reaction pair is a pressed-toggle — the server toggles
+    // the same reaction off on re-click.
     const like = screen.getByRole('button', { name: 'Like' });
-    expect(like).toHaveClass('liked');
+    expect(like).toHaveAttribute('aria-pressed', 'true');
     expect(
       screen.getByRole('button', { name: 'Dislike' }),
-    ).not.toHaveClass('disliked');
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('renders the rating inside the IMDb link text', async () => {
@@ -208,7 +326,7 @@ describe('ProgramList', () => {
       'https://tet.lv/programme/1',
     );
     expect(link).toHaveAttribute('target', '_blank');
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute('rel', 'noopener');
   });
 
   it('renders a bare IMDb link when the rating is unknown',
@@ -248,10 +366,9 @@ describe('ProgramList', () => {
         programs: [makeProgram({ pg_rating: 'TV-MA' })],
       }),
     );
-    const { container } = renderList('/tv/');
+    renderList('/tv/');
     await screen.findByText('Dienas ziņas');
-    const badge = container.querySelector('.pg-badge');
-    expect(badge).toHaveTextContent('TV-MA');
+    expect(screen.getByText('TV-MA')).toBeInTheDocument();
   });
 
   it('omits Rating/PG segments and dangling separators when ' +
@@ -267,18 +384,18 @@ describe('ProgramList', () => {
           ],
         }),
       );
-      const { container } = renderList('/tv/');
+      renderList('/tv/');
       await screen.findByText('Dienas ziņas');
       expect(screen.queryByText(/^Rating: /)).not.toBeInTheDocument();
       expect(
         screen.queryByRole('link', { name: /IMDb/ }),
       ).not.toBeInTheDocument();
-      expect(container.querySelector('.pg-badge')).toBeNull();
-      // The metadata row starts cleanly at Channel — no leading
-      // or trailing '|'.
-      const metadata = container.querySelector('.feed-metadata');
-      expect(metadata?.textContent).toMatch(/^Channel:/);
-      expect(metadata?.textContent).not.toMatch(/\|\s*$/);
+      // The metadata row starts cleanly at Channel — '·' joins the
+      // segments, so no leading or trailing separator.
+      const metadata = screen.getByTestId('program-meta');
+      expect(metadata.textContent).toMatch(/^Channel:/);
+      expect(metadata.textContent).toContain('·');
+      expect(metadata.textContent).not.toMatch(/·\s*$/);
     });
 
   it('renders reaction buttons for programs without a Show ' +
@@ -323,9 +440,9 @@ describe('ProgramList', () => {
         ],
       }),
     );
-    const { container } = renderList('/tv/');
+    renderList('/tv/');
     await screen.findByText('13. karotājs');
-    expect(container.querySelectorAll('.feed-card')).toHaveLength(1);
+    expect(screen.getAllByTestId('program-card')).toHaveLength(1);
     // Collapsed: only the newest slot headlines the card.
     expect(
       screen.getByText(/Start Time: Oct\. 2, 2026, 3:00 p\.m\./),
@@ -368,9 +485,9 @@ describe('ProgramList', () => {
         ],
       }),
     );
-    const { container } = renderList('/tv/');
+    renderList('/tv/');
     await screen.findByText('Dienas ziņas');
-    expect(container.querySelectorAll('.feed-card')).toHaveLength(2);
+    expect(screen.getAllByTestId('program-card')).toHaveLength(2);
 
     fireEvent.click(
       screen.getByRole('button', { name: 'All showtimes' }),

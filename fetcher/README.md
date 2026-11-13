@@ -622,7 +622,6 @@ dupes = Vacancy.objects.values('vacancy_portal_id').annotate(
 ## Related Documentation
 
 - [cv.lv API Swagger Docs](https://www.cv.lv/api/doc/swagger-ui/index.html)
-- [Task Document](../docs/cvlv_api_integration_task.md)
 - [Core Scraper Base Class](../core_scraper/base.py)
 - [Terraform Configuration](../terraform/main.tf)
 
@@ -630,6 +629,5 @@ dupes = Vacancy.objects.values('vacancy_portal_id').annotate(
 
 For issues or questions:
 1. Check this README first
-2. Review the task document in `docs/cvlv_api_integration_task.md`
-3. Check recent git commits for context
-4. Test locally before deploying to production
+2. Check recent git commits for context
+3. Test locally before deploying to production

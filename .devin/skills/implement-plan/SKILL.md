@@ -1,20 +1,24 @@
 ---
 name: implement-plan
-description: Implement a plan markdown file end-to-end with
+description: Implement a plan end-to-end with
   subagents — run an implementation agent that cuts a feature
   branch and opens a draft PR, then review the PR with fresh
   reviewer agents and iterate fix rounds until reviewers
   report no issues. Invoke when the user asks to
-  implement/execute a plan file (e.g.
-  docs/plans/*-plan.md) using agents.
+  implement/execute a plan — an OpenSpec change dir
+  (openspec/changes/<id>/ with proposal/design/tasks) or a
+  legacy docs/plans/*-plan.md — using agents.
 ---
 
 # Implement a Plan File with Subagents
 
-Orchestrate a multi-agent implementation of a plan file in
-`docs/plans/` (e.g. `docs/plans/property_linking_plan.md`).
+Orchestrate a multi-agent implementation of a plan. The plan
+is an OpenSpec change dir (`openspec/changes/<id>/` — read its
+`proposal.md`, `design.md` and `tasks.md`) or a legacy
+`docs/plans/*-plan.md` file (`docs/plans/` is frozen — no new
+plan markdown; new planning goes through `openspec changes`).
 Single repo: `Ted-Rose/industry-analyser`, default branch
-`master`, remote `origin` (user's own repo, not a fork).
+`main`, remote `origin` (user's own repo, not a fork).
 
 Subagents are stateless: front-load every prompt with the plan
 path, the branch name, the conventions files to read, and
@@ -43,7 +47,7 @@ the work yourself into one prompt per stage.) Prompt:
     Implement <plan-file> (absolute path) in the
     industry-analyser repo.
 
-    1. git switch master && git pull --ff-only;
+    1. git switch main && git pull --ff-only;
        git switch -c feat/<slug>
     2. Read AGENTS.md first (repo root). Every line <= 79
        chars in every file type.
@@ -52,7 +56,7 @@ the work yourself into one prompt per stage.) Prompt:
        DATABASE_URL=sqlite:///db.sqlite3 prefix.
        `makemigrations` is safe — if the plan needs a
        migration, generate the files and commit them; CI
-       applies them on master.
+       applies them on main.
     3. Implement the plan's contract exactly — other parts
        (API consumers, jobs) are written against it.
     4. Add/update tests per the plan. Verify:
@@ -66,8 +70,8 @@ the work yourself into one prompt per stage.) Prompt:
     5. Commit only files you edited (never git add -A, never
        commit plan/scratch md). Format: `Type: Capitalized
        msg`. Push: git push -u origin feat/<slug>
-    6. Open a DRAFT PR with --base master following
-       .devin/workflows/create-pr.md — write the body to
+    6. Open a DRAFT PR with --base main following
+       .devin/skills/create-pr/ — write the body to
        pr-body.md, use --body-file, rm it after. Body must
        include a UI-verification section.
     7. gh pr checks <N> --watch; fix failures until green,

@@ -98,6 +98,21 @@ class ClassifyHeuristicTests(TestCase):
         c = classify("Nosaukums", "", "ltv1_hd", 50)
         self.assertEqual(c.content_type, "unknown")
 
+    def test_live_sport_marker_beats_duration(self):
+        """A 155min live broadcast would hit the ≥80min movie rule —
+        the live/sport markers fire first, so it's not_movie."""
+        c = classify(
+            "TIEŠRAIDE! Pasaules kauss biatlonā. Vīriešu sprintā",
+            "",
+            "ltv1_hd",
+            155,
+        )
+        self.assertEqual(c.content_type, "not_movie")
+
+    def test_slow_tv_is_not_movie(self):
+        c = classify("Slow TV: Dabas skati", "", "ltv1_hd", 120)
+        self.assertEqual(c.content_type, "not_movie")
+
 
 class ExclusionListTest(TestCase):
     def test_plan_titles_merged(self):
@@ -316,6 +331,74 @@ class ShowDedupTests(TestCase):
         kept = self.scraper.remove_redundant_results([parsed])
         self.assertEqual(kept, [])
 
+    def test_taken_slot_is_dropped_regardless_of_show(self):
+        # Dedup-key drift resolved the stored airing to a
+        # different Show — the slot is still taken.
+        parsed = self._parsed("Sirds robeža", event_id="e9")
+        other_show = Show.objects.create(
+            title_lv="Cits šovs",
+            dedup_key=compute_dedup_key("Cits šovs", "cits", None, None),
+        )
+        Program.objects.create(
+            show=other_show,
+            channel=self.channel,
+            start_time=parsed["start_time"],
+            title_lv="Cits šovs",
+        )
+        kept = self.scraper.remove_redundant_results([parsed])
+        self.assertEqual(kept, [])
+
+    def test_taken_slot_null_show_row_is_dropped(self):
+        parsed = self._parsed("Jauns šovs", event_id="e10")
+        Program.objects.create(
+            show=None,
+            channel=self.channel,
+            start_time=parsed["start_time"],
+            title_lv="Veca rinda",
+        )
+        kept = self.scraper.remove_redundant_results([parsed])
+        self.assertEqual(kept, [])
+
+    def test_create_or_update_skips_taken_slots(self):
+        parsed = self._parsed("Sirds robeža", event_id="e11")
+        Program.objects.create(
+            show=None,
+            channel=self.channel,
+            start_time=parsed["start_time"],
+            title_lv="Sirds robeža",
+        )
+        resource = self.scraper.initiate_resource(
+            self.scraper.enrich_result(parsed)
+        )
+        # Only the slot query — nothing left to insert.
+        with self.assertNumQueries(1):
+            self.scraper.create_or_update_resources([resource])
+        self.assertEqual(
+            Program.objects.filter(
+                channel=self.channel,
+                start_time=parsed["start_time"],
+            ).count(),
+            1,
+        )
+
+    def test_create_or_update_dedups_within_batch(self):
+        p1 = self._parsed("Šovs A", hour=21, event_id="b1")
+        p2 = self._parsed("Šovs B", hour=21, event_id="b2")
+        resources = [
+            self.scraper.initiate_resource(
+                self.scraper.enrich_result(p)
+            )
+            for p in (p1, p2)
+        ]
+        self.scraper.create_or_update_resources(resources)
+        self.assertEqual(
+            Program.objects.filter(
+                channel=self.channel,
+                start_time=p1["start_time"],
+            ).count(),
+            1,
+        )
+
 
 class OMDbClientTests(TestCase):
     @staticmethod
@@ -506,6 +589,11 @@ def make_program(channel=None, start_time=None, **kwargs):
         channel=channel,
         start_time=start_time or timezone.now(),
         duration_minutes=kwargs.pop("duration_minutes", 25),
+        # Default-on feed filter keeps movies + series-meta airings —
+        # a bare 'movie' keeps every filter test's rows visible.
+        content_type=kwargs.pop(
+            "content_type", Program.ContentType.MOVIE
+        ),
         **kwargs,
     )
 
@@ -638,6 +726,63 @@ class TvApiTests(TestCase):
         self.assertEqual(
             resp.json()["filters"]["not_content_rating"], ""
         )
+
+    def test_default_keeps_movies_and_series_meta_only(self):
+        """Default-on content filter: `movie` programs plus airings
+        whose Show carries series structure (series_title or
+        series_episode) stay; not_movie/unknown rows without it —
+        linked or unlinked — are hidden."""
+        ch = make_channel()
+        movie = make_program(channel=ch)
+        series_ep = make_program(
+            channel=ch,
+            content_type="not_movie",
+            show=make_show("s1", series_title="Seriāls"),
+        )
+        ep_only = make_program(
+            channel=ch,
+            content_type="not_movie",
+            show=make_show("s2", series_episode=3),
+        )
+        news = make_program(channel=ch, content_type="not_movie")
+        talk = make_program(
+            channel=ch,
+            content_type="not_movie",
+            show=make_show("nm", title_lv="Sarunu šovs"),
+        )
+        unknown = make_program(channel=ch, content_type="unknown")
+        resp = self.client.get(f"{self.API}/programs/")
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(movie.pk), ids)
+        self.assertIn(str(series_ep.pk), ids)
+        self.assertIn(str(ep_only.pk), ids)
+        self.assertNotIn(str(news.pk), ids)
+        self.assertNotIn(str(talk.pk), ids)
+        self.assertNotIn(str(unknown.pk), ids)
+        self.assertFalse(body["filters"]["all_content"])
+
+    def test_all_content_param_restores_unfiltered_feed(self):
+        news = make_program(content_type="not_movie")
+        resp = self.client.get(
+            f"{self.API}/programs/", {"all_content": "1"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(news.pk), ids)
+        self.assertTrue(body["filters"]["all_content"])
+
+    def test_excluded_show_hidden_in_both_modes(self):
+        """is_excluded is 'never surface' — all_content=1 must not
+        resurrect admin-excluded rows."""
+        excluded = make_program(
+            content_type="movie",
+            show=make_show("x", is_excluded=True),
+        )
+        for params in ({}, {"all_content": "1"}):
+            resp = self.client.get(f"{self.API}/programs/", params)
+            ids = [p["id"] for p in resp.json()["programs"]]
+            self.assertNotIn(str(excluded.pk), ids)
 
     def test_content_rating_filter(self):
         pg_show = make_show("pg", pg_rating="PG-13")

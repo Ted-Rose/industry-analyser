@@ -1,6 +1,8 @@
 # Industry Analyser — React + Vite Frontend Migration Plan
 
-> **Status**: Plan. Blueprinted from the completed migration in the
+> **Status**: Implemented — `frontend/` ships per-app React+Vite
+> SPAs as designed below (kept as the migration's design record).
+> Blueprinted from the completed migration in the
 > sibling project `django-apps` (`~/personal_data/p_projects/django-apps`),
 > where `google_tasks` (`/tasks/`) and `finance` (`/finance/`) are fully
 > cut over to React SPAs on the same Django backend. Reference docs there:

@@ -1,5 +1,5 @@
 ---
-description: "Local migrations allowed; prod migrated manually"
+description: "Local migrations allowed; prod migrated by CI deploy"
 trigger: always_on
 ---
 
@@ -16,9 +16,9 @@ Same override for tests — the test runner creates a database on
 whatever `DATABASE_URL` targets.
 
 Do **not** run migrations against the production database casually.
-There is no CI migration step — the `run-migrations` Cloud Run job
-and `.github/workflows/run-migrations.yml` were removed. Ship
-migration files in the commit, then the maintainer applies them to
-prod **manually**: `python manage.py migrate` with the prod
-`DATABASE_URL` (the `.env` default), or via a one-off job in the
-GCP console.
+Prod migrations are applied **by CI**: the `build-and-deploy` job in
+`.github/workflows/deploy-web-service.yml` deploys a `run-migrations`
+Cloud Run job from the just-built image and executes it before the
+new service revision goes live — a failed `migrate` aborts the
+deploy. Just ship migration files in the commit. Manual
+`python manage.py migrate` against prod is reserved for recovery.

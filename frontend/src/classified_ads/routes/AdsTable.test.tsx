@@ -137,11 +137,17 @@ describe('AdsTable', () => {
 
   it('renders rent rows with monthly prices', async () => {
     renderTable();
-    await screen.findByText('Čaka iela 133');
-    expect(screen.getByText('Apartments for Rent')).toBeInTheDocument();
+    // Rows render in both the desktop table and the mobile card
+    // list (jsdom applies no media queries) — use the AllBy
+    // variants like VacancyList.test.tsx does.
+    await screen.findAllByText('Čaka iela 133');
+    expect(
+      screen.getAllByText('Apartments for Rent').length,
+    ).toBeGreaterThan(0);
     expect(screen.getByText('1 result')).toBeInTheDocument();
-    expect(screen.getByText('6.00')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute(
+    expect(screen.getAllByText('6.00').length).toBeGreaterThan(0);
+    const [view] = screen.getAllByRole('link', { name: 'View' });
+    expect(view).toHaveAttribute(
       'href',
       'https://ss.com/msg/abc123',
     );
@@ -149,7 +155,7 @@ describe('AdsTable', () => {
 
   it('stages filter edits until Filter is pressed', async () => {
     renderTable();
-    await screen.findByText('Čaka iela 133');
+    await screen.findAllByText('Čaka iela 133');
     expect(mockedApiGet).toHaveBeenCalledTimes(1);
 
     fireEvent.change(screen.getByLabelText('District'), {
@@ -169,7 +175,7 @@ describe('AdsTable', () => {
   it('renders the empty state and an error state', async () => {
     mockedApiGet.mockResolvedValue(makeTable({ ads: [], total_count: 0 }));
     const { unmount } = renderTable();
-    await screen.findByText('No ads match your filters.');
+    await screen.findAllByText('No ads match your filters.');
 
     unmount();
     mockedApiGet.mockRejectedValue(new Error('boom'));

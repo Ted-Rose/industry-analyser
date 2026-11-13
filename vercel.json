@@ -1,6 +1,79 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["arn1"],
+  "headers": [
+    {
+      "source": "/static/(.*\\.[0-9A-Za-z_-]{8}\\..*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    },
+    {
+      "source": "/frontend_dist/(.*\\.[0-9A-Za-z_-]{8}\\..*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
+    }
+  ],
   "rewrites": [
+    {
+      "source": "/static/accounts/:path*",
+      "destination": "/frontend_dist/accounts/:path*"
+    },
+    {
+      "source": "/static/admin/:file",
+      "destination": "/frontend_dist/admin/:file"
+    },
+    {
+      "source": "/static/app/:path*",
+      "destination": "/frontend_dist/app/:path*"
+    },
+    {
+      "source": "/static/classified_ads/:path*",
+      "destination": "/frontend_dist/classified_ads/:path*"
+    },
+    {
+      "source": "/static/dashboard/:path*",
+      "destination": "/frontend_dist/dashboard/:path*"
+    },
+    {
+      "source": "/static/inter-latin-ext-wght-normal/:path*",
+      "destination": "/frontend_dist/inter-latin-ext-wght-normal/:path*"
+    },
+    {
+      "source": "/static/inter-latin-wght-normal/:path*",
+      "destination": "/frontend_dist/inter-latin-wght-normal/:path*"
+    },
+    {
+      "source": "/static/news/:path*",
+      "destination": "/frontend_dist/news/:path*"
+    },
+    {
+      "source": "/static/receipts/:path*",
+      "destination": "/frontend_dist/receipts/:path*"
+    },
+    {
+      "source": "/static/shared/:path*",
+      "destination": "/frontend_dist/shared/:path*"
+    },
+    {
+      "source": "/static/site/:path*",
+      "destination": "/frontend_dist/site/:path*"
+    },
+    {
+      "source": "/static/tv/:path*",
+      "destination": "/frontend_dist/tv/:path*"
+    },
+    {
+      "source": "/static/vacancies/:path*",
+      "destination": "/frontend_dist/vacancies/:path*"
+    },
     { "source": "/(.*)", "destination": "/api/index" }
   ]
 }

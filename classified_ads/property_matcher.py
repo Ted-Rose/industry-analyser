@@ -1,7 +1,6 @@
 """Score-based matching of classified ads to canonical properties.
 
 Used by the ``link_ads_to_properties`` management command; see
-``docs/plans/property_linking_plan.md`` for the matching design and
 ``docs/plans/property_conflation_prevention_plan.md`` §3a for the
 conflation alarms that demote ``auto`` decisions to ``candidate``.
 """

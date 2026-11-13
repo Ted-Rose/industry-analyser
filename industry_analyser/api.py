@@ -14,6 +14,7 @@ from django.http import Http404
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import django_auth
+from ninja.security.session import SessionAuth
 
 from industry_analyser.sentry import capture_internal_exception
 
@@ -29,6 +30,31 @@ api = NinjaAPI(
     # workflow — an open /api/docs would expose the whole schema.
     docs_decorator=staff_member_required,
 )
+
+
+class StaffSessionAuth(SessionAuth):
+    """Session auth + is_staff — the staff-only access tier.
+
+    Subclasses SessionAuth so unsafe methods keep the CSRF check
+    (APIKeyCookie._get_key) a plain callable would skip. Anonymous
+    callers return None → AuthenticationError → the 401 login_url
+    handshake; authenticated non-staff get a 403 {error:
+    'forbidden'} — no login_url, since re-authenticating cannot
+    help.
+    """
+
+    def authenticate(self, request, key=None):
+        if not request.user.is_authenticated:
+            return None
+        if not request.user.is_staff:
+            raise HttpError(403, 'Staff access required.')
+        return request.user
+
+
+# Applied per-op (auth=staff_auth) on staff-only endpoints — the
+# dashboard/receipts payloads and the global scrape-config
+# mutations; per-user ops keep the default django_auth.
+staff_auth = StaffSessionAuth()
 
 
 class ApiHttpError(HttpError):
@@ -64,10 +90,11 @@ def error_slug(status_code):
 
 
 # API mounts whose SPA page lives somewhere other than /<app>/:
-# /api/<app>/<sub> → the mapped path. 'dashboard' mounts at the site
-# root, so /api/dashboard/... 401s must send the user back to '/', not
-# '/dashboard/'.
-SPA_BASES = {'dashboard': '/'}
+# /api/<app>/<sub> → the mapped path. 'dashboard' mounts at
+# /dashboard/ — the mechanical /<app>/<sub> rewrite already lands
+# there, but the explicit mapping keeps the intent pinned if the
+# SPA moves again.
+SPA_BASES = {'dashboard': '/dashboard/'}
 # Sub-path remaps, keyed by (api app, first path segment): authed ops
 # whose mechanical /<app>/<sub>/ rewrite would land on a route the SPA
 # doesn't own. The saved-filters CRUD lives on the vacancy list page,
@@ -79,6 +106,10 @@ SPA_BASES = {'dashboard': '/'}
 SPA_SUBPATHS = {
     ('vacancies', 'filters'): '/vacancies/',
     ('vacancies', 'companies'): '/companies/',
+    # The digest-task ops back the Google Tasks card on the
+    # preferences page — the mechanical /news/digest-task/
+    # rewrite would hit the news router's '*' redirect.
+    ('news', 'digest-task'): '/news/preferences/',
 }
 
 
@@ -122,7 +153,7 @@ def _on_unauthenticated(request, exc):
     return api.create_response(request, {
         'error': 'unauthenticated',
         'login_url': (
-            f'/admin/login/'
+            f'/accounts/login/'
             f'?{urlencode({"next": spa_url_for(request)})}'
         ),
     }, status=401)

@@ -1,0 +1,72 @@
+/* Django admin theme — plan §9.9. Plain CSS + the shared token
+   file only (NO Tailwind): remaps the --ia-* palette onto the
+   admin's own CSS variables so the admin follows the same
+   light/dark scheme. Linked from admin/base_site.html via
+   {% ds_head 'admin' %} (PR-10); built now so the manifest
+   entry exists.
+
+   tokens.css flips --ia-* on `.dark`, on
+   html[data-theme="dark"], and under prefers-color-scheme for
+   html[data-theme="auto"] / unset — the same semantics the
+   Django 5.2 admin theme toggle writes to
+   localStorage['theme']. inter.css registers the latin +
+   latin-ext Inter Variable subsets (same as app.css). */
+@import "./tokens.css";
+@import "./inter.css";
+
+:root {
+  --primary: var(--ia-accent);
+  --secondary: var(--ia-accent-hover);
+  --accent: var(--ia-accent);
+  --primary-fg: var(--ia-accent-fg);
+
+  --body-fg: var(--ia-fg);
+  --body-bg: var(--ia-bg);
+  --body-quiet-color: var(--ia-fg-muted);
+  --body-loud-color: var(--ia-fg);
+
+  --header-bg: var(--ia-surface);
+  --header-color: var(--ia-fg);
+  --breadcrumbs-bg: var(--ia-surface-2);
+
+  --link-fg: var(--ia-accent-text);
+  --link-hover-color: var(--ia-accent-hover);
+  --link-selected-fg: var(--ia-accent);
+
+  --hairline-color: var(--ia-border);
+  --border-color: var(--ia-border-strong);
+  --darkened-bg: var(--ia-surface-2);
+  --selected-bg: var(--ia-accent-subtle);
+  --selected-row: var(--ia-accent-subtle);
+
+  --button-bg: var(--ia-accent);
+  --button-fg: var(--ia-accent-fg);
+  --button-hover-bg: var(--ia-accent-hover);
+  --default-button-bg: var(--ia-accent-hover);
+  --default-button-hover-bg: var(--ia-accent);
+  --close-button-bg: var(--ia-surface-3);
+  --delete-button-bg: var(--ia-danger);
+  --delete-button-hover-bg: var(--ia-danger);
+
+  --object-tools-bg: var(--ia-surface-3);
+  --object-tools-hover-bg: var(--ia-border-strong);
+
+  --message-success-bg: var(--ia-success-subtle);
+  --message-warning-bg: var(--ia-warning-subtle);
+  --message-error-bg: var(--ia-danger-subtle);
+
+  --font-family-primary:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-family-monospace:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/* tabular-nums on numeric admin tables (plan §9.9): every
+   change-list result cell plus the custom usage/merge tables
+   that opt in with class="tabular-nums". */
+#result_list,
+table.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

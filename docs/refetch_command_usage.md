@@ -2,7 +2,8 @@
 
 ## Overview
 
-The refetch command system allows you to re-scrape and update existing records in the database. This is useful when:
+The refetch command system re-scrapes and updates existing
+records in the database. This is useful when:
 - Data is missing (e.g., `post_date IS NULL`)
 - Data needs to be corrected
 - New fields have been added to the scraper
@@ -12,9 +13,11 @@ The refetch command system allows you to re-scrape and update existing records i
 
 The system consists of:
 
-1. **BaseScraper.refetch_single()** - Core method that refetches a single record
+1. **BaseScraper.refetch_single()** - Core method that
+   refetches a single record
 2. **BaseRefetchCommand** - Reusable Django management command base class
-3. **App-specific commands** - Commands for each scraping app (e.g., `refetch_apartment_ads`)
+3. **App-specific commands** - Commands for each scraping
+   app (e.g., `refetch_apartment_ads`)
 
 ## Available Commands
 
@@ -24,6 +27,31 @@ Refetch apartment rental and sale ads from ss.com.
 
 ```bash
 python manage.py refetch_apartment_ads [OPTIONS]
+```
+
+### refetch_house_ads
+
+Same options for house rental and sale ads.
+
+```bash
+python manage.py refetch_house_ads [OPTIONS]
+```
+
+### refetch_vacancies
+
+Refetches cv.lv vacancy detail pages — different option set
+(keyword-scoped); see [vacancy_refetch_usage.md](vacancy_refetch_usage.md).
+
+### Helper script
+
+`scripts/refetch_null_post_dates.sh` wraps a
+`refetch_apartment_ads --filter "post_date__isnull=True"` run with
+dry-run / test-batch / full modes:
+
+```bash
+./scripts/refetch_null_post_dates.sh        # dry run
+./scripts/refetch_null_post_dates.sh test   # 50-record batch
+./scripts/refetch_null_post_dates.sh full   # all records
 ```
 
 ## Command Options
@@ -170,10 +198,12 @@ These are the fields that come from the detail page (enrichment data).
 
 ## Performance Considerations
 
-1. **Rate Limiting**: The scraper includes built-in delays to avoid overwhelming ss.com
+1. **Rate Limiting**: The scraper includes built-in delays
+   to avoid overwhelming ss.com
 2. **Batch Processing**: Use `--batch-size` to control memory usage
 3. **Limit Records**: Use `--limit` for testing or processing in chunks
-4. **Dry Run First**: Always test with `--dry-run` before processing large batches
+4. **Dry Run First**: Always test with `--dry-run` before
+   processing large batches
 
 ## Typical Workflow
 
@@ -248,7 +278,8 @@ To create a refetch command for other scraping apps:
 
 ### VS Code Debugger Setup
 
-A `.vscode/launch.json` file has been created with pre-configured debug configurations:
+The committed `.vscode/launch.json` ships pre-configured
+debug configurations:
 
 1. **Refetch: Dry Run (10 records)** - Test with 10 records in dry-run mode
 2. **Refetch: Process 50 records** - Process a small batch
@@ -360,7 +391,8 @@ Common pdb commands:
 
 ## Migration Requirement
 
-**IMPORTANT**: Before using the refetch command, ensure your database is up to date:
+**IMPORTANT**: Before using the refetch command, ensure your
+database is up to date:
 
 ```bash
 # Check for pending migrations
@@ -370,4 +402,5 @@ python manage.py showmigrations classified_ads
 python manage.py migrate classified_ads
 ```
 
-If you see unapplied migrations (marked with `[ ]`), run the migrate command first.
+If you see unapplied migrations (marked with `[ ]`), run the
+migrate command first.

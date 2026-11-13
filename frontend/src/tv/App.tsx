@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import AppShell from '../shared/layout/AppShell';
 import ProgramList from './routes/ProgramList';
 import SpokiPage from './routes/SpokiPage';
 
@@ -8,13 +9,24 @@ import SpokiPage from './routes/SpokiPage';
  * replaces the old spoki_page view (it fetches the article live via
  * GET /api/tv/spoki-page/). Unknown paths — including the retired
  * react/<uuid>/<reaction>/ form action — land back on the feed.
+ *
+ * AppShell owns the global chrome — TopNav with the two NavTabs
+ * sections below and the Toasts mount.
  */
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<ProgramList />} />
-      <Route path="/spoki-page" element={<SpokiPage />} />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <AppShell
+      appTitle="TV"
+      navItems={[
+        { to: '/', label: 'Programs', end: true },
+        { to: '/spoki-page', label: 'Spoki' },
+      ]}
+    >
+      <Routes>
+        <Route path="/" element={<ProgramList />} />
+        <Route path="/spoki-page" element={<SpokiPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AppShell>
   );
 }

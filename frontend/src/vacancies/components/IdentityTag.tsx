@@ -1,3 +1,5 @@
+import { ExternalLink } from 'lucide-react';
+import Badge from '../../shared/ui/Badge';
 import type { CompanyIdentityOut } from '../api';
 
 /**
@@ -13,16 +15,17 @@ export default function IdentityTag({
 }) {
   const label = `${identity.source}:${identity.employer_id}`;
   if (!identity.portal_url) {
-    return <span className="source-tag">{label}</span>;
+    return <Badge tone="accent">{label}</Badge>;
   }
   return (
-    <a
+    <Badge
+      tone="accent"
       href={identity.portal_url}
       target="_blank"
-      rel="noopener noreferrer"
-      className="source-tag"
+      rel="noopener"
     >
       {label}
-    </a>
+      <ExternalLink className="size-3" aria-hidden="true" />
+    </Badge>
   );
 }

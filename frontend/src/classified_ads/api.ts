@@ -27,6 +27,10 @@ export type PropertyListOut = components['schemas']['PropertyListOut'];
 export type PropertyDetailOut =
   components['schemas']['PropertyDetailOut'];
 export type LinkedAdOut = components['schemas']['LinkedAdOut'];
+export type RentVsBuyRankedOut =
+  components['schemas']['RentVsBuyRankedOut'];
+export type RentVsBuyRankedRowOut =
+  components['schemas']['RentVsBuyRankedRowOut'];
 
 export type Kind = 'apartment' | 'house';
 export type Deal = 'rent' | 'sale';
@@ -178,8 +182,9 @@ export interface RegionAdsParams {
   page?: string | null;
 }
 
-/** GET /api/classified-ads/regions/<id>/ads/ — ads first-seen in the
- *  window inside the region subtree (empty unless deal_type is set). */
+/** GET /api/classified-ads/regions/<id>/ads/ — ads sighted in the
+ *  window inside the region subtree (empty unless deal_type is
+ *  'RENT'/'SELL'; 'ALL' merges both deals). */
 export function fetchRegionAds(
   kind: Kind,
   regionId: string,
@@ -245,5 +250,34 @@ export function fetchProperty(
 ): Promise<PropertyDetailOut> {
   return apiGet<PropertyDetailOut>(
     `${API}/properties/${kind}/${pk}/`,
+  );
+}
+
+export type RentVsBuyGroup = 'type' | 'region' | 'rooms';
+
+export interface RentVsBuyRankedParams {
+  days?: string | null;
+  minAds?: string | null;
+  includeResidual?: boolean;
+  group?: RentVsBuyGroup | null;
+}
+
+/** GET /api/classified-ads/regions/rent-vs-buy/ranked/ — cells of
+ *  (exact region node x group_by dimension) ranked ascending by
+ *  months_to_buyout, the median whole-unit sale price over the
+ *  median monthly rent. `group` picks the second cell key:
+ *  property type (default), whole-region merge, or rooms bucket. */
+export function fetchRentVsBuyRanked(
+  kind: Kind,
+  params: RentVsBuyRankedParams,
+): Promise<RentVsBuyRankedOut> {
+  const qs = new URLSearchParams();
+  qs.set('kind', kind);
+  setNumber(qs, 'days', params.days);
+  setNumber(qs, 'min_ads', params.minAds);
+  if (params.includeResidual) qs.set('include_residual', 'true');
+  if (params.group) qs.set('group_by', params.group);
+  return apiGet<RentVsBuyRankedOut>(
+    `${API}/regions/rent-vs-buy/ranked/?${qs}`,
   );
 }

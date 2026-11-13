@@ -1,0 +1,59 @@
+/* Django-page entry — the landing page, linked via the
+   {% ds_head %} template tag. Bundles the full design system
+   (Tailwind + tokens + component classes) plus prose treatment
+   for server-injected HTML. The news component classes moved
+   to src/news/news.css with the /news/ React cutover. */
+@import "./app.css";
+
+@layer components {
+  /* .prose — h1–h4/ul/a/img styling for injected markup
+     (SpokiPage) — plan §6 ui/Prose. The news fork
+     (.news-prose) lives in src/news/news.css. */
+  .prose {
+    color: var(--ia-fg);
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+
+  .prose :where(h1, h2, h3, h4) {
+    color: var(--ia-fg);
+    font-weight: 600;
+    margin: 1.25em 0 0.5em;
+  }
+
+  .prose h1 {
+    font-size: 1.375rem;
+    line-height: 1.875rem;
+  }
+
+  .prose h2 {
+    font-size: 1.125rem;
+    line-height: 1.75rem;
+  }
+
+  .prose :where(h3, h4) {
+    font-size: 1rem;
+    line-height: 1.5rem;
+  }
+
+  .prose :where(p, ul, ol) {
+    margin: 0.75em 0;
+  }
+
+  .prose :where(ul, ol) {
+    padding-left: 1.25rem;
+    list-style: revert;
+  }
+
+  .prose a {
+    color: var(--ia-accent-text);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .prose img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+}

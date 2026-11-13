@@ -30,8 +30,7 @@ CHANNELS = {
 class TVProgramScraper(BaseScraper):
     """
     Scraper for TV programs from tet.lv: grid parse + Show dedup +
-    OMDb/Cinemeta enrichment for new shows (see
-    docs/plans/tv_show_normalization_plan.md).
+    OMDb/Cinemeta enrichment for new shows.
     """
 
     # Class-level defaults so instances built without __init__ are safe.
@@ -268,35 +267,31 @@ class TVProgramScraper(BaseScraper):
         }
 
         # Airings already stored for this channel-day: by source event
-        # id, by (show, start_time), and — for pre-backfill rows with
-        # no Show — by (normalized title, start_time). An unsaved
-        # channel (dry-run) can have no stored airings.
+        # id (catches a re-scraped airing even when its slot moved)
+        # and by start_time — a channel can't air two programs at
+        # once, so any stored row for the slot dedups the scrape
+        # regardless of which Show it resolved to (dedup-key drift)
+        # or whether it predates Shows at all. An unsaved channel
+        # (dry-run) can have no stored airings.
         seen_events = set()
-        seen_show_times = set()
-        seen_title_times = set()
+        seen_times = set()
         existing_airings = (
             Program.objects.filter(
                 channel_id=self.current_channel.pk,
                 start_time__gte=day_start,
                 start_time__lt=day_end,
-            ).values_list(
-                'show_id', 'start_time', 'title_lv', 'source_event_id'
-            )
+            ).values_list('start_time', 'source_event_id')
             if self.current_channel and self.current_channel.pk
             else []
         )
-        for show_id, start_time, title_lv, event_id in existing_airings:
+        for start_time, event_id in existing_airings:
+            seen_times.add(start_time)
             if event_id:
                 seen_events.add(event_id)
-            if show_id:
-                seen_show_times.add((show_id, start_time))
-            else:
-                seen_title_times.add(
-                    (normalize_title(title_lv).casefold(), start_time)
-                )
 
         filtered_programs = []
         batch_events = set()
+        batch_times = set()
         for program in programs:
             if self._is_excluded_title(program):
                 continue
@@ -306,24 +301,19 @@ class TVProgramScraper(BaseScraper):
                 and (event_id in seen_events or event_id in batch_events)
             ):
                 continue
-            # Pre-backfill airings have no Show — match them by
-            # normalized title + start_time regardless of whether this
-            # result resolved to a Show.
-            title_time = (
-                program['title_norm'].casefold(),
-                program['start_time'],
-            )
-            if title_time in seen_title_times:
+            if (
+                program['start_time'] in seen_times
+                or program['start_time'] in batch_times
+            ):
                 continue
             show = shows_by_key.get(program['dedup_key'])
             if show is not None:
                 if show.is_excluded:
                     continue
-                if (show.pk, program['start_time']) in seen_show_times:
-                    continue
                 program['show'] = show
             if event_id:
                 batch_events.add(event_id)
+            batch_times.add(program['start_time'])
             filtered_programs.append(program)
 
         removed_count = len(programs) - len(filtered_programs)
@@ -455,7 +445,10 @@ class TVProgramScraper(BaseScraper):
 
     def create_or_update_resources(self, resources: list[Program]):
         """Bulk creates program airings; overlapping reruns are
-        idempotent via ``ignore_conflicts``."""
+        idempotent via ``ignore_conflicts`` plus a channel+start
+        slot check — ``unique_together`` can't dedup NULL-show
+        rows or dedup-key drift, so one query drops airings whose
+        slot is already taken (also covers a parallel scrape)."""
         if not resources:
             return
         if self.dry_run:
@@ -464,5 +457,27 @@ class TVProgramScraper(BaseScraper):
                 len(resources),
             )
             return
-        Program.objects.bulk_create(resources, ignore_conflicts=True)
+        taken = {
+            (channel_id, start_time)
+            for channel_id, start_time in Program.objects.filter(
+                channel_id__in={r.channel_id for r in resources},
+                start_time__in={r.start_time for r in resources},
+            ).values_list('channel_id', 'start_time')
+        }
+        new_resources = []
+        for r in resources:
+            slot = (r.channel_id, r.start_time)
+            if slot in taken:
+                continue
+            taken.add(slot)
+            new_resources.append(r)
+        skipped = len(resources) - len(new_resources)
+        if skipped:
+            logger.info(
+                "Skipped %d airing(s) whose channel slot is "
+                "already stored", skipped,
+            )
+        Program.objects.bulk_create(
+            new_resources, ignore_conflicts=True
+        )
         return
