@@ -69,7 +69,10 @@ jobs:
 
   build-and-push:
     needs: [provision-infrastructure]
-    if: always() && (needs.provision-infrastructure.result == 'success' || needs.provision-infrastructure.result == 'skipped')
+    # Main only: this moves the `:latest` tag the scheduled prod
+    # all-jobs job runs — a feature-branch dispatch must not ship
+    # unmerged code to the next scheduled run.
+    if: always() && (needs.provision-infrastructure.result == 'success' || needs.provision-infrastructure.result == 'skipped') && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -100,7 +103,7 @@ jobs:
 
   update-job-images:
     needs: [provision-infrastructure, build-and-push]
-    if: always() && needs.build-and-push.result == 'success'
+    if: always() && needs.build-and-push.result == 'success' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     env:
       REGION: europe-north1
