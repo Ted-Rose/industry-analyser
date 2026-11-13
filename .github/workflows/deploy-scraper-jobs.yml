@@ -26,6 +26,11 @@ env:
 
 jobs:
   provision-infrastructure:
+    # Production env: terraform apply below is only step-`if`-guarded,
+    # so bind the whole job to the main-only env — a feature-branch
+    # dispatch is rejected here instead of touching prod infra
+    # (cost: plan no longer runs off-main either).
+    environment: Production
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -73,8 +78,10 @@ jobs:
     # all-jobs job runs — a feature-branch dispatch must not ship
     # unmerged code to the next scheduled run.
     if: always() && (needs.provision-infrastructure.result == 'success' || needs.provision-infrastructure.result == 'skipped') && github.ref == 'refs/heads/main'
-    # Production environment: GitHub-enforced main-only branch policy
-    # — works even if a dispatched branch edits the `if` above out.
+    # Production env's main-only branch policy is enforced
+    # server-side — covers stale branches whose YAML lacks the `if`
+    # guard (the env key itself is still YAML: defense-in-depth, not
+    # a hard boundary).
     environment: Production
     runs-on: ubuntu-latest
     steps:
@@ -107,6 +114,7 @@ jobs:
   update-job-images:
     needs: [provision-infrastructure, build-and-push]
     if: always() && needs.build-and-push.result == 'success' && github.ref == 'refs/heads/main'
+    # Same Production env gate as build-and-push above.
     environment: Production
     runs-on: ubuntu-latest
     env:

@@ -29,6 +29,10 @@ jobs:
       github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success')
+    # Destructive AR cleanup — bind to the main-only Production env
+    # too (schedule/workflow_run evaluate on refs/heads/main, so
+    # legit triggers pass; stale-branch dispatch is rejected).
+    environment: Production
     steps:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v3

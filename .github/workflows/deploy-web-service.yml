@@ -63,9 +63,10 @@ jobs:
     # workflow_dispatch from a feature branch skips this job (staging
     # still deploys below) — prod must never get unmerged code.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    # GitHub-enforced gate (unlike the `if` above, it can't be edited
-    # out on a dispatched branch): the Production environment's
-    # branch policy allows main only.
+    # Production env's main-only branch policy is enforced
+    # server-side — covers stale branches whose YAML lacks the `if`
+    # above (the env key itself is still YAML: defense-in-depth, not
+    # a hard boundary).
     environment: Production
     runs-on: ubuntu-latest
     steps:
