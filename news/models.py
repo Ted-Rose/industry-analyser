@@ -203,9 +203,10 @@ class NewsDigestItem(models.Model):
 
 class NewsDigestTask(models.Model):
     """Link row: the Google task created for one subscriber's
-    copy of a digest. One row per (digest, user) pair gives
-    rebuild dedup (skip when status='created') plus a per-user
-    audit trail for failed attempts."""
+    copy of a digest. One row per (digest, user) pair lets a
+    rebuild refresh the stored Google task in place while
+    status='created' (rather than skipping the subscriber)
+    and carries a per-user audit trail for failed attempts."""
 
     STATUSES = [
         ('pending', 'Pending'),
