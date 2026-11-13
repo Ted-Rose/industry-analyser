@@ -5,9 +5,11 @@ import logging
 
 from django.conf import settings
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from google_api.utils import GOOGLE_TASKS_SCOPES, get_user_credentials
 
+from .backfill import normalize_link
 from .models import NewsDigestSubscription, NewsDigestTask
 from .preferences import ordered_story_articles
 
@@ -60,22 +62,26 @@ def _record_failure(digest, user, error):
 
 
 def _task_body(digest, user):
-    """The insert body for one subscriber — notes carry the
-    digest link plus each headline with the article from the
-    subscriber's own most-preferred covering outlet."""
+    """The insert/update body for one subscriber — notes carry
+    the digest link, then one markdown-style bullet per item:
+    headline, the subscriber's own most-preferred covering
+    outlet's name and its (normalized) article link."""
     date_str = digest.date.isoformat()
     link_base = getattr(
         settings, 'GOOGLE_TASKS_LINK_BASE_URL', settings.BASE_URL
     )
     notes = [f'{link_base}/news/{date_str}/', '']
     for item in digest.items.order_by('rank').select_related('story'):
-        # The subscriber's most preferred outlet that covered the
-        # story, in brackets after the headline.
         article = next(
             iter(ordered_story_articles(item.story, user)), None
         )
-        src = f' ({article.link})' if article else ''
-        notes.append(f'{item.rank}. {item.headline}{src}')
+        if article is None:
+            notes.append(f'- {item.headline}')
+        else:
+            notes.append(
+                f'- {item.headline} — {article.source.name} — '
+                f'{normalize_link(article.link)}'
+            )
     # No 'due' — the task is a pointer at the digest page, not a
     # deadline (explicit product decision).
     return {
@@ -85,16 +91,27 @@ def _task_body(digest, user):
 
 
 def _run_for_user(digest, user):
-    """One subscriber's attempt. A 'created' link row is the
-    rebuild dedup; a 'failed'/'pending' row is retried."""
-    if NewsDigestTask.objects.filter(
-        digest=digest, user=user, status='created'
-    ).exists():
+    """One subscriber's attempt. An empty digest writes no link
+    row and calls nothing remote (a later rebuild with items
+    creates the task fresh); a 'created' link row refreshes the
+    stored Google task in place — a 404 (the subscriber deleted
+    it) falls back to a fresh insert; a 'pending'/'failed' row
+    is retried via insert."""
+    if not digest.items.exists():
+        logger.info(
+            'Digest %s is empty — no Google task for %s',
+            digest.date.isoformat(),
+            user.username,
+        )
         return
-    link, _ = NewsDigestTask.objects.update_or_create(
-        digest=digest,
-        user=user,
-        defaults={'status': 'pending', 'error': ''},
+    link = NewsDigestTask.objects.filter(
+        digest=digest, user=user
+    ).first()
+    can_update = (
+        link is not None
+        and link.status == 'created'
+        and bool(link.task_id)
+        and bool(link.task_list_id)
     )
     creds = get_user_credentials(user, GOOGLE_TASKS_SCOPES)
     if creds is None:
@@ -103,23 +120,70 @@ def _run_for_user(digest, user):
             f're-authorize at {settings.BASE_URL}/google/login'
         )
         logger.warning(msg)
-        link.status = 'failed'
-        link.error = msg
-        link.save(update_fields=['status', 'error', 'updated_at'])
+        if can_update:
+            # Keep 'created': the remote task may still exist,
+            # so a 'failed' flip would re-insert a duplicate on
+            # the next build. The error still lands on the row.
+            link.error = msg
+            link.save(update_fields=['error', 'updated_at'])
+        else:
+            link, _ = NewsDigestTask.objects.update_or_create(
+                digest=digest,
+                user=user,
+                defaults={'status': 'failed', 'error': msg},
+            )
         return
 
     service = build('tasks', 'v1', credentials=creds)
+    body = _task_body(digest, user)
+    if can_update:
+        try:
+            service.tasks().update(
+                tasklist=link.task_list_id,
+                task=link.task_id,
+                body={'id': link.task_id, **body},
+            ).execute()
+        except HttpError as e:
+            if e.status_code != 404:
+                raise
+            logger.info(
+                'Google task %s for digest %s user %s is gone — '
+                're-inserting',
+                link.task_id,
+                digest.date.isoformat(),
+                user.username,
+            )
+        else:
+            link.error = ''
+            link.save(update_fields=['error', 'updated_at'])
+            logger.info(
+                'Google task %s updated for digest %s user %s',
+                link.task_id,
+                digest.date.isoformat(),
+                user.username,
+            )
+            return
+    else:
+        link, _ = NewsDigestTask.objects.update_or_create(
+            digest=digest,
+            user=user,
+            defaults={'status': 'pending', 'error': ''},
+        )
     task_list_id = _resolve_task_list_id(service)
     created = service.tasks().insert(
         tasklist=task_list_id,
-        body=_task_body(digest, user),
+        body=body,
     ).execute()
 
     link.task_id = created['id']
     link.task_list_id = task_list_id
     link.status = 'created'
+    link.error = ''
     link.save(
-        update_fields=['task_id', 'task_list_id', 'status', 'updated_at']
+        update_fields=[
+            'task_id', 'task_list_id', 'status', 'error',
+            'updated_at',
+        ]
     )
     logger.info(
         'Google task %s created for digest %s user %s',

@@ -21,6 +21,8 @@ from django.utils import timezone
 from google.oauth2 import service_account
 from google_api.models import GoogleOAuthCredentials
 from google_api.utils import GOOGLE_TASKS_SCOPES
+from googleapiclient.errors import HttpError
+from httplib2 import Response
 from langdetect import LangDetectException
 from langdetect.lang_detect_exception import ErrorCode
 
@@ -66,6 +68,7 @@ from .models import (
 )
 from .preferences import ordered_sources, ordered_story_articles
 from .scraper import NewsScraper
+from .tasks import _task_body
 from .topics import TOPICS
 
 FEED_A = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -1156,8 +1159,9 @@ class DigestExtraTests(TestCase):
 
 class DigestGoogleTaskTests(TestCase):
     """The build -> per-subscriber Google task fan-out: one
-    insert per enabled subscription, per-user insert bodies and
-    link rows, rebuild dedup and isolated failure paths."""
+    task per enabled subscription, per-user bodies and link
+    rows, in-place refresh on rebuild, the empty-digest skip
+    and isolated failure paths."""
 
     _ANY_CREDS = object()
 
@@ -1260,9 +1264,9 @@ class DigestGoogleTaskTests(TestCase):
         self.assertNotIn('due', body)
         notes = body['notes']
         self.assertIn(f'/news/{date_str}/', notes)
-        self.assertIn('1. Ziņa viens', notes)
-        # Each headline carries the preferred outlet's link.
-        self.assertIn('(https://gta.lv/', notes)
+        # One markdown-style bullet per item: headline, the
+        # preferred outlet's name and its article link.
+        self.assertIn('- Ziņa viens — GTA — https://gta.lv/', notes)
         # Both subscribers asked for their own credentials and
         # got their own (digest, user) link row.
         self.assertEqual(self.creds_getter.call_count, 2)
@@ -1301,8 +1305,12 @@ class DigestGoogleTaskTests(TestCase):
             user: inserts[i].kwargs['body']['notes']
             for i, user in enumerate(asked_users)
         }
-        self.assertIn('(https://gtb.lv/', notes_by_user[self.alice])
-        self.assertIn('(https://gta.lv/', notes_by_user[self.bob])
+        self.assertIn(
+            '— GTB — https://gtb.lv/', notes_by_user[self.alice]
+        )
+        self.assertIn(
+            '— GTA — https://gta.lv/', notes_by_user[self.bob]
+        )
 
     def test_list_auto_created_per_subscriber(self):
         self._story()
@@ -1354,10 +1362,12 @@ class DigestGoogleTaskTests(TestCase):
         self.assertEqual(self._link(self.bob).status, 'created')
         ok.tasks.return_value.insert.assert_called_once()
 
-    def test_rebuild_dedups_per_user_serves_new_subscriber(self):
-        # Second build: bob opted out, so only alice's insert —
-        # then bob subscribes and the --date rerun inserts for
-        # him alone.
+    def test_rebuild_updates_created_row_serves_new_subscriber(
+        self,
+    ):
+        # Second build: alice's 'created' row refreshes her
+        # existing task via update — no second insert — while
+        # bob's fresh subscription still inserts for him alone.
         self.sub_bob.is_enabled = False
         self.sub_bob.save()
         self._story()
@@ -1366,10 +1376,122 @@ class DigestGoogleTaskTests(TestCase):
         self.sub_bob.is_enabled = True
         self.sub_bob.save()
         self._build(service=service)
+        update = service.tasks.return_value.update
+        update.assert_called_once()
+        self.assertEqual(update.call_args.kwargs['task'], 't1')
+        self.assertEqual(update.call_args.kwargs['tasklist'], 'l1')
         insert = service.tasks.return_value.insert
         self.assertEqual(insert.call_count, 2)
         self.assertEqual(self._link(self.alice).status, 'created')
         self.assertEqual(self._link(self.bob).status, 'created')
+
+    def test_empty_digest_creates_no_task_or_link_row(self):
+        # A build where no story qualified must not insert a
+        # bare-link task — a later rebuild with items then
+        # creates the task fresh.
+        _, service = self._build()
+        self.creds_getter.assert_not_called()
+        service.tasklists.return_value.list.assert_not_called()
+        service.tasks.return_value.insert.assert_not_called()
+        self.assertEqual(NewsDigestTask.objects.count(), 0)
+        self.assertTrue(
+            NewsDigest.objects.filter(date=self.today).exists()
+        )
+        self._story()
+        _, service = self._build(service=service)
+        self.assertEqual(
+            service.tasks.return_value.insert.call_count, 2
+        )
+        for user in (self.alice, self.bob):
+            self.assertEqual(self._link(user).status, 'created')
+
+    def test_rebuild_refreshes_notes_on_the_same_task(self):
+        self._story()
+        _, service = self._build()
+        # A rebuild with new items refreshes the SAME Google
+        # task — the stored task_id is update()d, not skipped.
+        self._story('Ziņa divi', 4.0)
+        self._build(service=service)
+        update = service.tasks.return_value.update
+        self.assertEqual(update.call_count, 2)
+        call = update.call_args_list[0]
+        self.assertEqual(call.kwargs['tasklist'], 'l1')
+        self.assertEqual(call.kwargs['task'], 't1')
+        body = call.kwargs['body']
+        self.assertEqual(body['id'], 't1')
+        self.assertIn('- Ziņa viens', body['notes'])
+        self.assertIn('- Ziņa divi', body['notes'])
+        # No second task — still one insert per user total.
+        self.assertEqual(
+            service.tasks.return_value.insert.call_count, 2
+        )
+        for user in (self.alice, self.bob):
+            link = self._link(user)
+            self.assertEqual(link.status, 'created')
+            self.assertEqual(link.task_id, 't1')
+
+    def test_update_404_reinserts_and_stores_new_task_id(self):
+        # The subscriber deleted the Google task: the rebuild's
+        # update 404s and the code falls back to insert on the
+        # same link row.
+        self._story()
+        _, service = self._build()
+        self._story('Ziņa divi', 4.0)
+        service.tasks.return_value.update\
+            .return_value.execute.side_effect = HttpError(
+                Response({'status': '404', 'reason': 'Not Found'}),
+                b'{"error": {"message": "Task not found."}}',
+            )
+        # Fan-out order is subscription pk — alice then bob.
+        service.tasks.return_value.insert\
+            .return_value.execute.side_effect = [
+                {'id': 't2'},
+                {'id': 't3'},
+            ]
+        insert = service.tasks.return_value.insert
+        insert.reset_mock()
+        self._build(service=service)
+        self.assertEqual(insert.call_count, 2)
+        self.assertEqual(self._link(self.alice).task_id, 't2')
+        self.assertEqual(self._link(self.bob).task_id, 't3')
+        for user in (self.alice, self.bob):
+            link = self._link(user)
+            self.assertEqual(link.status, 'created')
+            self.assertEqual(link.task_list_id, 'l1')
+
+    def test_update_non_404_error_marks_row_failed(self):
+        self._story()
+        _, service = self._build()
+        service.tasks.return_value.update\
+            .return_value.execute.side_effect = HttpError(
+                Response({'status': '500'}),
+                b'{"error": {"message": "backend error"}}',
+            )
+        insert = service.tasks.return_value.insert
+        insert.reset_mock()
+        self._build(service=service)
+        insert.assert_not_called()
+        for user in (self.alice, self.bob):
+            link = self._link(user)
+            self.assertEqual(link.status, 'failed')
+            self.assertIn('backend error', link.error)
+            # The remote task_id survives the failure.
+            self.assertEqual(link.task_id, 't1')
+
+    def test_notes_bullet_is_bare_without_covering_article(self):
+        story = NewsStory.objects.create(
+            title='Ziņa viens', topic=self.topic,
+            published_date=self.today,
+        )
+        digest = NewsDigest.objects.create(date=self.today)
+        NewsDigestItem.objects.create(
+            digest=digest, story=story, rank=1,
+            headline='Ziņa viens', rationale='',
+        )
+        body = _task_body(digest, self.alice)
+        self.assertTrue(
+            body['notes'].endswith('- Ziņa viens')
+        )
 
     def test_failed_row_retried_on_next_build(self):
         self.sub_bob.is_enabled = False

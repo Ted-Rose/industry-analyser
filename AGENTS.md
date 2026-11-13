@@ -478,8 +478,10 @@ schedule, `--dry-run` prints the plan.
   the `AIJob` row once (the live cap is
   `AIJob.max_requests_per_run`).
 - News digest → Google task (`news/tasks.py`, runs inside
-  `build_digest` after commit; best-effort, dedup via the
-  `NewsDigestTask` link row): `GOOGLE_OAUTH_CLIENT_JSON` (the
+  `build_digest` after commit; best-effort — an empty digest
+  creates nothing, and a `created` `NewsDigestTask` link row
+  refreshes the same Google task in place on rebuild):
+  `GOOGLE_OAUTH_CLIENT_JSON` (the
   `{"web": {...}}` client secrets doc, materialized to
   `GOOGLE_APP_SECRETS_PATH` at settings import) alone gates the
   feature — recipients are the enabled `NewsDigestSubscription`

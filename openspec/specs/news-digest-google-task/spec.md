@@ -43,15 +43,31 @@ transaction commits and MUST NOT run for a `dry_run` build.
 The task body SHALL contain a `title` naming the digest date
 and `notes` linking to
 `{GOOGLE_TASKS_LINK_BASE_URL}/news/<date>/` (defaults to
-`BASE_URL`) plus the ranked headlines with the subscriber's
-own preferred-outlet link appended; it SHALL NOT set a `due`
-field.
+`BASE_URL`) followed by one `- {headline} — {outlet name} —
+{article link}` bullet per item; it SHALL NOT set a `due`
+field. When the digest has no items the system SHALL skip the
+subscriber entirely — no Google API call, no link row — so a
+rebuild with items still creates the task fresh.
 
 #### Scenario: Headlines use the subscriber's own ranking
 
 - **WHEN** a story was covered by outlets A and B and the
   subscriber's `NewsSourcePreference` ranks B first
-- **THEN** their task's notes append B's article link, not A's
+- **THEN** their task's notes carry B's outlet name and
+  article link, not A's
+
+#### Scenario: Story without a covering article
+
+- **WHEN** a digest item's story has no confirmed member
+  article
+- **THEN** its bullet is a bare `- {headline}` with no
+  outlet/link separators
+
+#### Scenario: Empty digest creates no task
+
+- **WHEN** a digest builds with zero items
+- **THEN** no Google API call is made and no `NewsDigestTask`
+  row is written for any subscriber
 
 ### Requirement: Task list resolution by title
 
@@ -94,18 +110,29 @@ case-insensitively, and when absent create it via
 
 ### Requirement: Rebuild dedup via link row
 
-Task creation SHALL be attempted for a subscriber only when
-no link row with `status='created'` exists for that
-`(digest, user)` pair, so `update_or_create` rebuilds,
-`--date` backfills and `top_n` changes never produce a
-second task for the same subscriber. A `failed` row MAY be
-retried on the next build.
+A link row with `status='created'` carrying
+`task_id`/`task_list_id` SHALL make a rebuild refresh the
+stored Google task in place via `tasks().update` — never a
+second `tasks().insert` for that subscriber — so the notes
+always reflect the current items. A 404 (the subscriber
+deleted the task) SHALL fall back to `tasks().insert`,
+storing the new `task_id` on the same row. A
+`failed`/`pending` row MAY be retried via insert.
 
-#### Scenario: Rebuilt digest does not duplicate the task
+#### Scenario: Rebuilt digest updates the task in place
 
 - **WHEN** `build_news_digest` runs again for a date whose
-  link row for a subscriber is `status='created'`
-- **THEN** no `tasks().insert` call is made for that user
+  link row for a subscriber is `status='created'` with a
+  stored `task_id`/`task_list_id`
+- **THEN** `tasks().update` refreshes that task's title and
+  notes and no `tasks().insert` call is made for that user
+
+#### Scenario: Deleted task is re-inserted
+
+- **WHEN** the in-place `tasks().update` gets a 404 because
+  the subscriber deleted the Google task
+- **THEN** the system falls back to `tasks().insert` and the
+  same link row stores the new `task_id`
 
 #### Scenario: Rebuild serves newly subscribed users
 
