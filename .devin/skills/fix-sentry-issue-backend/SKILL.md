@@ -76,10 +76,15 @@ A Django exception can still be a contract problem caused by
 the SPA — but both sides live in THIS repo, so fix wherever
 the root cause is; same branch, same PR.
 
-## 4. Branch and fix
+## 4. Branch and fix — in a worktree
 
-    git switch main && git pull --ff-only
-    git switch -c fix/sentry-<issue_short_id>
+    git fetch origin
+    git worktree add ../industry-analyser-wt/<slug> \
+      -b fix/sentry-<issue_short_id> origin/main
+    cd ../industry-analyser-wt/<slug>
+
+Never branch in the main checkout (AGENTS.md) — it may hold
+the user's uncommitted work or another agent's session.
 
 - Read `AGENTS.md`; 79-char lines in every file type.
 - `source venv/bin/activate` before any `manage.py` command.
@@ -101,7 +106,7 @@ the root cause is; same branch, same PR.
   `git status` first and leave the user's dirty files alone.
 - Commit format `Type: Capitalized message` (usually `Fix:`).
 - `git push -u origin <branch>`, then a PR (ready for review,
-  never a draft) `--base main` per the `/create-pr` skill —
+  never a draft) `--base main` per `.devin/skills/create-pr/` —
   body via `--body-file`, never inline `--body`.
 - Body must: link the Sentry issue
   (`https://industry-analyser-ue.sentry.io/issues/<id>/`),

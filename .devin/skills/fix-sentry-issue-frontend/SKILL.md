@@ -75,13 +75,15 @@ backend bug — a django-ninja contract change or a failing
 root cause is backend, fix it there per `AGENTS.md` and
 `.devin/rules/` — same repo, same branch, same PR.
 
-## 4. Branch and fix
+## 4. Branch and fix — in a worktree
 
-    git switch main && git pull --ff-only
-    git switch -c fix/sentry-<issue_short_id>
+    git fetch origin
+    git worktree add ../industry-analyser-wt/<slug> \
+      -b fix/sentry-<issue_short_id> origin/main
+    cd ../industry-analyser-wt/<slug>
 
-If the working tree has uncommitted changes that block the
-switch, stop and ask the user before proceeding.
+Never branch in the main checkout (AGENTS.md) — it may hold
+the user's uncommitted work or another agent's session.
 
 - Read `AGENTS.md` and `.devin/rules/*` first; 79-char lines in
   every file type.

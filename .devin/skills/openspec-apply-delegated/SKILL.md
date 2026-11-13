@@ -5,8 +5,7 @@ description: >
   implementer agent cuts a feature branch, works the task list,
   and opens a PR ready for review; once checks are green a
   fresh reviewer agent reports severity-tagged findings and
-  fixer agents
-  iterate until clean. Use when asked to implement an OpenSpec
+  fixer agents iterate until clean. Use when asked to implement an OpenSpec
   change end-to-end without driving the task loop interactively.
 ---
 

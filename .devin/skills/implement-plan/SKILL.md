@@ -47,8 +47,10 @@ the work yourself into one prompt per stage.) Prompt:
     Implement <plan-file> (absolute path) in the
     industry-analyser repo.
 
-    1. git switch main && git pull --ff-only;
-       git switch -c feat/<slug>
+    1. git fetch origin; git worktree add
+       ../industry-analyser-wt/<slug> -b feat/<slug>
+       origin/main; cd ../industry-analyser-wt/<slug>
+       (never branch in the main checkout — AGENTS.md)
     2. Read AGENTS.md first (repo root). Every line <= 79
        chars in every file type.
        DANGER: .env's DATABASE_URL is PRODUCTION. Never run
@@ -75,7 +77,6 @@ the work yourself into one prompt per stage.) Prompt:
        pr-body.md, use --body-file, rm it after. Body must
        include a UI-verification section.
     7. gh pr checks <N> --watch; fix failures until green.
-       The PR is opened ready for review — never a draft.
     Return: PR URL, files changed, test results, anything you
     could not do (e.g. a migrate command for the user).
 
@@ -130,8 +131,14 @@ If the reviewer reported blocker/should-fix findings:
 - If a subagent reports the plan is unimplementable as
   written, stop and ask the user rather than improvising.
 
+Once a review round is clean AND the PR's checks are green,
+remove the worktree immediately — `git worktree remove
+<path>` + `git branch -D <type>/<slug>` per AGENTS.md; don't
+wait for merge.
+
 ## Final report
 
-PR URL, review rounds needed, findings fixed per round, and
-any outstanding items (e.g. a `DATABASE_URL=... migrate`
+PR URL, review rounds needed, findings fixed per round,
+confirmation the worktree was removed, and any outstanding
+items (e.g. a `DATABASE_URL=... migrate`
 command the user must run).

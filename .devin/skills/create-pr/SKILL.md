@@ -58,5 +58,6 @@ description: >
 8. The PR is created ready for review — never a draft unless
    the user explicitly asks. Report the PR URL, then run the
    review loop (AGENTS.md): spawn a fresh reviewer subagent
-   on the diff, fix useful findings, push, repeat until a
-   round finds nothing meaningful.
+   on the diff, fix useful findings, push, and re-run
+   `gh pr checks --watch` — repeat until a round finds
+   nothing meaningful and checks are green.
