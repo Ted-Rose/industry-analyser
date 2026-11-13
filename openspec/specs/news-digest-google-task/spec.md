@@ -112,27 +112,19 @@ case-insensitively, and when absent create it via
 
 A link row with `status='created'` carrying
 `task_id`/`task_list_id` SHALL make a rebuild refresh the
-stored Google task in place via `tasks().update` — never a
-second `tasks().insert` for that subscriber — so the notes
-always reflect the current items. A 404 (the subscriber
-deleted the task) SHALL fall back to `tasks().insert`,
-storing the new `task_id` on the same row. A
-`failed`/`pending` row MAY be retried via insert.
+stored Google task in place via `tasks().patch` — a partial
+update that preserves subscriber-set fields such as
+`status` and `due` — never a second `tasks().insert` for
+that subscriber — so the notes always reflect the current
+items. A `failed`/`pending` row MAY be retried via insert.
 
 #### Scenario: Rebuilt digest updates the task in place
 
 - **WHEN** `build_news_digest` runs again for a date whose
   link row for a subscriber is `status='created'` with a
   stored `task_id`/`task_list_id`
-- **THEN** `tasks().update` refreshes that task's title and
+- **THEN** `tasks().patch` refreshes that task's title and
   notes and no `tasks().insert` call is made for that user
-
-#### Scenario: Deleted task is re-inserted
-
-- **WHEN** the in-place `tasks().update` gets a 404 because
-  the subscriber deleted the Google task
-- **THEN** the system falls back to `tasks().insert` and the
-  same link row stores the new `task_id`
 
 #### Scenario: Rebuild serves newly subscribed users
 
@@ -148,6 +140,31 @@ storing the new `task_id` on the same row. A
   `status='failed'` and the digest is rebuilt
 - **THEN** one new insert attempt runs for that user and the
   row's status/error is updated
+
+### Requirement: In-place refresh failure handling
+
+A `tasks().patch` 404 (the subscriber deleted the task)
+SHALL fall back to `tasks().insert`, storing the new
+`task_id` on the same row. Any other `tasks().patch`
+failure SHALL keep the row at `status='created'` with its
+`task_id` and record the error — the remote task may still
+exist — so the next build retries the patch rather than
+inserting a duplicate task.
+
+#### Scenario: Deleted task is re-inserted
+
+- **WHEN** the in-place `tasks().patch` gets a 404 because
+  the subscriber deleted the Google task
+- **THEN** the system falls back to `tasks().insert` and the
+  same link row stores the new `task_id`
+
+#### Scenario: Patch failure keeps the row retryable
+
+- **WHEN** the in-place `tasks().patch` raises any error
+  other than a 404
+- **THEN** the link row stays `status='created'` with its
+  `task_id` preserved and the error recorded, and the next
+  build retries `tasks().patch` instead of inserting
 
 ### Requirement: Per-subscriber failure isolation
 
@@ -167,10 +184,14 @@ the other subscribers' attempts, MUST NOT propagate into
 ### Requirement: Failure audit on the link row
 
 Each per-subscriber failure SHALL be logged through the
-`news` logger and recorded on that user's link row as
-`status='failed'` with the exception text in `error`. When
-credentials are missing the log line and `error` SHALL point
-at `{BASE_URL}/google/login` as the re-auth path.
+`news` logger and recorded on that user's link row with the
+exception text in `error` — `status='failed'` for a
+non-`created` row, while a `created` row keeps its status
+and `task_id` (the remote task may still exist) so the next
+build retries the in-place refresh rather than inserting a
+duplicate. When credentials are missing the log line and
+`error` SHALL point at `{BASE_URL}/google/login` as the
+re-auth path.
 
 #### Scenario: No Google credentials still yields a digest
 

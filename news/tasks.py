@@ -61,8 +61,24 @@ def _record_failure(digest, user, error):
         )
 
 
+def _record_update_error(digest, user, link, error):
+    """Record a failed in-place refresh on a 'created' link
+    row. The row keeps its status and task_id — the remote
+    task may still exist, so flipping to 'failed' would make
+    the next build take the insert path and write a duplicate
+    Google task. The next build retries the patch instead."""
+    link.error = str(error)
+    link.save(update_fields=['error', 'updated_at'])
+    logger.exception(
+        'Google task %s refresh failed for digest %s user %s',
+        link.task_id,
+        digest.date.isoformat(),
+        user.username,
+    )
+
+
 def _task_body(digest, user):
-    """The insert/update body for one subscriber — notes carry
+    """The insert/patch body for one subscriber — notes carry
     the digest link, then one markdown-style bullet per item:
     headline, the subscriber's own most-preferred covering
     outlet's name and its (normalized) article link."""
@@ -94,9 +110,11 @@ def _run_for_user(digest, user):
     """One subscriber's attempt. An empty digest writes no link
     row and calls nothing remote (a later rebuild with items
     creates the task fresh); a 'created' link row refreshes the
-    stored Google task in place — a 404 (the subscriber deleted
-    it) falls back to a fresh insert; a 'pending'/'failed' row
-    is retried via insert."""
+    stored Google task in place via tasks().patch — a 404 (the
+    subscriber deleted it) falls back to a fresh insert while
+    any other patch failure keeps 'created' and is retried on
+    the next build; a 'pending'/'failed' row is retried via
+    insert."""
     if not digest.items.exists():
         logger.info(
             'Digest %s is empty — no Google task for %s',
@@ -138,14 +156,18 @@ def _run_for_user(digest, user):
     body = _task_body(digest, user)
     if can_update:
         try:
-            service.tasks().update(
+            # patch is a partial update — subscriber-set fields
+            # (completed status, due) survive a rebuild;
+            # update() is a full PUT and would reset them.
+            service.tasks().patch(
                 tasklist=link.task_list_id,
                 task=link.task_id,
                 body={'id': link.task_id, **body},
             ).execute()
         except HttpError as e:
             if e.status_code != 404:
-                raise
+                _record_update_error(digest, user, link, e)
+                return
             logger.info(
                 'Google task %s for digest %s user %s is gone — '
                 're-inserting',
@@ -153,6 +175,11 @@ def _run_for_user(digest, user):
                 digest.date.isoformat(),
                 user.username,
             )
+        except Exception as e:
+            # Any patch failure keeps 'created' — see
+            # _record_update_error for the duplicate-task risk.
+            _record_update_error(digest, user, link, e)
+            return
         else:
             link.error = ''
             link.save(update_fields=['error', 'updated_at'])

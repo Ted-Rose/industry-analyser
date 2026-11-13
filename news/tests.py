@@ -22,7 +22,6 @@ from google.oauth2 import service_account
 from google_api.models import GoogleOAuthCredentials
 from google_api.utils import GOOGLE_TASKS_SCOPES
 from googleapiclient.errors import HttpError
-from httplib2 import Response
 from langdetect import LangDetectException
 from langdetect.lang_detect_exception import ErrorCode
 
@@ -1347,6 +1346,25 @@ class DigestGoogleTaskTests(TestCase):
         digest = NewsDigest.objects.get()
         self.assertEqual(digest.items.count(), 1)
 
+    def test_no_creds_on_created_row_keeps_created(self):
+        # A missing grant on a refreshable row must not flip it
+        # to 'failed' either — the remote task still exists, so
+        # the row keeps 'created'/'t1', records the re-auth
+        # error and the next build retries the patch.
+        self._story()
+        self._build()
+        _, service = self._build(
+            creds={self.alice: None, self.bob: Mock()},
+        )
+        link = self._link(self.alice)
+        self.assertEqual(link.status, 'created')
+        self.assertEqual(link.task_id, 't1')
+        self.assertIn('google/login', link.error)
+        # Alice never reaches the API; bob's refresh still ran.
+        patch = service.tasks.return_value.patch
+        patch.assert_called_once()
+        service.tasks.return_value.insert.assert_not_called()
+
     def test_insert_exception_isolates_that_user(self):
         self._story()
         failing = self._service()
@@ -1362,11 +1380,11 @@ class DigestGoogleTaskTests(TestCase):
         self.assertEqual(self._link(self.bob).status, 'created')
         ok.tasks.return_value.insert.assert_called_once()
 
-    def test_rebuild_updates_created_row_serves_new_subscriber(
+    def test_rebuild_patches_created_row_serves_new_subscriber(
         self,
     ):
         # Second build: alice's 'created' row refreshes her
-        # existing task via update — no second insert — while
+        # existing task via patch — no second insert — while
         # bob's fresh subscription still inserts for him alone.
         self.sub_bob.is_enabled = False
         self.sub_bob.save()
@@ -1376,10 +1394,10 @@ class DigestGoogleTaskTests(TestCase):
         self.sub_bob.is_enabled = True
         self.sub_bob.save()
         self._build(service=service)
-        update = service.tasks.return_value.update
-        update.assert_called_once()
-        self.assertEqual(update.call_args.kwargs['task'], 't1')
-        self.assertEqual(update.call_args.kwargs['tasklist'], 'l1')
+        patch = service.tasks.return_value.patch
+        patch.assert_called_once()
+        self.assertEqual(patch.call_args.kwargs['task'], 't1')
+        self.assertEqual(patch.call_args.kwargs['tasklist'], 'l1')
         insert = service.tasks.return_value.insert
         self.assertEqual(insert.call_count, 2)
         self.assertEqual(self._link(self.alice).status, 'created')
@@ -1409,12 +1427,12 @@ class DigestGoogleTaskTests(TestCase):
         self._story()
         _, service = self._build()
         # A rebuild with new items refreshes the SAME Google
-        # task — the stored task_id is update()d, not skipped.
+        # task — the stored task_id is patch()ed, not skipped.
         self._story('Ziņa divi', 4.0)
         self._build(service=service)
-        update = service.tasks.return_value.update
-        self.assertEqual(update.call_count, 2)
-        call = update.call_args_list[0]
+        patch = service.tasks.return_value.patch
+        self.assertEqual(patch.call_count, 2)
+        call = patch.call_args_list[0]
         self.assertEqual(call.kwargs['tasklist'], 'l1')
         self.assertEqual(call.kwargs['task'], 't1')
         body = call.kwargs['body']
@@ -1430,16 +1448,16 @@ class DigestGoogleTaskTests(TestCase):
             self.assertEqual(link.status, 'created')
             self.assertEqual(link.task_id, 't1')
 
-    def test_update_404_reinserts_and_stores_new_task_id(self):
+    def test_patch_404_reinserts_and_stores_new_task_id(self):
         # The subscriber deleted the Google task: the rebuild's
-        # update 404s and the code falls back to insert on the
+        # patch 404s and the code falls back to insert on the
         # same link row.
         self._story()
         _, service = self._build()
         self._story('Ziņa divi', 4.0)
-        service.tasks.return_value.update\
+        service.tasks.return_value.patch\
             .return_value.execute.side_effect = HttpError(
-                Response({'status': '404', 'reason': 'Not Found'}),
+                SimpleNamespace(status=404, reason='Not Found'),
                 b'{"error": {"message": "Task not found."}}',
             )
         # Fan-out order is subscription pk — alice then bob.
@@ -1459,24 +1477,55 @@ class DigestGoogleTaskTests(TestCase):
             self.assertEqual(link.status, 'created')
             self.assertEqual(link.task_list_id, 'l1')
 
-    def test_update_non_404_error_marks_row_failed(self):
+    def test_patch_non_404_error_keeps_created_and_retries(
+        self,
+    ):
+        # A transient Google failure on the in-place refresh
+        # must not flip the row to 'failed' — the remote task
+        # may still exist, so the next build retries patch on
+        # the same task_id instead of inserting a duplicate.
         self._story()
         _, service = self._build()
-        service.tasks.return_value.update\
-            .return_value.execute.side_effect = HttpError(
-                Response({'status': '500'}),
-                b'{"error": {"message": "backend error"}}',
-            )
+        patch = service.tasks.return_value.patch
         insert = service.tasks.return_value.insert
+        patch.return_value.execute.side_effect = HttpError(
+            SimpleNamespace(status=500, reason='Server Error'),
+            b'{"error": {"message": "backend error"}}',
+        )
         insert.reset_mock()
         self._build(service=service)
         insert.assert_not_called()
         for user in (self.alice, self.bob):
             link = self._link(user)
-            self.assertEqual(link.status, 'failed')
+            self.assertEqual(link.status, 'created')
             self.assertIn('backend error', link.error)
             # The remote task_id survives the failure.
             self.assertEqual(link.task_id, 't1')
+        # The next build retries the patch — still no insert.
+        patch.return_value.execute.side_effect = None
+        patch.reset_mock()
+        self._build(service=service)
+        self.assertEqual(patch.call_count, 2)
+        insert.assert_not_called()
+
+    def test_patch_exception_keeps_created_and_retries(self):
+        # The same keep-'created' rule holds for non-HTTP
+        # failures (transport, auth refresh, etc.).
+        self._story()
+        _, service = self._build()
+        patch = service.tasks.return_value.patch
+        patch.return_value.execute.side_effect = ValueError(
+            'boom'
+        )
+        insert = service.tasks.return_value.insert
+        insert.reset_mock()
+        self._build(service=service)
+        for user in (self.alice, self.bob):
+            link = self._link(user)
+            self.assertEqual(link.status, 'created')
+            self.assertEqual(link.task_id, 't1')
+            self.assertIn('boom', link.error)
+        insert.assert_not_called()
 
     def test_notes_bullet_is_bare_without_covering_article(self):
         story = NewsStory.objects.create(
