@@ -2,7 +2,7 @@
 name: implement-plan
 description: Implement a plan end-to-end with
   subagents — run an implementation agent that cuts a feature
-  branch and opens a draft PR, then review the PR with fresh
+  branch and opens a PR, then review the PR with fresh
   reviewer agents and iterate fix rounds until reviewers
   report no issues. Invoke when the user asks to
   implement/execute a plan — an OpenSpec change dir
@@ -47,8 +47,11 @@ the work yourself into one prompt per stage.) Prompt:
     Implement <plan-file> (absolute path) in the
     industry-analyser repo.
 
-    1. git switch main && git pull --ff-only;
-       git switch -c feat/<slug>
+    1. git fetch origin; git worktree add
+       ../industry-analyser-wt/<slug> -b feat/<slug>
+       origin/main; cd ../industry-analyser-wt/<slug>
+       (never branch in the main checkout — AGENTS.md;
+       create/copy `venv/` + `.env` into it first)
     2. Read AGENTS.md first (repo root). Every line <= 79
        chars in every file type.
        DANGER: .env's DATABASE_URL is PRODUCTION. Never run
@@ -70,12 +73,11 @@ the work yourself into one prompt per stage.) Prompt:
     5. Commit only files you edited (never git add -A, never
        commit plan/scratch md). Format: `Type: Capitalized
        msg`. Push: git push -u origin feat/<slug>
-    6. Open a DRAFT PR with --base main following
-       .devin/skills/create-pr/ — write the body to
+    6. Open a PR (ready for review — never a draft) with
+       --base main following .devin/skills/create-pr/ — write the body to
        pr-body.md, use --body-file, rm it after. Body must
        include a UI-verification section.
-    7. gh pr checks <N> --watch; fix failures until green,
-       then gh pr ready <N>.
+    7. gh pr checks <N> --watch; fix failures until green.
     Return: PR URL, files changed, test results, anything you
     could not do (e.g. a migrate command for the user).
 
@@ -107,9 +109,14 @@ never reuse the implementer. Prompt:
 
 If the reviewer reported blocker/should-fix findings:
 
-1. Launch one `subagent_general` fixer (the PR branch is still
-   checked out — verify with `git branch --show-current`, else
-   switch to it). Prompt: the PR URL, the numbered findings
+1. Launch one `subagent_general` fixer on the same branch in a
+   FRESH worktree — a branch can live in only one worktree, so
+   remove whichever worktree currently holds it (`git worktree
+   list` to find it; `git worktree remove --force
+   ../industry-analyser-wt/<name>`), then the fixer adds one
+   on the existing branch (`git worktree add
+   ../industry-analyser-wt/fix-<slug> feat/<slug>`). Prompt:
+   the PR URL, the numbered findings
    verbatim, "fix, commit (`Fix: ...`), push, re-watch
    `gh pr checks`, return what changed". Nits may be batched
    into one fixer or skipped — say which.
@@ -130,8 +137,14 @@ If the reviewer reported blocker/should-fix findings:
 - If a subagent reports the plan is unimplementable as
   written, stop and ask the user rather than improvising.
 
+Once a review round is clean AND the PR's checks are green,
+remove the worktree immediately — `git worktree remove --force
+<path>` + `git branch -D <type>/<slug>` per AGENTS.md; don't
+wait for merge.
+
 ## Final report
 
-PR URL, review rounds needed, findings fixed per round, and
-any outstanding items (e.g. a `DATABASE_URL=... migrate`
+PR URL, review rounds needed, findings fixed per round,
+confirmation the worktree was removed, and any outstanding
+items (e.g. a `DATABASE_URL=... migrate`
 command the user must run).

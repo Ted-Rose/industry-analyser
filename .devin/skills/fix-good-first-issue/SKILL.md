@@ -2,9 +2,9 @@
 name: fix-good-first-issue
 description: Pick an open GitHub issue labeled "good first
   issue" in Ted-Rose/industry-analyser, fix it on a new branch
-  cut from main, open a draft PR, wait for checks, fix any
-  failures, and mark the PR ready for review. Invoke when the
-  user asks to fix a good-first-issue / pick up an issue.
+  cut from main, open a PR, wait for checks, fix any
+  failures, and run a reviewer loop until clean. Invoke when
+  the user asks to fix a good-first-issue / pick up an issue.
 ---
 
 # Fix a "Good First Issue" in industry-analyser
@@ -53,14 +53,17 @@ the API shape changes, regenerate `openapi.json` and
 `api-types.ts` (CI fails on drift). If unsure, state your
 reasoning and ask the user before branching.
 
-## 3. Branch from `main`
+## 3. Branch from `main` — in a worktree
 
-    git switch main
-    git pull --ff-only
-    git switch -c fix/issue-<N>-<short-slug>
+    git fetch origin
+    git worktree add ../industry-analyser-wt/<slug> \
+      -b fix/issue-<N>-<short-slug> origin/main
+    cd ../industry-analyser-wt/<slug>
 
-If the working tree has uncommitted changes that block the
-switch, stop and ask the user before proceeding.
+Never branch in the main checkout (AGENTS.md) — it may hold
+the user's uncommitted work or another agent's session.
+Create/copy `venv/` + `.env` into it first (gitignored —
+AGENTS.md).
 
 ## 4. Fix the issue
 
@@ -91,7 +94,7 @@ switch, stop and ask the user before proceeding.
 - If API behavior changed, update the relevant doc
   (`DOCUMENTATION_INDEX.md`, `docs/`, or the app's README).
 
-## 5. Commit, push, and open a draft PR
+## 5. Commit, push, and open a PR
 
 - Stage only files you edited — never `git add -A` /
   `git add .`. Never commit plan/scratch markdown.
@@ -101,11 +104,12 @@ switch, stop and ask the user before proceeding.
 
       git push -u origin fix/issue-<N>-<short-slug>
 
-- Create the PR as a DRAFT with `--base main`. Follow
-  `.devin/skills/create-pr/`: write the body to a temp file
-  and use `--body-file` (never inline `--body`):
+- Create the PR ready for review (never a draft) with
+  `--base main`. Follow `.devin/skills/create-pr/`: write
+  the body to a temp file and use `--body-file` (never
+  inline `--body`):
 
-      gh pr create --draft \
+      gh pr create \
         --title "Type: Capitalized message" \
         --base main --head fix/issue-<N>-<short-slug> \
         --body-file pr-body.md
@@ -125,11 +129,16 @@ switch, stop and ask the user before proceeding.
   openapi.json/api-types.ts drift check on every PR.
 - If any check fails, get details (`gh run view --log-failed`
   for logs), fix, commit, push, and watch again. Repeat until
-  green. Do not mark ready while checks are pending or failing.
+  green — the worktree stays up until they pass.
 
-## 7. Mark ready for review and report
+## 7. Reviewer loop, then report
 
-    gh pr ready <PR-number>
+Spawn a FRESH reviewer subagent on the PR diff
+(`gh pr diff <PR-number>`). Fix everything useful it reports,
+push, then spawn another fresh reviewer — repeat until a
+round finds nothing meaningful. Keep the worktree until the
+loop is clean AND checks are green, then remove it per
+AGENTS.md.
 
 Then report to the user: the issue number/title fixed, the PR
 URL, and the final check status.

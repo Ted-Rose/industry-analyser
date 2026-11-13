@@ -630,11 +630,18 @@ Universal rules — follow exactly:
   origin/main` and do all work (commits, push, PR) inside
   it. The main checkout may hold the user's uncommitted work
   or another agent's session; never switch branches there.
-  Once the PR's checks are green and no work remains, clean
+  Finishing a task means a green, reviewed PR — never ask
+  the user whether to open one. After pushing: open the PR
+  ready for review (NEVER a draft) per
+  `.devin/skills/create-pr/`, then run a review loop —
+  spawn a FRESH reviewer subagent on the diff, fix
+  everything useful it reports, push, and repeat with a new
+  reviewer until a round finds nothing meaningful. Once the
+  loop is clean and the PR's checks are green, clean
   up IMMEDIATELY — don't wait for the merge (the PR lives on
   the remote branch; removing the local worktree/branch does
   not touch it, and the remote branch is deleted at merge
-  time). From the main checkout: `git worktree remove
+  time). From the main checkout: `git worktree remove --force
   ../industry-analyser-wt/<slug>` + `git branch -D
   <type>/<slug>` (`-D`, not `-d` — squash-merges leave the
   branch "unmerged"). Abandoned work gets the same cleanup;
@@ -659,8 +666,11 @@ Universal rules — follow exactly:
 
 ## Agent config
 
+- `.devin/skills/fix-sentry-issue-{backend,frontend}/` —
+  Sentry queue triage → worktree → PR, resolve after merge.
 - `.devin/skills/fix-good-first-issue/` — pick a "good first
-  issue", fix on a branch, draft PR, iterate checks.
+  issue", fix on a branch, open a PR, reviewer loop, iterate
+  checks.
 - `.devin/skills/implement-plan/` — execute a plan file (an
   `openspec/changes/<id>/` change or a legacy
   `docs/plans/*-plan.md`) with subagents (implement → fresh
@@ -705,8 +715,9 @@ context.
   copies in `.devin/skills/openspec-*/` are the same files with
   frontmatter stripped to `name`/`description` — **re-copy and
   re-strip after every `openspec update`**.
-- **Archive in the developing PR — always.** Before marking
-  an implementing PR ready, run `openspec archive <id>` so
+- **Archive in the developing PR — always.** In the
+  implementing PR — before it is opened — run
+  `openspec archive <id>` so
   specs, code and history land atomically; a merged change
   left unarchived leaves `specs/` stale. In-PR archive is
   required, not optional — if it was somehow missed, archive

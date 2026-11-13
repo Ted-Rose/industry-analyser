@@ -1,11 +1,12 @@
 ---
 name: openspec-apply-delegated
 description: >
-  Implement an OpenSpec change hands-off via subagents — an
-  implementer agent cuts a feature branch, works the task list,
-  and opens a draft PR; once checks are green a fresh reviewer
-  agent reports severity-tagged findings and fixer agents
-  iterate until clean. Use when asked to implement an OpenSpec
+  Implement an OpenSpec change hands-off via subagents — the
+  orchestrator creates a worktree, an implementer agent works
+  the task list,
+  and opens a PR ready for review; once checks are green a
+  fresh reviewer agent reports severity-tagged findings and
+  fixer agents iterate until clean. Use when asked to implement an OpenSpec
   change end-to-end without driving the task loop interactively.
 ---
 
@@ -37,15 +38,20 @@ stays small and survives `openspec update`.
      through to every openspec command here and inside the
      subagent prompt.
 
-3. Branch: `feat/<change-name>` unless the user says otherwise.
-   Never `main`.
+3. Branch in a worktree, never `main` or the main checkout:
+   `git fetch origin` then `git worktree add
+   ../industry-analyser-wt/<change-name> -b
+   feat/<change-name> origin/main` — the implementer works
+   inside it.
 
 ## Phase 2 — implementer agent
 
 4. Launch one background subagent (`subagent_general`,
    `is_background=true`). Subagents are stateless — the prompt
    must contain, verbatim or by path reference:
-   - the change name, repo root path, and the `--store <id>`
+   - the change name, the worktree path
+     `../industry-analyser-wt/<change-name>` as the repo root
+     it must `cd` into, and the `--store <id>`
      flag if one was selected
    - instruction to read
      `.devin/skills/openspec-apply-change/SKILL.md` and follow
@@ -59,9 +65,10 @@ stays small and survives `openspec update`.
      and `openspec validate --all --strict` must pass before
      pushing
    - PR conventions: push the branch, body via temp file +
-     `gh pr create --body-file`, DRAFT PR, mandatory UI
-     verification section (follow `.devin/skills/create-pr/`
-     when that skill exists in the repo).
+     `gh pr create --body-file`, ready-for-review PR (never a
+     draft), mandatory UI verification section (follow
+     `.devin/skills/create-pr/` when that skill exists in the
+     repo).
    - archive timing: when EVERY tasks.md item is `- [x]`,
      run `openspec archive <name>` on the feature branch
      BEFORE pushing / opening the PR (check
@@ -71,7 +78,7 @@ stays small and survives `openspec update`.
      --all --strict` must pass. The archive lands in the SAME
      commits pushed for the PR — code + synced specs +
      history together. A fully-implemented change must NOT
-     reach `gh pr ready` unarchived; a legitimately
+     reach PR completion unarchived; a legitimately
      unfinished task stays `- [ ]`, the change stays
      unarchived, and the implementer reports that
      explicitly.
@@ -103,7 +110,14 @@ stays small and survives `openspec update`.
    or the exact string `NO ISSUES`.
 8. On `[blocker]` or `[major]` findings, launch a fixer
    subagent (`subagent_general`) on the SAME branch to commit
-   and push fixes. Then start a new round with a NEW reviewer.
+   and push fixes. A branch can live in only one worktree —
+   remove whichever worktree currently holds it (`git worktree
+   list` to find it; `git worktree remove --force
+   ../industry-analyser-wt/<name>`), then the fixer adds a
+   fresh one on the existing branch (`git worktree add
+   ../industry-analyser-wt/fix-<change-name>
+   feat/<change-name>`). Then start a new round with a NEW
+   reviewer.
    Repeat until `NO ISSUES` (or only `[minor]`/`[nit]`) — max
    3 rounds, then stop and report what remains.
 9. Never let the implementer or a fixer review its own work —
@@ -116,10 +130,17 @@ stays small and survives `openspec update`.
 - Background subagents cannot gain permissions — if one stalls
   on a denied call, resume it in the foreground
   (`run_subagent resume=<agent_id>`).
-- The PR stays DRAFT until a review round returns clean.
+- The PR is never a draft — a review round returning clean
+  means it's done.
 - Tasks that cannot be finished stay unchecked (`- [ ]`) — the
   fixer and reviewer must treat an unchecked task as incomplete
   work, not as a defect to review.
+- Once the loop is clean AND the PR's checks are green,
+  remove every worktree the run created immediately
+  (`git worktree remove --force
+  ../industry-analyser-wt/<change-name>` and any
+  `fix-<change-name>` + `git branch -D feat/<change-name>`
+  from the main checkout) — don't wait for merge.
 - Final report: PR URL, branch, tasks done/total, review
   rounds, unresolved findings, check status, and whether the
   archive was included in the PR or deferred (with the

@@ -2,7 +2,7 @@
 name: fix-sentry-issue-backend
 description: Pull unresolved production errors from the Sentry
   industry-analyser-api project, reproduce and fix them on a
-  branch cut from main, open a draft PR, and mark the Sentry
+  branch cut from main, open a PR, and mark the Sentry
   issue resolved only after the PR merges. Invoke when the user
   asks to fix Sentry issues / triage the Sentry queue in
   industry-analyser.
@@ -76,10 +76,17 @@ A Django exception can still be a contract problem caused by
 the SPA — but both sides live in THIS repo, so fix wherever
 the root cause is; same branch, same PR.
 
-## 4. Branch and fix
+## 4. Branch and fix — in a worktree
 
-    git switch main && git pull --ff-only
-    git switch -c fix/sentry-<issue_short_id>
+    git fetch origin
+    git worktree add ../industry-analyser-wt/<slug> \
+      -b fix/sentry-<issue_short_id> origin/main
+    cd ../industry-analyser-wt/<slug>
+
+Never branch in the main checkout (AGENTS.md) — it may hold
+the user's uncommitted work or another agent's session.
+Create/copy `venv/` + `.env` into it first (gitignored —
+AGENTS.md).
 
 - Read `AGENTS.md`; 79-char lines in every file type.
 - `source venv/bin/activate` before any `manage.py` command.
@@ -95,19 +102,23 @@ the root cause is; same branch, same PR.
 - Regenerate `frontend/openapi.json` + `api-types.ts` when
   the API surface changed (CI drift-checks both).
 
-## 5. Draft PR
+## 5. Open the PR
 
 - Stage only files you edited, by path (never `git add -A`);
   `git status` first and leave the user's dirty files alone.
 - Commit format `Type: Capitalized message` (usually `Fix:`).
-- `git push -u origin <branch>`, then a DRAFT PR `--base main`
-  per the `/create-pr` skill — body via `--body-file`, never
-  inline `--body`.
+- `git push -u origin <branch>`, then a PR (ready for review,
+  never a draft) `--base main` per `.devin/skills/create-pr/` —
+  body via `--body-file`, never inline `--body`.
 - Body must: link the Sentry issue
   (`https://industry-analyser-ue.sentry.io/issues/<id>/`),
   quote the top stack frame and request path, and include the
   UI verification / QC section.
-- `gh pr checks <N> --watch`; fix until green; `gh pr ready`.
+- `gh pr checks <N> --watch`; fix until green. Then run the
+  reviewer loop: spawn a fresh reviewer subagent on the diff,
+  fix useful findings, push, repeat until a round finds
+  nothing meaningful. Remove the worktree once the loop is
+  clean and checks are green.
 
 ## 6. Resolve — only after merge
 
