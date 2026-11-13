@@ -1,6 +1,7 @@
 """Best-effort Google Tasks hook for the daily news digest —
-one task per enabled NewsDigestSubscription, inserted into
-each subscriber's own Google task list."""
+one task per enabled NewsDigestSubscription in each
+subscriber's own Google task list, refreshed in place when
+the digest rebuilds."""
 import logging
 
 from django.conf import settings
@@ -230,7 +231,7 @@ def create_digest_task(digest):
             return
         subscribers = NewsDigestSubscription.objects.filter(
             is_enabled=True,
-        ).select_related('user')
+        ).select_related('user').order_by('pk')
         for subscription in subscribers:
             try:
                 _run_for_user(digest, subscription.user)
