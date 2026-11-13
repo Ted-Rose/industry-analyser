@@ -91,7 +91,7 @@ jobs:
           docker push "${IMAGE}:web-latest"
 
       - name: Run database migrations
-        # Master only: a workflow_dispatch from a feature branch must
+        # Main only: a workflow_dispatch from a feature branch must
         # not run unmerged migration files against the prod DB (same
         # guard as Terraform apply in deploy-scraper-jobs.yml).
         if: github.ref == 'refs/heads/main'
