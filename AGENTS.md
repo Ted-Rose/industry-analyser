@@ -2,11 +2,10 @@
 
 Guidance for AI agents working in this repository. Read it before
 editing; **trust the code over any doc that disagrees with it**.
-Known-stale docs: `DOCUMENTATION_INDEX.md` (frozen 2026-08-25 —
-links dead files like `docs/cvlv_api_integration_task.md`);
-`docs/plans/*.md` describe design intent, not always shipped
-state; `docs/plans/react_frontend_migration/README.md` references
-two `docs/plans/` guideline files that do not exist in this repo;
+Known-stale docs: `docs/plans/*.md` describe design intent, not
+always shipped state (each carries a status header);
+`docs/plans/react_frontend_migration/README.md` references two
+`docs/plans/` guideline files that do not exist in this repo;
 `LOCAL_SETUP.md` predates the prod-by-default `DATABASE_URL` and
 the `ai_agent` read-only role. Where they conflict, this file and
 the code win.
@@ -27,8 +26,8 @@ branch `main`. CI/deploy: `.github/workflows/` on push to
 
 Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for
 historical design plans (frozen — see rule 11), `docs/` for
-audits/reports. `DOCUMENTATION_INDEX.md` is a doc map but
-partly stale (see preamble).
+runbooks and `docs/research/` for audits/reports.
+`DOCUMENTATION_INDEX.md` is the doc map.
 
 ## Layout (actual)
 
@@ -788,8 +787,8 @@ context.
   `docs/plans/address_parsing_fix_plan.md`,
   `docs/plans/ai_provider_abstraction_plan.md` and
   `docs/plans/sentry-integration-plan.md`; likewise
-  `docs/cvlv_api_integration_task.md` is a dead link in
-  `DOCUMENTATION_INDEX.md`.
+  `docs/cvlv_api_integration_task.md` is a dead link
+  referenced from git history only.
 - `HARD_CODED_PASSWORD` is still read in settings but the
   password-form login was retired — the SPA uses Django session
   auth.

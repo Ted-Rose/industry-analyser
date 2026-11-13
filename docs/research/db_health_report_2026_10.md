@@ -5,7 +5,7 @@ dedup/normalization work shipped in commits `a921581` (canonical
 properties), `b833b94` (stable `tr_*` ad ids), `763bc58`/`45ca9e8`
 (Project model + FK), `c85f79b` (`is_hidden`) and related.
 
-Companion document: `docs/property_match_review_2026_10.md` — the
+Companion document: `docs/research/property_match_review_2026_10.md` — the
 pair-level duplicate review the numbers below are drawn from.
 
 ## Verdict
@@ -60,7 +60,7 @@ Distribution: 83/123/16/82 dup-link groups (apt rent / apt sale /
 house rent / house sale). 125 groups resolve to one property anyway;
 **179 are split across different property rows**. Handled by
 quarantine (`is_hidden=True`) — see
-`docs/duplicate_ad_rows_quarantine.md`.
+`docs/research/duplicate_ad_rows_quarantine.md`.
 
 ### 2. Cross-deal duplicate properties — 641 pairs
 
@@ -71,7 +71,7 @@ rows are `is_sale_misclassified` (a sale listing scraped in the rent
 category), so each side matched independently. Ad-level stats are
 clean (`objects` excludes misclassified rent ads) but `total_properties`
 in region stats is inflated — see
-`docs/cross_deal_stats_impact_validation.md`.
+`docs/research/cross_deal_stats_impact_validation.md`.
 
 ### 3. Conflated properties — 3 confirmed
 
@@ -133,7 +133,7 @@ Which issues are still producing bad data vs. frozen history:
   classified-ads Cloud Run jobs/schedulers are commented out in
   `terraform/main.tf`, so ~40% of days have zero coverage. "Ad not
   seen" ≠ "ad closed". This motivated the interval design in
-  `docs/plans/ad_presence_intervals_plan.md`.
+  `openspec/changes/ad-presence-intervals/`.
 - `HouseForRent`/`HouseForSale` store `rooms=0` — the source listing
   has no room count; `HouseProperty.rooms` is therefore always 0 and
   `rooms` cannot be used to match houses.

@@ -1,5 +1,14 @@
 # Plan: news digest relevance fixes
 
+> **Status**: Implemented. Defect 1: `_refresh_story` re-derives
+> `story.topic` as the modal confirmed-member topic on every
+> refresh; `reclassify` runs inside `news_pipeline` between
+> `link_news_stories` and `build_news_digest`. Defect 2:
+> `MIN_TOPIC_SCORE = 2` gate, `finansējum*`/`raķet*` keywords.
+> Defect 3: digest admits NULL-topic stories with
+> `source_count >= 2`.
+
+
 Context: investigation of the `news` pipeline (keyword topic
 classification + Jaccard story clustering + weighted
 importance digest) found three defects that measurably hurt
