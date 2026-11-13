@@ -5,6 +5,7 @@ See tv_programs/TV_CONTENT_IDENTIFICATION_PLAN.md.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -135,6 +136,13 @@ def _duration(
     return m
 
 
+# "PIRMIZRĀDE!" is a premiere broadcast tag — it contains the
+# "izrāde" (theatre play) marker as a substring. Strip it before
+# the marker scan; a word-boundary fix instead would break
+# intended compound matches like "detektīvseriāls".
+_PREMIERE_TAG_RE = re.compile(r"pirmizrāde", re.IGNORECASE)
+
+
 def classify(
     title_lv: str,
     description_lv: str,
@@ -146,7 +154,7 @@ def classify(
     """
     title = title_lv or ""
     desc = description_lv or ""
-    combined = f"{title} {desc}"
+    combined = _PREMIERE_TAG_RE.sub("", f"{title} {desc}")
     dur = _duration(duration_minutes)
     movie_ch = is_movie_dedicated_channel(channel_key)
 

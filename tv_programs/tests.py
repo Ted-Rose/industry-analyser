@@ -113,6 +113,23 @@ class ClassifyHeuristicTests(TestCase):
         c = classify("Slow TV: Dabas skati", "", "ltv1_hd", 120)
         self.assertEqual(c.content_type, "not_movie")
 
+    def test_premiere_tag_does_not_trip_izrade(self):
+        """'PIRMIZRĀDE' contains 'izrāde' as a substring — the tag
+        must not feed premiere movies to the theatre marker."""
+        c = classify(
+            "LTV PIRMIZRĀDE! Putns. Pieaugšanas drāma",
+            "",
+            "ltv7_hd",
+            120,
+        )
+        self.assertEqual(c.content_type, "movie")
+
+    def test_izrade_marker_still_fires(self):
+        c = classify(
+            "Visas viņas. Dailes teātra izrāde", "", "ltv1_hd", 130
+        )
+        self.assertEqual(c.content_type, "not_movie")
+
 
 class ExclusionListTest(TestCase):
     def test_plan_titles_merged(self):
@@ -1177,6 +1194,70 @@ class ReclassifyCommandDataTests(TestCase):
         p.refresh_from_db()
         self.assertEqual(p.content_type, "not_movie")
         self.assertGreater(p.classification_confidence, 0)
+
+    def test_reclassify_syncs_show_content_type(self):
+        """Programs inherit show.content_type at scrape time — a
+        stale Show must be rolled up too or the next airing
+        re-inherits the old verdict."""
+        ch, _ = Channel.objects.get_or_create(name="ltv1_hd")
+        show = Show.objects.create(
+            title_lv="Slow TV: Kajaks 1",
+            dedup_key="s" * 64,
+            content_type="movie",
+            classification_reasoning="stale",
+        )
+        p = Program.objects.create(
+            title_lv="Slow TV: Kajaks 1",
+            description_lv="",
+            channel=ch,
+            start_time=timezone.now(),
+            duration_minutes=120,
+            show=show,
+            content_type="movie",
+        )
+        from io import StringIO
+
+        call_command("reclassify_tv_programs", stdout=StringIO())
+        p.refresh_from_db()
+        show.refresh_from_db()
+        self.assertEqual(p.content_type, "not_movie")
+        self.assertEqual(show.content_type, "not_movie")
+
+    def test_reclassify_show_rollup_movie_wins(self):
+        """One short slot must not strip a real film's label —
+        a 'movie' verdict on any airing wins the rollup."""
+        ch, _ = Channel.objects.get_or_create(name="filmzone_hd")
+        show = Show.objects.create(
+            title_lv="Spartaks: Dievu arēna",
+            dedup_key="t" * 64,
+            content_type="movie",
+        )
+        base = timezone.now()
+        short = Program.objects.create(
+            title_lv=show.title_lv,
+            description_lv="",
+            channel=ch,
+            start_time=base,
+            duration_minutes=40,
+            show=show,
+            content_type="movie",
+        )
+        Program.objects.create(
+            title_lv=show.title_lv,
+            description_lv="",
+            channel=ch,
+            start_time=base + datetime.timedelta(hours=5),
+            duration_minutes=120,
+            show=show,
+            content_type="movie",
+        )
+        from io import StringIO
+
+        call_command("reclassify_tv_programs", stdout=StringIO())
+        short.refresh_from_db()
+        show.refresh_from_db()
+        self.assertEqual(short.content_type, "not_movie")
+        self.assertEqual(show.content_type, "movie")
 
 
 class GcpHorizonGateTests(TestCase):
