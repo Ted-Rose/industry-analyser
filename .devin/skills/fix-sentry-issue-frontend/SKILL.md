@@ -84,6 +84,8 @@ root cause is backend, fix it there per `AGENTS.md` and
 
 Never branch in the main checkout (AGENTS.md) — it may hold
 the user's uncommitted work or another agent's session.
+Create/copy `venv/` + `.env` into it first (gitignored —
+AGENTS.md).
 
 - Read `AGENTS.md` and `.devin/rules/*` first; 79-char lines in
   every file type.

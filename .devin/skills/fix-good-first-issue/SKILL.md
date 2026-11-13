@@ -62,6 +62,8 @@ reasoning and ask the user before branching.
 
 Never branch in the main checkout (AGENTS.md) — it may hold
 the user's uncommitted work or another agent's session.
+Create/copy `venv/` + `.env` into it first (gitignored —
+AGENTS.md).
 
 ## 4. Fix the issue
 

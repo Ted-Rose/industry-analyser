@@ -666,6 +666,8 @@ Universal rules — follow exactly:
 
 ## Agent config
 
+- `.devin/skills/fix-sentry-issue-{backend,frontend}/` —
+  Sentry queue triage → worktree → PR, resolve after merge.
 - `.devin/skills/fix-good-first-issue/` — pick a "good first
   issue", fix on a branch, open a PR, reviewer loop, iterate
   checks.

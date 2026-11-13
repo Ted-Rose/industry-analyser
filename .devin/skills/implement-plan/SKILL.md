@@ -50,7 +50,8 @@ the work yourself into one prompt per stage.) Prompt:
     1. git fetch origin; git worktree add
        ../industry-analyser-wt/<slug> -b feat/<slug>
        origin/main; cd ../industry-analyser-wt/<slug>
-       (never branch in the main checkout — AGENTS.md)
+       (never branch in the main checkout — AGENTS.md;
+       create/copy `venv/` + `.env` into it first)
     2. Read AGENTS.md first (repo root). Every line <= 79
        chars in every file type.
        DANGER: .env's DATABASE_URL is PRODUCTION. Never run
