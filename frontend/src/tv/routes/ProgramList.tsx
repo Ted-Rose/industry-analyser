@@ -556,9 +556,9 @@ function ProgramCard({
   }
 
   return (
-    // Feed-card recipe (§7): image left ≥sm, stacked <sm; the
-    // remote via.assets.so placeholder is replaced by a local
-    // bg-surface-2 block (§8.17).
+    // Feed-card recipe (§7): image left ≥sm, full-width stacked
+    // <sm; the remote via.assets.so placeholder is replaced by a
+    // local bg-surface-2 block (§8.17).
     <Card
       data-testid="program-card"
       className="flex flex-col gap-4 sm:flex-row"
@@ -568,12 +568,18 @@ function ProgramCard({
           src={imageSrc}
           alt={imageAlt}
           loading="lazy"
-          className="size-24 shrink-0 rounded-md object-cover"
+          className={
+            'h-auto max-h-96 w-full shrink-0 rounded-md ' +
+            'object-cover sm:size-24'
+          }
         />
       ) : (
         <div
           aria-hidden="true"
-          className="size-24 shrink-0 rounded-md bg-surface-2"
+          className={
+            'aspect-video w-full shrink-0 rounded-md ' +
+            'bg-surface-2 sm:size-24'
+          }
         />
       )}
       <div className="min-w-0 flex-1">
