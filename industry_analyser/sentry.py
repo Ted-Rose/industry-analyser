@@ -14,6 +14,11 @@ Event-stream contract (documented in AGENTS.md):
         model failing): level warning, tag ``error_code`` from
         ``_PROVIDER_ERROR_CODES``. Expected outcomes (empty
         results, cap reached, blocked content) are never sent.
+    ``capture_schema_lag`` — a query hit a column/table whose
+        migration has not run yet (code deployed ahead of the
+        migrate step): level warning, tag
+        ``error_code:schema_lag``. Expected transient state, but
+        kept observable in case the schema never catches up.
 """
 from urllib.parse import urlparse
 
@@ -87,5 +92,20 @@ def capture_provider_exception(exc, error_code):
         )
     with sentry_sdk.new_scope() as scope:
         scope.set_tag('error_code', error_code)
+        scope.set_level('warning')
+        sentry_sdk.capture_exception(exc)
+
+
+def capture_schema_lag(exc):
+    """Report a still-pending-migration query at warning level.
+
+    Deploy-window 503s are expected, but a *permanently* missing
+    column (a failed ``run-migrations`` job, bad SQL) must not go
+    dark — the ``error_code:schema_lag`` tag groups recurrences
+    into one low-noise issue instead of leaving an unwatched
+    warning log as the only trace.
+    """
+    with sentry_sdk.new_scope() as scope:
+        scope.set_tag('error_code', 'schema_lag')
         scope.set_level('warning')
         sentry_sdk.capture_exception(exc)

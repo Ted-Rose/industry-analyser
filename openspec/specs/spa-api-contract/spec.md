@@ -44,7 +44,7 @@ carries `login_url` instead of `detail` — with optional
 defaulting to the status slug) and optional `params`. The
 status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
 `unauthenticated`, 404 `not_found`, 422 `validation_error`,
-429 `throttled`, 500 `server_error`).
+429 `throttled`, 500 `server_error`, 503 `unavailable`).
 
 #### Scenario: Endpoint raises ApiHttpError with a code
 
@@ -67,6 +67,22 @@ status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
   detail: 'Internal Server Error'}`, the traceback is logged,
   and a Sentry event tagged `error_code:internal_error` is
   captured
+
+#### Scenario: Query hits a still-pending migration column
+
+- **WHEN** an endpoint raises a `ProgrammingError` whose driver
+  SQLSTATE is an undefined-object code (missing
+  `column`/`relation`/`type`/`function`/`schema` — or the
+  matching message when no code is available), i.e. code serving
+  ahead of the Cloud Run pipeline's `run-migrations` step (the
+  Vercel deploy has no migration gate)
+- **THEN** the response is 503 `{error: 'unavailable',
+  detail: <retry hint>}` with a `Retry-After` header, a
+  warning is logged, and a warning-level Sentry event tagged
+  `error_code:schema_lag` is captured (no error-level event —
+  expected deploy state, but a permanently missing column must
+  stay observable); any other `ProgrammingError` keeps the
+  uniform 500 + `internal_error` capture path
 
 ### Requirement: 401 login-redirect handshake
 

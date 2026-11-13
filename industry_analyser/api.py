@@ -7,16 +7,21 @@ CSRF enforced on unsafe methods) with JSON 401s instead of redirects.
 Public read endpoints opt out per-op with auth=None.
 """
 import logging
+import re
 from urllib.parse import urlencode
 
 from django.contrib.admin.views.decorators import staff_member_required
+from django.db.utils import ProgrammingError
 from django.http import Http404
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
 from ninja.security import django_auth
 from ninja.security.session import SessionAuth
 
-from industry_analyser.sentry import capture_internal_exception
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_schema_lag,
+)
 
 logger = logging.getLogger('industry_analyser')
 
@@ -81,6 +86,7 @@ _ERROR_SLUGS = {
     429: 'throttled',
     500: 'server_error',
     502: 'upstream_error',
+    503: 'unavailable',
 }
 
 
@@ -175,6 +181,71 @@ def _on_validation_error(request, exc):
         'error': 'validation_error',
         'detail': exc.errors,
     }, status=422)
+
+
+# Postgres reports a still-pending migration as an
+# undefined-object SQLSTATE: 42703 column, 42P01 table, 42883
+# function, 3F000 schema, 42704 everything else (types,
+# constraints). Matching the driver's error code is
+# locale-independent; the message regex is only a fallback for
+# errors carrying no code (SQLite tests raise bare
+# ProgrammingErrors, and psycopg2's message continues onto a
+# "LINE 1: ..." line, so the match is bounded to the first line).
+_SCHEMA_LAG_CODES = frozenset({
+    '42703', '42P01', '42883', '3F000', '42704',
+})
+_SCHEMA_LAG_RE = re.compile(
+    r'(column|relation|type|function|schema)[^\n]*does not exist'
+)
+
+
+def _is_schema_lag(exc):
+    """True when a ProgrammingError reports a still-pending
+    migration. Trusts the driver's SQLSTATE when reachable (Django
+    puts the psycopg2 error on ``__cause__``); falls back to the
+    message regex otherwise."""
+    cause = exc.__cause__
+    pgcode = getattr(cause, 'pgcode', None) or getattr(
+        cause, 'sqlstate', None
+    )
+    if pgcode is not None:
+        return pgcode in _SCHEMA_LAG_CODES
+    return bool(_SCHEMA_LAG_RE.search(str(exc)))
+
+
+@api.exception_handler(ProgrammingError)
+def _on_programming_error(request, exc):
+    """Schema-lag query failures → 503, not a 500 + error event.
+
+    The Vercel deploy serves newly-merged code as soon as it builds,
+    while `run-migrations` only executes inside the Cloud Run deploy
+    pipeline minutes later — during that window an endpoint can
+    legitimately query a column/table the migration has not created
+    yet. That is expected transient deploy state, not a bug: answer
+    a retryable 503, and report it at *warning* level — a missing
+    column that never arrives (failed migration, bad code) must
+    stay observable instead of leaving an unwatched warning log as
+    the only trace, but it is still not an error-level bug while
+    the deploy window is open (the error-level event is what
+    INDUSTRY-ANALYSER-API-B reported for
+    `GET /api/news/digest-task/`). Any other ProgrammingError (bad
+    SQL in code) still falls through to the uniform 500 + capture
+    path.
+    """
+    if _is_schema_lag(exc):
+        logger.warning(
+            'schema lag during deploy window on %s: %s',
+            request.path, exc, exc_info=exc,
+        )
+        capture_schema_lag(exc)
+        resp = api.create_response(request, {
+            'error': 'unavailable',
+            'detail': 'Service temporarily unavailable - retry '
+                      'shortly.',
+        }, status=503)
+        resp['Retry-After'] = '60'
+        return resp
+    return _on_unhandled_error(request, exc)
 
 
 @api.exception_handler(Exception)

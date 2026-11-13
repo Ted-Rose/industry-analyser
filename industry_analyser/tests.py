@@ -9,6 +9,7 @@ import re
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db.utils import ProgrammingError
 from django.test import (
     RequestFactory,
     SimpleTestCase,
@@ -380,6 +381,156 @@ class UnhandledApiErrorTests(SimpleTestCase):
             },
         )
         capture.assert_called_once_with(exc)
+
+
+class SchemaLagApiErrorTests(SimpleTestCase):
+    """_on_programming_error: a query hitting a column/table whose
+    migration has not run yet (Vercel serves new code before the
+    Cloud Run pipeline's migrate step finishes — the
+    INDUSTRY-ANALYSER-API-B window) is expected transient deploy
+    state → 503 + warning + a warning-level schema_lag Sentry
+    event (a permanently missing column must not go dark). Other
+    ProgrammingErrors keep the uniform 500 + capture path."""
+
+    @staticmethod
+    def _programming_error(message, pgcode=None):
+        """Build a ProgrammingError; ``pgcode`` dresses a fake
+        psycopg2 driver error on ``__cause__`` the way Django
+        wraps real driver errors."""
+        exc = ProgrammingError(message)
+        if pgcode is not None:
+            cause = Exception(message)
+            cause.pgcode = pgcode
+            exc.__cause__ = cause
+        return exc
+
+    def test_ninja_dispatches_programming_error_to_handler(self):
+        exc = self._programming_error(
+            'column x.y does not exist'
+        )
+        self.assertIs(
+            api_module.api._lookup_exception_handler(exc),
+            api_module._on_programming_error,
+        )
+
+    def test_missing_column_returns_503(self):
+        exc = self._programming_error(
+            'column news_digest_task.user_id does not exist'
+        )
+        request = RequestFactory().get('/api/news/digest-task/')
+        with self.assertLogs('industry_analyser', level='WARNING'), \
+                patch(
+                    'industry_analyser.api.capture_schema_lag'
+                ) as lag_capture, \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as error_capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(resp['Retry-After'], '60')
+        self.assertEqual(
+            json.loads(resp.content),
+            {
+                'error': 'unavailable',
+                'detail': 'Service temporarily unavailable - '
+                          'retry shortly.',
+            },
+        )
+        lag_capture.assert_called_once_with(exc)
+        error_capture.assert_not_called()
+
+    def test_multiline_driver_message_still_classifies(self):
+        """psycopg2 appends 'LINE 1: <query> …' lines to the
+        message — the fallback regex must classify on the first
+        line only."""
+        exc = self._programming_error(
+            'column news_digest_task.user_id does not exist\n'
+            'LINE 1: SELECT news_digest_task.user_id FROM '
+            'news_digest_task\n'
+            '               ^'
+        )
+        self.assertTrue(api_module._is_schema_lag(exc))
+        request = RequestFactory().get('/api/news/digest-task/')
+        with self.assertLogs('industry_analyser', level='WARNING'), \
+                patch(
+                    'industry_analyser.api.capture_schema_lag'
+                ) as lag_capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn('detail', json.loads(resp.content))
+        lag_capture.assert_called_once_with(exc)
+
+    def test_missing_relation_returns_503(self):
+        exc = self._programming_error(
+            'relation "news_digest_subscription" does not exist'
+        )
+        request = RequestFactory().get('/api/news/digest-task/')
+        with self.assertLogs('industry_analyser', level='WARNING'), \
+                patch(
+                    'industry_analyser.api.capture_schema_lag'
+                ) as lag_capture, \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as error_capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 503)
+        lag_capture.assert_called_once_with(exc)
+        error_capture.assert_not_called()
+
+    def test_undefined_object_pgcode_classifies(self):
+        """The SQLSTATE path is locale-independent: a non-English
+        message the regex can't read still gets a 503 when the
+        driver reports an undefined-object code (42704 covers
+        'type "x" does not exist')."""
+        exc = self._programming_error(
+            'Typ »mood« existiert nicht', pgcode='42704'
+        )
+        self.assertTrue(api_module._is_schema_lag(exc))
+        request = RequestFactory().get('/api/news/digest-task/')
+        with self.assertLogs('industry_analyser', level='WARNING'), \
+                patch(
+                    'industry_analyser.api.capture_schema_lag'
+                ) as lag_capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 503)
+        lag_capture.assert_called_once_with(exc)
+
+    def test_other_programming_errors_delegate_to_500(self):
+        exc = self._programming_error(
+            'syntax error at or near "SELCT"'
+        )
+        request = RequestFactory().get('/api/vacancies/')
+        with self.assertLogs('industry_analyser', level='ERROR'), \
+                patch(
+                    'industry_analyser.api.capture_schema_lag'
+                ) as lag_capture, \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as error_capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            json.loads(resp.content)['error'], 'server_error'
+        )
+        lag_capture.assert_not_called()
+        error_capture.assert_called_once_with(exc)
+
+    def test_non_lag_pgcode_delegates_to_500(self):
+        """A driver error with a SQLSTATE outside the lag set is
+        a real bug — the pgcode is authoritative and the request
+        keeps the 500 + error capture path."""
+        exc = self._programming_error(
+            'syntax error at or near "SELCT"', pgcode='42601'
+        )
+        self.assertFalse(api_module._is_schema_lag(exc))
+        request = RequestFactory().get('/api/vacancies/')
+        with self.assertLogs('industry_analyser', level='ERROR'), \
+                patch(
+                    'industry_analyser.api.capture_internal_exception'
+                ) as error_capture:
+            resp = api_module._on_programming_error(request, exc)
+        self.assertEqual(resp.status_code, 500)
+        error_capture.assert_called_once_with(exc)
 
 
 class RobotsTxtTests(TestCase):
