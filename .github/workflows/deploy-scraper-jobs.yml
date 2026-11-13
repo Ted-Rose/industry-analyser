@@ -3,7 +3,7 @@ name: Deploy scraper jobs (Artifact Registry + Cloud Run)
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - '**/*.py'
       - '*.py'
@@ -54,7 +54,7 @@ jobs:
         run: terraform plan -out=tfplan
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         working-directory: ./terraform
         env:
           TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -63,7 +63,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       - name: Output Resources
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         working-directory: ./terraform
         run: terraform output
 

@@ -3,7 +3,7 @@ name: Deploy Django Web Service to Cloud Run
 on:
   push:
     branches:
-      - master
+      - main
     paths:
       - '**/*.py'
       - '*.py'
@@ -59,7 +59,7 @@ env:
 
 jobs:
   build-and-deploy:
-    # Prod deploy: pushes to master and manual runs. PRs only get the
+    # Prod deploy: pushes to main and manual runs. PRs only get the
     # staging deploy below.
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
@@ -94,7 +94,7 @@ jobs:
         # Master only: a workflow_dispatch from a feature branch must
         # not run unmerged migration files against the prod DB (same
         # guard as Terraform apply in deploy-scraper-jobs.yml).
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/main'
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
