@@ -54,6 +54,7 @@ function makePrograms(
       channel_name: null,
       exclude_channel_name: null,
       show_disliked: false,
+      all_content: false,
     },
     ...overrides,
   };
@@ -110,6 +111,71 @@ describe('ProgramList', () => {
     await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
     expect(calledUrls()[0]).not.toContain('not_content_rating');
   });
+
+  it('omits all_content by default (server keeps only ' +
+    'movies & shows) and renders the checkbox checked', async () => {
+      renderList('/tv/');
+      await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+      expect(calledUrls()[0]).not.toContain('all_content');
+      expect(
+        screen.getByLabelText('Only movies & shows:'),
+      ).toBeChecked();
+    });
+
+  it('passes all_content through when it is in the URL', async () => {
+    renderList('/tv/?all_content=1');
+    await waitFor(() => expect(mockedApiGet).toHaveBeenCalled());
+    expect(calledUrls()[0]).toContain('all_content=1');
+    expect(
+      screen.getByLabelText('Only movies & shows:'),
+    ).not.toBeChecked();
+  });
+
+  it('serializes all_content=1 when the box is unchecked on ' +
+    'submit, and drops it when re-checked', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.click(
+        screen.getByLabelText('Only movies & shows:'),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('all_content=1');
+
+      // Checking it again on the next submit omits the param —
+      // absent means the server applies the filter.
+      fireEvent.click(
+        screen.getByLabelText('Only movies & shows:'),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(3),
+      );
+      expect(calledUrls()[2]).not.toContain('all_content');
+    });
+
+  it('echoes "· all content" in the summary while the filter ' +
+    'is bypassed', async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          filters: {
+            ...makePrograms().filters,
+            all_content: true,
+          },
+        }),
+      );
+      renderList('/tv/?all_content=1');
+      await screen.findByText('Dienas ziņas');
+      expect(
+        screen.getByText(/all content/),
+      ).toBeInTheDocument();
+    });
 
   it('shows the server-effective filter defaults in the inputs',
     async () => {

@@ -34,6 +34,23 @@ SERIES_MARKERS = (
     "brokastis",
     "jautājums",
     "rīta ",
+    # Live/sport/worship/ambient slots that leak into `movie` via the
+    # ≥80min duration rule — this list fires first, so it doubles as
+    # the effective not-movie list. Deliberately excluded: `spēle`
+    # (too broad — appears in film plots) and bare `sports`/`ziņas`
+    # variants already covered.
+    "tiešraide",
+    "pasaules kauss",
+    "čempionāt",
+    "olimpisk",
+    "biatlon",
+    "basketbol",
+    "volejbol",
+    "hokejs",
+    "futbol",
+    "izrāde",
+    "dievkalpojums",
+    "slow tv",
 )
 
 MOVIE_TITLE_MARKERS = (
