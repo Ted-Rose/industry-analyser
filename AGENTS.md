@@ -869,6 +869,9 @@ agent-fixable bugs only:
 - Browser exceptions — `captureException`, level error.
 - Scraper/AI upstream — `capture_provider_exception`, level
   warning, tag `error_code:rate_limited` / `provider_error`.
+- Deploy schema lag — `capture_schema_lag`, level warning, tag
+  `error_code:schema_lag` (the API also answers 503 +
+  Retry-After; a permanently missing column must not go dark).
 - Resource loads — `captureMessage`, level warning, tag
   `reportType:resource-load`.
 

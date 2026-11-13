@@ -70,15 +70,19 @@ status→slug map is fixed in `_ERROR_SLUGS` (e.g. 401
 
 #### Scenario: Query hits a still-pending migration column
 
-- **WHEN** an endpoint raises a `ProgrammingError` reporting a
-  missing `column`/`relation` — code serving ahead of the
-  Cloud Run pipeline's `run-migrations` step (the Vercel
-  deploy has no migration gate)
+- **WHEN** an endpoint raises a `ProgrammingError` whose driver
+  SQLSTATE is an undefined-object code (missing
+  `column`/`relation`/`type`/`function`/`schema` — or the
+  matching message when no code is available), i.e. code serving
+  ahead of the Cloud Run pipeline's `run-migrations` step (the
+  Vercel deploy has no migration gate)
 - **THEN** the response is 503 `{error: 'unavailable',
   detail: <retry hint>}` with a `Retry-After` header, a
-  warning is logged, and NO Sentry event is captured; any
-  other `ProgrammingError` keeps the uniform 500 +
-  `internal_error` capture path
+  warning is logged, and a warning-level Sentry event tagged
+  `error_code:schema_lag` is captured (no error-level event —
+  expected deploy state, but a permanently missing column must
+  stay observable); any other `ProgrammingError` keeps the
+  uniform 500 + `internal_error` capture path
 
 ### Requirement: 401 login-redirect handshake
 
