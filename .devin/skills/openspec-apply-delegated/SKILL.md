@@ -3,8 +3,9 @@ name: openspec-apply-delegated
 description: >
   Implement an OpenSpec change hands-off via subagents — an
   implementer agent cuts a feature branch, works the task list,
-  and opens a draft PR; once checks are green a fresh reviewer
-  agent reports severity-tagged findings and fixer agents
+  and opens a PR ready for review; once checks are green a
+  fresh reviewer agent reports severity-tagged findings and
+  fixer agents
   iterate until clean. Use when asked to implement an OpenSpec
   change end-to-end without driving the task loop interactively.
 ---
@@ -59,9 +60,10 @@ stays small and survives `openspec update`.
      and `openspec validate --all --strict` must pass before
      pushing
    - PR conventions: push the branch, body via temp file +
-     `gh pr create --body-file`, DRAFT PR, mandatory UI
-     verification section (follow `.devin/skills/create-pr/`
-     when that skill exists in the repo).
+     `gh pr create --body-file`, ready-for-review PR (never a
+     draft), mandatory UI verification section (follow
+     `.devin/skills/create-pr/` when that skill exists in the
+     repo).
    - archive timing: when EVERY tasks.md item is `- [x]`,
      run `openspec archive <name>` on the feature branch
      BEFORE pushing / opening the PR (check
@@ -71,7 +73,7 @@ stays small and survives `openspec update`.
      --all --strict` must pass. The archive lands in the SAME
      commits pushed for the PR — code + synced specs +
      history together. A fully-implemented change must NOT
-     reach `gh pr ready` unarchived; a legitimately
+     reach PR completion unarchived; a legitimately
      unfinished task stays `- [ ]`, the change stays
      unarchived, and the implementer reports that
      explicitly.
@@ -116,7 +118,8 @@ stays small and survives `openspec update`.
 - Background subagents cannot gain permissions — if one stalls
   on a denied call, resume it in the foreground
   (`run_subagent resume=<agent_id>`).
-- The PR stays DRAFT until a review round returns clean.
+- The PR is never a draft — a review round returning clean
+  means it's done.
 - Tasks that cannot be finished stay unchecked (`- [ ]`) — the
   fixer and reviewer must treat an unchecked task as incomplete
   work, not as a defect to review.

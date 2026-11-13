@@ -2,7 +2,7 @@
 name: implement-plan
 description: Implement a plan end-to-end with
   subagents — run an implementation agent that cuts a feature
-  branch and opens a draft PR, then review the PR with fresh
+  branch and opens a PR, then review the PR with fresh
   reviewer agents and iterate fix rounds until reviewers
   report no issues. Invoke when the user asks to
   implement/execute a plan — an OpenSpec change dir
@@ -70,12 +70,12 @@ the work yourself into one prompt per stage.) Prompt:
     5. Commit only files you edited (never git add -A, never
        commit plan/scratch md). Format: `Type: Capitalized
        msg`. Push: git push -u origin feat/<slug>
-    6. Open a DRAFT PR with --base main following
-       .devin/skills/create-pr/ — write the body to
+    6. Open a PR (ready for review — never a draft) with
+       --base main following .devin/skills/create-pr/ — write the body to
        pr-body.md, use --body-file, rm it after. Body must
        include a UI-verification section.
-    7. gh pr checks <N> --watch; fix failures until green,
-       then gh pr ready <N>.
+    7. gh pr checks <N> --watch; fix failures until green.
+       The PR is opened ready for review — never a draft.
     Return: PR URL, files changed, test results, anything you
     could not do (e.g. a migrate command for the user).
 
