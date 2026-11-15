@@ -3,7 +3,7 @@
 ## 1. Backend filter
 
 - [x] 1.1 backend: In `tv_programs/api.py` `list_programs`,
-  add `min_duration: Optional[int] = Query(None)`. Absent →
+  add `min_duration: Optional[float] = Query(None)`. Absent →
   effective 80; `>0` ANDs `duration_minutes__gte` into the
   query; `0`/negative disables. Echo the effective value on
   `ProgramFiltersOut.min_duration` (null when disabled). Add

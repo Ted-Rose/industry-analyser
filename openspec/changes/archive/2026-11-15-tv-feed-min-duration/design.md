@@ -48,13 +48,13 @@ NULL. No scraping or migration work.
 
 - `ProgramParams.minDuration` — serialized via `setNumber`
   like `ratingValue`; absent → server applies 80.
-- Draft seeding mirrors `notContentRating`: the input renders
-  the raw URL param, then fills with the server-echoed
-  effective value once the payload lands. On submit the param
-  is skipped only while the draft equals the echoed default
-  (avoids inflating "Filters (n)"); a real change is sent,
-  and a cleared input serializes `min_duration=0` (the
-  documented disable).
+- Draft seeding mirrors `notContentRating`'s 'R': the input
+  seeds to the known server default ('80') whenever the URL
+  param is absent, so '' only ever means a deliberate clear.
+  On submit the param is skipped only while the draft equals
+  the echoed default (avoids inflating "Filters (n)"); a real
+  change is sent, and a cleared input serializes
+  `min_duration=0` (the documented disable).
 - The card's meta row gains `· N min` after Start Time —
   makes the active filter visually verifiable.
 - The summary line gains `· ≥N min` while the filter is

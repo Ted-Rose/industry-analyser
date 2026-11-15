@@ -38,6 +38,10 @@ import Input from '../../shared/ui/Input';
 import { LoadingState } from '../../shared/ui/Skeleton';
 import { pushToast } from '../../shared/toasts';
 
+/** Server-side default — duplicated here so drafts can seed to it
+ *  like notContentRating's 'R' (absent param → server applies it). */
+const DEFAULT_MIN_DURATION = '80';
+
 interface Draft {
   contentRating: string;
   notContentRating: string;
@@ -90,9 +94,10 @@ function groupPrograms(programs: ProgramOut[]): ProgramGroup[] {
  * and applied to the URL on Filter.
  *
  * Draft seeding mirrors the template inputs: `request.GET.*` fields
- * render the raw param ('' when absent); `filters.*` fields render
- * the server-effective value (not_content_rating defaults to 'R',
- * dates to the last-7-days window) once the payload arrives.
+ * render the raw param — or the known server default when the param
+ * is absent ('R' for not_content_rating, '80' for min_duration) —
+ * while `filters.*` fields render the server-effective value (the
+ * last-7-days window) once the payload arrives.
  */
 export default function ProgramList() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -154,7 +159,8 @@ export default function ProgramList() {
     notContentRating: searchParams.get('not_content_rating') ?? 'R',
     ratingValue: searchParams.get('rating_value') ?? '',
     ratio: searchParams.get('ratio') ?? '',
-    minDuration: searchParams.get('min_duration') ?? '80',
+    minDuration:
+      searchParams.get('min_duration') ?? DEFAULT_MIN_DURATION,
     startDate: searchParams.get('start_date') ?? '',
     endDate: searchParams.get('end_date') ?? '',
     channel: searchParams.get('channel') ?? '',
@@ -189,7 +195,7 @@ export default function ProgramList() {
           // not-yet-echoed "unset".
           minDuration: p.has('min_duration')
             ? (p.get('min_duration') ?? '')
-            : '80',
+            : DEFAULT_MIN_DURATION,
           startDate: p.get('start_date') ?? '',
           endDate: p.get('end_date') ?? '',
           channel: p.get('channel') ?? '',
@@ -242,7 +248,7 @@ export default function ProgramList() {
     // server default (80); a numeric param can't carry '' so a
     // cleared input serializes '0' — the documented disable value.
     const serverDurationDefault = String(
-      data?.filters.min_duration ?? 80,
+      data?.filters.min_duration ?? DEFAULT_MIN_DURATION,
     );
     if (
       searchParams.has('min_duration') ||
@@ -376,7 +382,7 @@ export default function ProgramList() {
             min="0"
             name="min_duration"
             id="min_duration"
-            placeholder="80"
+            placeholder="0 = off"
             value={draft.minDuration}
             onChange={(e) =>
               setDraft((d) => ({ ...d, minDuration: e.target.value }))
