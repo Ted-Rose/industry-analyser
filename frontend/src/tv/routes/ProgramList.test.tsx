@@ -353,9 +353,10 @@ describe('ProgramList', () => {
 
   it('does not disable min_duration when Filter is pressed ' +
     'before the first payload lands', async () => {
-      // Unresolved query: draft is '', echo hasn't filled it —
-      // an early submit must not serialize the '0' off-switch.
-      // The channel change makes the submit observable.
+      // Unresolved query: the draft is the seeded '80', equal
+      // to the server default — an early submit must skip the
+      // param, not serialize the '0' off-switch. The channel
+      // change makes the submit observable.
       renderList('/tv/');
       fireEvent.change(screen.getByLabelText('Channel:'), {
         target: { value: 'tv3' },
@@ -375,7 +376,7 @@ describe('ProgramList', () => {
       renderList('/tv/');
       await screen.findByText('Dienas ziņas');
       // First submit changes the URL — the params-changed resync
-      // reseeds minDuration to '' while the refetch is pending.
+      // reseeds minDuration to '80' while the refetch is pending.
       fireEvent.click(
         screen.getByLabelText('Only movies & shows:'),
       );
@@ -383,8 +384,8 @@ describe('ProgramList', () => {
         screen.getByRole('button', { name: 'Filter' }),
       );
       // Second submit while that refetch is still in flight:
-      // data is a keepPreviousData placeholder, so the reseeded
-      // '' must not become the '0' off-switch.
+      // data is a keepPreviousData placeholder, and the reseeded
+      // '80' must not become the '0' off-switch.
       fireEvent.click(
         screen.getByRole('button', { name: 'Filter' }),
       );
