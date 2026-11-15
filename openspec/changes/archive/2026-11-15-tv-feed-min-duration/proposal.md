@@ -12,12 +12,14 @@ layer already treats ≥80min as a movie signal).
 
 ## What Changes
 
-- `GET /api/tv/programs/` gains a `min_duration` integer param
-  (minutes). Absent → the server applies a default of `80`;
-  `?min_duration=<n>` overrides; `?min_duration=0` disables the
-  filter (an int param can't carry the "explicit empty disables"
-  convention `not_content_rating` uses — a bare `?min_duration=`
-  would 422 — so 0 is the documented off value). Programs with
+- `GET /api/tv/programs/` gains a `min_duration` numeric param
+  (minutes, `Optional[float]` truncated server-side). Absent →
+  the server applies a default of `80`; `?min_duration=<n>`
+  overrides; `?min_duration=0` disables the filter (a numeric
+  param can't carry the "explicit empty disables" convention
+  `not_content_rating` uses — a bare `?min_duration=` would 422
+  — so 0 is the documented off value). Fractional/non-finite
+  values truncate/disable rather than 422. Programs with
   NULL `duration_minutes` (86 prod rows) are excluded whenever
   the filter is active — their length is unknown.
 - `ProgramFiltersOut` echoes the effective `min_duration`

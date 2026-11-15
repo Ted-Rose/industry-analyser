@@ -205,11 +205,10 @@ export default function ProgramList() {
           d.notContentRating ||
           data.filters.not_content_rating ||
           'R',
-        minDuration:
-          d.minDuration ||
-          (data.filters.min_duration != null
-            ? String(data.filters.min_duration)
-            : ''),
+        // No minDuration fill: the '80' seeds above make '' a
+        // deliberate clear (the '0' off-switch) — refilling it
+        // here would resurrect the filter on every background
+        // refetch (reaction invalidate, post-payload update).
         startDate: d.startDate || data.filters.start_date,
         endDate: d.endDate || data.filters.end_date,
       };

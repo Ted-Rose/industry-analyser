@@ -15,7 +15,7 @@ if min_duration > 0:
     query &= Q(duration_minutes__gte=min_duration)
 ```
 
-- `0` is the disable value because the param is typed `int` —
+- `0` is the disable value because the param is numeric —
   the "explicit empty disables" trick `not_content_rating`
   uses would fail schema validation (422). A ≥0 predicate is
   semantically a no-op anyway, so `min_duration=0` reads

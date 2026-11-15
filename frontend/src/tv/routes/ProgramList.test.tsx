@@ -237,14 +237,58 @@ describe('ProgramList', () => {
     });
 
   it('omits min_duration by default (server applies the ' +
-    '80-min default) and fills the input from the echo', async () => {
+    '80-min default) and seeds the input with 80', async () => {
       renderList('/tv/');
       await screen.findByText('Dienas ziņas');
       expect(calledUrls()[0]).not.toContain('min_duration');
-      await waitFor(() =>
-        expect(screen.getByLabelText('Min. Length (min):'))
-          .toHaveValue(80),
+      expect(screen.getByLabelText('Min. Length (min):'))
+        .toHaveValue(80);
+    });
+
+  it('keeps a cleared min_duration empty across a refetch ' +
+    '(deliberate clear is not refilled)', async () => {
+      // A same-params data update must not resurrect the '80'
+      // over a deliberate clear — '' serializes the '0'
+      // off-switch on the next submit.
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.change(
+        screen.getByLabelText('Min. Length (min):'),
+        { target: { value: '' } },
       );
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [
+            makeProgram({
+              id: '99999999-9999-9999-9999-999999999999',
+              user_reaction: 'like',
+            }),
+          ],
+        }),
+      );
+      // Trigger a refetch without changing the URL — the
+      // reaction mutation's invalidate path in production.
+      mockedApiGet.mockClear();
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Like' }),
+      );
+      // The refetched payload lands when the Like toggle flips
+      // pressed — the resync effect has re-run by then.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Like' }))
+          .toHaveAttribute('aria-pressed', 'true'),
+      );
+      expect(
+        screen.getByLabelText('Min. Length (min):'),
+      ).toHaveDisplayValue('');
+      // The cleared draft then serializes the disable value.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('min_duration=0');
     });
 
   it('serializes a changed min_duration on submit', async () => {
