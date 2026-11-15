@@ -154,7 +154,7 @@ export default function ProgramList() {
     notContentRating: searchParams.get('not_content_rating') ?? 'R',
     ratingValue: searchParams.get('rating_value') ?? '',
     ratio: searchParams.get('ratio') ?? '',
-    minDuration: searchParams.get('min_duration') ?? '',
+    minDuration: searchParams.get('min_duration') ?? '80',
     startDate: searchParams.get('start_date') ?? '',
     endDate: searchParams.get('end_date') ?? '',
     channel: searchParams.get('channel') ?? '',
@@ -183,7 +183,13 @@ export default function ProgramList() {
             : 'R',
           ratingValue: p.get('rating_value') ?? '',
           ratio: p.get('ratio') ?? '',
-          minDuration: p.get('min_duration') ?? '',
+          // Seeded to the known server default like
+          // notContentRating's 'R' — '' then only ever means a
+          // deliberate clear (the '0' off-switch), never a
+          // not-yet-echoed "unset".
+          minDuration: p.has('min_duration')
+            ? (p.get('min_duration') ?? '')
+            : '80',
           startDate: p.get('start_date') ?? '',
           endDate: p.get('end_date') ?? '',
           channel: p.get('channel') ?? '',
@@ -234,18 +240,14 @@ export default function ProgramList() {
     if (draft.ratio) next.set('ratio', draft.ratio);
     // Same absent-vs-set convention as not_content_rating: the
     // param is skipped only while the draft equals the echoed
-    // server default (80); an int can't carry '' so a cleared
-    // input serializes '0' — the documented disable value.
+    // server default (80); a numeric param can't carry '' so a
+    // cleared input serializes '0' — the documented disable value.
     const serverDurationDefault = String(
       data?.filters.min_duration ?? 80,
     );
     if (
       searchParams.has('min_duration') ||
-      // An empty draft only means "disable" once the echo has
-      // landed — pre-echo it means "unset", and a submit during
-      // the first load must not serialize the '0' off-switch.
-      (draft.minDuration !== serverDurationDefault &&
-        (draft.minDuration !== '' || data != null))
+      draft.minDuration !== serverDurationDefault
     ) {
       next.set('min_duration', draft.minDuration || '0');
     }

@@ -880,6 +880,22 @@ class TvApiTests(TestCase):
         ids = [p["id"] for p in resp.json()["programs"]]
         self.assertEqual(ids, [str(edge.pk)])
 
+    def test_min_duration_fraction_truncates(self):
+        """Handcrafted ?min_duration=45.9 must not 422 — the
+        schema type is float and the value truncates to whole
+        minutes."""
+        ch = make_channel()
+        kept = make_program(channel=ch, duration_minutes=45)
+        too_short = make_program(channel=ch, duration_minutes=44)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"min_duration": "45.9"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(kept.pk), ids)
+        self.assertNotIn(str(too_short.pk), ids)
+        self.assertEqual(body["filters"]["min_duration"], 45)
+
     def test_min_duration_negative_disables(self):
         """Same off-switch as 0 — a negative can't be a real
         minimum, so it disables rather than hiding NULL rows."""

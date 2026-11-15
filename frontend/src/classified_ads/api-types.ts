@@ -182,8 +182,8 @@ export interface paths {
          *     the program's like the card's |default-style fallback).
          *     `all_content` opts out of the default movies-and-series filter
          *     (same absent-vs-set convention as `not_content_rating`).
-         *     `min_duration` defaults to 80 — an explicit 0 disables it (the
-         *     int param can't carry the empty-string-disables convention).
+         *     `min_duration` defaults to 80 — an explicit 0 disables it (a
+         *     numeric param can't carry the empty-string-disables convention).
          */
         get: operations["tv_programs_api_list_programs"];
         put?: never;

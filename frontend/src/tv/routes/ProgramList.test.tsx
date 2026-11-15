@@ -326,6 +326,35 @@ describe('ProgramList', () => {
       expect(calledUrls()[1]).not.toContain('min_duration');
     });
 
+  it('does not serialize min_duration=0 on a submit fired ' +
+    'mid-refetch', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      // First submit changes the URL — the params-changed resync
+      // reseeds minDuration to '' while the refetch is pending.
+      fireEvent.click(
+        screen.getByLabelText('Only movies & shows:'),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      // Second submit while that refetch is still in flight:
+      // data is a keepPreviousData placeholder, so the reseeded
+      // '' must not become the '0' off-switch.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      // Once the echo for the new URL lands the input refills
+      // to the default — '0' would mean the bug wrote disable.
+      await waitFor(() =>
+        expect(screen.getByLabelText('Min. Length (min):'))
+          .toHaveValue(80),
+      );
+      for (const url of calledUrls()) {
+        expect(url).not.toContain('min_duration');
+      }
+    });
+
   it('sends an empty not_content_rating when the input is ' +
     'cleared (disables the R exclusion)', async () => {
     renderList('/tv/');

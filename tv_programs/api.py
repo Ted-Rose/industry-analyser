@@ -9,6 +9,7 @@ program_list view in tv_programs/views.py — same not_content_rating
 default of 'R' and 7-day default window — plus the newer default-on
 content (all_content) and length (min_duration) filters.
 """
+import math
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import List, Optional
@@ -122,7 +123,7 @@ def list_programs(
     not_content_rating: Optional[str] = Query(None, max_length=50),
     rating_value: Optional[float] = Query(None),
     ratio: Optional[float] = Query(None),
-    min_duration: Optional[int] = Query(None),
+    min_duration: Optional[float] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     channel: Optional[str] = Query(None, max_length=255),
@@ -140,8 +141,8 @@ def list_programs(
     the program's like the card's |default-style fallback).
     `all_content` opts out of the default movies-and-series filter
     (same absent-vs-set convention as `not_content_rating`).
-    `min_duration` defaults to 80 — an explicit 0 disables it (the
-    int param can't carry the empty-string-disables convention).
+    `min_duration` defaults to 80 — an explicit 0 disables it (a
+    numeric param can't carry the empty-string-disables convention).
     """
     # Default 'not_content_rating' to 'R' if not specified (verbatim
     # from the view — an explicit empty string disables it).
@@ -153,6 +154,12 @@ def list_programs(
     # NULL-duration rows, which is not what "no minimum" means.
     if min_duration is None:
         min_duration = 80
+    # The schema type is float so free-form values ('45.9', '1e2')
+    # truncate to whole minutes instead of 422ing; non-finite input
+    # ('NaN', 'inf') can't express a bound → disable.
+    min_duration = (
+        int(min_duration) if math.isfinite(min_duration) else 0
+    )
 
     # Default dates to a 7-day window if not provided.
     if end_date is None:
