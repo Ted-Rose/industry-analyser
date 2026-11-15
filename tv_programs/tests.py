@@ -605,7 +605,9 @@ def make_program(channel=None, start_time=None, **kwargs):
         description_lv=kwargs.pop("description_lv", ""),
         channel=channel,
         start_time=start_time or timezone.now(),
-        duration_minutes=kwargs.pop("duration_minutes", 25),
+        # Default-on feed filter also requires duration >= 80 —
+        # a movie-length slot keeps filter tests' rows visible.
+        duration_minutes=kwargs.pop("duration_minutes", 95),
         # Default-on feed filter keeps movies + series-meta airings —
         # a bare 'movie' keeps every filter test's rows visible.
         content_type=kwargs.pop(
@@ -825,6 +827,93 @@ class TvApiTests(TestCase):
         )
         ids = [p["id"] for p in resp.json()["programs"]]
         self.assertEqual(ids, [str(kept.pk)])
+
+    def test_default_min_duration_hides_short_and_null(self):
+        """min_duration defaults to 80 — short slots and rows whose
+        duration was never parsed drop out of the default feed."""
+        ch = make_channel()
+        kept = make_program(channel=ch, duration_minutes=95)
+        short = make_program(channel=ch, duration_minutes=25)
+        unknown_len = make_program(channel=ch, duration_minutes=None)
+        resp = self.client.get(f"{self.API}/programs/")
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(kept.pk), ids)
+        self.assertNotIn(str(short.pk), ids)
+        self.assertNotIn(str(unknown_len.pk), ids)
+        self.assertEqual(body["filters"]["min_duration"], 80)
+
+    def test_min_duration_overrides_default(self):
+        ch = make_channel()
+        kept = make_program(channel=ch, duration_minutes=50)
+        too_short = make_program(channel=ch, duration_minutes=40)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"min_duration": "45"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(kept.pk), ids)
+        self.assertNotIn(str(too_short.pk), ids)
+        self.assertEqual(body["filters"]["min_duration"], 45)
+
+    def test_min_duration_zero_disables(self):
+        """?min_duration=0 is the documented off switch — the int
+        param can't carry not_content_rating's empty-string
+        convention."""
+        short = make_program(duration_minutes=10)
+        unknown_len = make_program(duration_minutes=None)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"min_duration": "0"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(short.pk), ids)
+        self.assertIn(str(unknown_len.pk), ids)
+        self.assertIsNone(body["filters"]["min_duration"])
+
+    def test_min_duration_boundary_keeps_exact(self):
+        """__gte semantics — an 80-minute slot survives the
+        80-minute default."""
+        edge = make_program(duration_minutes=80)
+        make_program(duration_minutes=79)
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertEqual(ids, [str(edge.pk)])
+
+    def test_min_duration_fraction_truncates(self):
+        """Handcrafted ?min_duration=45.9 must not 422 — the
+        schema type is float and the value truncates to whole
+        minutes."""
+        ch = make_channel()
+        kept = make_program(channel=ch, duration_minutes=45)
+        too_short = make_program(channel=ch, duration_minutes=44)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"min_duration": "45.9"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(kept.pk), ids)
+        self.assertNotIn(str(too_short.pk), ids)
+        self.assertEqual(body["filters"]["min_duration"], 45)
+
+    def test_min_duration_negative_disables(self):
+        """Same off-switch as 0 — a negative can't be a real
+        minimum, so it disables rather than hiding NULL rows."""
+        short = make_program(duration_minutes=10)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"min_duration": "-5"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(short.pk), ids)
+        self.assertIsNone(body["filters"]["min_duration"])
+
+    def test_program_payload_carries_duration(self):
+        prog = make_program(duration_minutes=95)
+        resp = self.client.get(f"{self.API}/programs/")
+        row = resp.json()["programs"][0]
+        self.assertEqual(row["id"], str(prog.pk))
+        self.assertEqual(row["duration_minutes"], 95)
 
     def test_channel_and_exclude_channel_filters(self):
         ltv = make_channel("ltv1_hd")

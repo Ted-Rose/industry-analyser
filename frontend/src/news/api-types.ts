@@ -182,6 +182,8 @@ export interface paths {
          *     the program's like the card's |default-style fallback).
          *     `all_content` opts out of the default movies-and-series filter
          *     (same absent-vs-set convention as `not_content_rating`).
+         *     `min_duration` defaults to 80 — an explicit 0 disables it (a
+         *     numeric param can't carry the empty-string-disables convention).
          */
         get: operations["tv_programs_api_list_programs"];
         put?: never;
@@ -1199,6 +1201,8 @@ export interface components {
             rating_value: number | null;
             /** Ratio */
             ratio: number | null;
+            /** Min Duration */
+            min_duration: number | null;
             /**
              * Start Date
              * Format: date
@@ -1235,6 +1239,8 @@ export interface components {
             channel_name: string;
             /** Start Time */
             start_time: string;
+            /** Duration Minutes */
+            duration_minutes: number | null;
             /** Image Url */
             image_url: string | null;
             /** Url */
@@ -2666,6 +2672,7 @@ export interface operations {
                 not_content_rating?: string | null;
                 rating_value?: number | null;
                 ratio?: number | null;
+                min_duration?: number | null;
                 start_date?: string | null;
                 end_date?: string | null;
                 channel?: string | null;

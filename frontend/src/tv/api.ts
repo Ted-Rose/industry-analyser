@@ -10,12 +10,14 @@ export type SpokiPageOut = components['schemas']['SpokiPageOut'];
 export type ReactionOut = components['schemas']['ReactionOut'];
 
 /** Filter state of the program feed, parsed from the URL. Mirrors
- *  the GET params of the retired program_list view/form. */
+ *  the GET params of the retired program_list view/form plus the
+ *  newer all_content/min_duration additions. */
 export interface ProgramParams {
   contentRating?: string | null;
   notContentRating?: string | null;
   ratingValue?: string | null;
   ratio?: string | null;
+  minDuration?: string | null;
   startDate?: string | null;
   endDate?: string | null;
   channel?: string | null;
@@ -54,6 +56,8 @@ export function fetchPrograms(
   }
   setNumber(qs, 'rating_value', params.ratingValue);
   setNumber(qs, 'ratio', params.ratio);
+  // Absent → server default 80; an explicit '0' disables.
+  setNumber(qs, 'min_duration', params.minDuration);
   if (params.startDate) qs.set('start_date', params.startDate);
   if (params.endDate) qs.set('end_date', params.endDate);
   if (params.channel) qs.set('channel', params.channel);

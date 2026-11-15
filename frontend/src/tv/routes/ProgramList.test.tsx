@@ -27,6 +27,7 @@ function makeProgram(overrides: Partial<ProgramOut> = {}): ProgramOut {
     description_lv: 'Jaunākās ziņas',
     channel_name: 'ltv1_hd',
     start_time: '2026-10-02T15:15:00+03:00',
+    duration_minutes: 95,
     image_url: null,
     url: 'https://tet.lv/programme/1',
     pg_rating: null,
@@ -49,6 +50,7 @@ function makePrograms(
       not_content_rating: 'R',
       rating_value: null,
       ratio: null,
+      min_duration: 80,
       start_date: '2026-09-25',
       end_date: '2026-10-02',
       channel_name: null,
@@ -234,6 +236,170 @@ describe('ProgramList', () => {
       expect(calledUrls()[1]).toContain('not_content_rating=PG');
     });
 
+  it('omits min_duration by default (server applies the ' +
+    '80-min default) and seeds the input with 80', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(calledUrls()[0]).not.toContain('min_duration');
+      expect(screen.getByLabelText('Min. Length (min):'))
+        .toHaveValue(80);
+    });
+
+  it('keeps a cleared min_duration empty across a refetch ' +
+    '(deliberate clear is not refilled)', async () => {
+      // A same-params data update must not resurrect the '80'
+      // over a deliberate clear — '' serializes the '0'
+      // off-switch on the next submit.
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.change(
+        screen.getByLabelText('Min. Length (min):'),
+        { target: { value: '' } },
+      );
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [
+            makeProgram({
+              id: '99999999-9999-9999-9999-999999999999',
+              user_reaction: 'like',
+            }),
+          ],
+        }),
+      );
+      // Trigger a refetch without changing the URL — the
+      // reaction mutation's invalidate path in production.
+      mockedApiGet.mockClear();
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Like' }),
+      );
+      // The refetched payload lands when the Like toggle flips
+      // pressed — the resync effect has re-run by then.
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Like' }))
+          .toHaveAttribute('aria-pressed', 'true'),
+      );
+      expect(
+        screen.getByLabelText('Min. Length (min):'),
+      ).toHaveDisplayValue('');
+      // The cleared draft then serializes the disable value.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('min_duration=0');
+    });
+
+  it('serializes a changed min_duration on submit', async () => {
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    fireEvent.change(
+      screen.getByLabelText('Min. Length (min):'),
+      { target: { value: '45' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain('min_duration=45');
+  });
+
+  it('serializes min_duration=0 when the input is cleared ' +
+    '(disables the default)', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.change(
+        screen.getByLabelText('Min. Length (min):'),
+        { target: { value: '' } },
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('min_duration=0');
+    });
+
+  it('echoes the active min_duration in the summary line',
+    async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(screen.getByText(/· ≥80 min/)).toBeInTheDocument();
+    });
+
+  it('keeps min_duration=0 on a no-op submit (the disable ' +
+    'sticks)', async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          filters: {
+            ...makePrograms().filters,
+            min_duration: null,
+          },
+        }),
+      );
+      renderList('/tv/?min_duration=0');
+      await screen.findByText('Dienas ziņas');
+      expect(calledUrls()[0]).toContain('min_duration=0');
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('min_duration=0');
+    });
+
+  it('does not disable min_duration when Filter is pressed ' +
+    'before the first payload lands', async () => {
+      // Unresolved query: the draft is the seeded '80', equal
+      // to the server default — an early submit must skip the
+      // param, not serialize the '0' off-switch. The channel
+      // change makes the submit observable.
+      renderList('/tv/');
+      fireEvent.change(screen.getByLabelText('Channel:'), {
+        target: { value: 'tv3' },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('channel=tv3');
+      expect(calledUrls()[1]).not.toContain('min_duration');
+    });
+
+  it('does not serialize min_duration=0 on a submit fired ' +
+    'mid-refetch', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      // First submit changes the URL — the params-changed resync
+      // reseeds minDuration to '80' while the refetch is pending.
+      fireEvent.click(
+        screen.getByLabelText('Only movies & shows:'),
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      // Second submit while that refetch is still in flight:
+      // data is a keepPreviousData placeholder, and the reseeded
+      // '80' must not become the '0' off-switch.
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      // Once the echo for the new URL lands the input refills
+      // to the default — '0' would mean the bug wrote disable.
+      await waitFor(() =>
+        expect(screen.getByLabelText('Min. Length (min):'))
+          .toHaveValue(80),
+      );
+      for (const url of calledUrls()) {
+        expect(url).not.toContain('min_duration');
+      }
+    });
+
   it('sends an empty not_content_rating when the input is ' +
     'cleared (disables the R exclusion)', async () => {
     renderList('/tv/');
@@ -357,6 +523,26 @@ describe('ProgramList', () => {
       expect(screen.getByText(/^Rating: 7\.4/)).toBeInTheDocument();
       expect(
         screen.queryByRole('link', { name: /IMDb/ }),
+      ).not.toBeInTheDocument();
+    });
+
+  it('renders the airing length in the meta row', async () => {
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    expect(screen.getByText('Length: 95 min')).toBeInTheDocument();
+  });
+
+  it('omits the length segment when duration is unknown',
+    async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [makeProgram({ duration_minutes: null })],
+        }),
+      );
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(
+        screen.queryByText(/Length: /),
       ).not.toBeInTheDocument();
     });
 

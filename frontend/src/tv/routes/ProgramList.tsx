@@ -38,11 +38,16 @@ import Input from '../../shared/ui/Input';
 import { LoadingState } from '../../shared/ui/Skeleton';
 import { pushToast } from '../../shared/toasts';
 
+/** Server-side default — duplicated here so drafts can seed to it
+ *  like notContentRating's 'R' (absent param → server applies it). */
+const DEFAULT_MIN_DURATION = '80';
+
 interface Draft {
   contentRating: string;
   notContentRating: string;
   ratingValue: string;
   ratio: string;
+  minDuration: string;
   startDate: string;
   endDate: string;
   channel: string;
@@ -89,9 +94,10 @@ function groupPrograms(programs: ProgramOut[]): ProgramGroup[] {
  * and applied to the URL on Filter.
  *
  * Draft seeding mirrors the template inputs: `request.GET.*` fields
- * render the raw param ('' when absent); `filters.*` fields render
- * the server-effective value (not_content_rating defaults to 'R',
- * dates to the last-7-days window) once the payload arrives.
+ * render the raw param — or the known server default when the param
+ * is absent ('R' for not_content_rating, '80' for min_duration) —
+ * while `filters.*` fields render the server-effective value (the
+ * last-7-days window) once the payload arrives.
  */
 export default function ProgramList() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -115,6 +121,7 @@ export default function ProgramList() {
           : null,
         ratingValue: searchParams.get('rating_value'),
         ratio: searchParams.get('ratio'),
+        minDuration: searchParams.get('min_duration'),
         startDate: searchParams.get('start_date'),
         endDate: searchParams.get('end_date'),
         channel: searchParams.get('channel'),
@@ -152,6 +159,8 @@ export default function ProgramList() {
     notContentRating: searchParams.get('not_content_rating') ?? 'R',
     ratingValue: searchParams.get('rating_value') ?? '',
     ratio: searchParams.get('ratio') ?? '',
+    minDuration:
+      searchParams.get('min_duration') ?? DEFAULT_MIN_DURATION,
     startDate: searchParams.get('start_date') ?? '',
     endDate: searchParams.get('end_date') ?? '',
     channel: searchParams.get('channel') ?? '',
@@ -180,6 +189,13 @@ export default function ProgramList() {
             : 'R',
           ratingValue: p.get('rating_value') ?? '',
           ratio: p.get('ratio') ?? '',
+          // Seeded to the known server default like
+          // notContentRating's 'R' — '' then only ever means a
+          // deliberate clear (the '0' off-switch), never a
+          // not-yet-echoed "unset".
+          minDuration: p.has('min_duration')
+            ? (p.get('min_duration') ?? '')
+            : DEFAULT_MIN_DURATION,
           startDate: p.get('start_date') ?? '',
           endDate: p.get('end_date') ?? '',
           channel: p.get('channel') ?? '',
@@ -195,6 +211,10 @@ export default function ProgramList() {
           d.notContentRating ||
           data.filters.not_content_rating ||
           'R',
+        // No minDuration fill: the '80' seeds above make '' a
+        // deliberate clear (the '0' off-switch) — refilling it
+        // here would resurrect the filter on every background
+        // refetch (reaction invalidate, post-payload update).
         startDate: d.startDate || data.filters.start_date,
         endDate: d.endDate || data.filters.end_date,
       };
@@ -223,6 +243,19 @@ export default function ProgramList() {
     }
     if (draft.ratingValue) next.set('rating_value', draft.ratingValue);
     if (draft.ratio) next.set('ratio', draft.ratio);
+    // Same absent-vs-set convention as not_content_rating: the
+    // param is skipped only while the draft equals the echoed
+    // server default (80); a numeric param can't carry '' so a
+    // cleared input serializes '0' — the documented disable value.
+    const serverDurationDefault = String(
+      data?.filters.min_duration ?? DEFAULT_MIN_DURATION,
+    );
+    if (
+      searchParams.has('min_duration') ||
+      draft.minDuration !== serverDurationDefault
+    ) {
+      next.set('min_duration', draft.minDuration || '0');
+    }
     if (draft.startDate) next.set('start_date', draft.startDate);
     if (draft.endDate) next.set('end_date', draft.endDate);
     if (draft.channel) next.set('channel', draft.channel);
@@ -342,6 +375,21 @@ export default function ProgramList() {
           />
         </Field>
 
+        <Field label="Min. Length (min):" htmlFor="min_duration">
+          <Input
+            type="number"
+            step="1"
+            min="0"
+            name="min_duration"
+            id="min_duration"
+            placeholder="0 = off"
+            value={draft.minDuration}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, minDuration: e.target.value }))
+            }
+          />
+        </Field>
+
         <Field label="Channel:" htmlFor="channel">
           <Input
             type="text"
@@ -415,6 +463,8 @@ export default function ProgramList() {
           {data.filters.start_date}–{data.filters.end_date}
           {data.filters.not_content_rating &&
             ` · rating "${data.filters.not_content_rating}" excluded`}
+          {data.filters.min_duration != null &&
+            ` · ≥${data.filters.min_duration} min`}
           {data.filters.all_content && ' · all content'}
         </p>
       )}
@@ -434,8 +484,8 @@ export default function ProgramList() {
             activeCount > 0
               ? 'Nothing matches the active filters.'
               : 'No programs in the default window — the last 7 ' +
-                'days, movies & shows only, R-rated content ' +
-                'excluded.'
+                'days, movies & shows only, min. 80 minutes, ' +
+                'R-rated content excluded.'
           }
           action={
             activeCount > 0 ? (
@@ -551,6 +601,9 @@ function ProgramCard({
       )}
     </span>,
   );
+  if (program.duration_minutes != null) {
+    meta.push(<span>Length: {program.duration_minutes} min</span>);
+  }
   if (pgRating) {
     meta.push(<Badge variant="outline">{pgRating}</Badge>);
   }

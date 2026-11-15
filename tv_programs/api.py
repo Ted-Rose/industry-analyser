@@ -4,10 +4,12 @@ GET ops are public (auth=None) — the template pages they replace
 were public; the like/dislike reaction mutation keeps the default
 django_auth (session + CSRF) — a deliberate tightening vs. the old
 anonymous-write form, matching the migration README's "mutations
-keep django_auth" rule. The queryset logic mirrors the retired
-program_list view in tv_programs/views.py exactly, including the
-not_content_rating default of 'R' and the 7-day default window.
+keep django_auth" rule. The queryset logic grew out of the retired
+program_list view in tv_programs/views.py — same not_content_rating
+default of 'R' and 7-day default window — plus the newer default-on
+content (all_content) and length (min_duration) filters.
 """
+import math
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import List, Optional
@@ -48,6 +50,7 @@ class ProgramOut(Schema):
     description_lv: Optional[str]
     channel_name: str
     start_time: str
+    duration_minutes: Optional[int]
     image_url: Optional[str]
     url: Optional[str]
     pg_rating: Optional[str]
@@ -80,6 +83,7 @@ class ProgramFiltersOut(Schema):
     not_content_rating: Optional[str]
     rating_value: Optional[float]
     ratio: Optional[float]
+    min_duration: Optional[int]
     start_date: date
     end_date: date
     channel_name: Optional[str]
@@ -119,6 +123,7 @@ def list_programs(
     not_content_rating: Optional[str] = Query(None, max_length=50),
     rating_value: Optional[float] = Query(None),
     ratio: Optional[float] = Query(None),
+    min_duration: Optional[float] = Query(None),
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     channel: Optional[str] = Query(None, max_length=255),
@@ -136,11 +141,25 @@ def list_programs(
     the program's like the card's |default-style fallback).
     `all_content` opts out of the default movies-and-series filter
     (same absent-vs-set convention as `not_content_rating`).
+    `min_duration` defaults to 80 — an explicit 0 disables it (a
+    numeric param can't carry the empty-string-disables convention).
     """
     # Default 'not_content_rating' to 'R' if not specified (verbatim
     # from the view — an explicit empty string disables it).
     if not_content_rating is None:
         not_content_rating = 'R'
+
+    # Default 'min_duration' to 80 minutes; ?min_duration=0 (or a
+    # negative) disables — a >=0 predicate would only hide the few
+    # NULL-duration rows, which is not what "no minimum" means.
+    if min_duration is None:
+        min_duration = 80
+    # The schema type is float so free-form values ('45.9', '1e2')
+    # truncate to whole minutes instead of 422ing; non-finite input
+    # ('NaN', 'inf') can't express a bound → disable.
+    min_duration = (
+        int(min_duration) if math.isfinite(min_duration) else 0
+    )
 
     # Default dates to a 7-day window if not provided.
     if end_date is None:
@@ -190,6 +209,9 @@ def list_programs(
     # is_excluded is the "never surface" flag — honored even in
     # all_content mode (dedup/admin exclusions stay hidden).
     query &= Q(show__isnull=True) | Q(show__is_excluded=False)
+
+    if min_duration > 0:
+        query &= Q(duration_minutes__gte=min_duration)
 
     query &= Q(start_time__date__gte=start_date)
     query &= Q(start_time__date__lte=end_date)
@@ -255,6 +277,7 @@ def list_programs(
             not_content_rating=not_content_rating,
             rating_value=rating_value,
             ratio=ratio,
+            min_duration=min_duration if min_duration > 0 else None,
             start_date=start_date,
             end_date=end_date,
             channel_name=channel,
