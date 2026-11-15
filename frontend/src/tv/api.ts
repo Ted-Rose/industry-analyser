@@ -16,6 +16,7 @@ export interface ProgramParams {
   notContentRating?: string | null;
   ratingValue?: string | null;
   ratio?: string | null;
+  minDuration?: string | null;
   startDate?: string | null;
   endDate?: string | null;
   channel?: string | null;
@@ -54,6 +55,8 @@ export function fetchPrograms(
   }
   setNumber(qs, 'rating_value', params.ratingValue);
   setNumber(qs, 'ratio', params.ratio);
+  // Absent → server default 80; an explicit '0' disables.
+  setNumber(qs, 'min_duration', params.minDuration);
   if (params.startDate) qs.set('start_date', params.startDate);
   if (params.endDate) qs.set('end_date', params.endDate);
   if (params.channel) qs.set('channel', params.channel);

@@ -27,6 +27,7 @@ function makeProgram(overrides: Partial<ProgramOut> = {}): ProgramOut {
     description_lv: 'Jaunākās ziņas',
     channel_name: 'ltv1_hd',
     start_time: '2026-10-02T15:15:00+03:00',
+    duration_minutes: 95,
     image_url: null,
     url: 'https://tet.lv/programme/1',
     pg_rating: null,
@@ -49,6 +50,7 @@ function makePrograms(
       not_content_rating: 'R',
       rating_value: null,
       ratio: null,
+      min_duration: 80,
       start_date: '2026-09-25',
       end_date: '2026-10-02',
       channel_name: null,
@@ -234,6 +236,55 @@ describe('ProgramList', () => {
       expect(calledUrls()[1]).toContain('not_content_rating=PG');
     });
 
+  it('omits min_duration by default (server applies the ' +
+    '80-min default) and fills the input from the echo', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(calledUrls()[0]).not.toContain('min_duration');
+      await waitFor(() =>
+        expect(screen.getByLabelText('Min. Length (min):'))
+          .toHaveValue(80),
+      );
+    });
+
+  it('serializes a changed min_duration on submit', async () => {
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    fireEvent.change(
+      screen.getByLabelText('Min. Length (min):'),
+      { target: { value: '45' } },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    await waitFor(() =>
+      expect(mockedApiGet).toHaveBeenCalledTimes(2),
+    );
+    expect(calledUrls()[1]).toContain('min_duration=45');
+  });
+
+  it('serializes min_duration=0 when the input is cleared ' +
+    '(disables the default)', async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      fireEvent.change(
+        screen.getByLabelText('Min. Length (min):'),
+        { target: { value: '' } },
+      );
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('min_duration=0');
+    });
+
+  it('echoes the active min_duration in the summary line',
+    async () => {
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(screen.getByText(/· ≥80 min/)).toBeInTheDocument();
+    });
+
   it('sends an empty not_content_rating when the input is ' +
     'cleared (disables the R exclusion)', async () => {
     renderList('/tv/');
@@ -357,6 +408,26 @@ describe('ProgramList', () => {
       expect(screen.getByText(/^Rating: 7\.4/)).toBeInTheDocument();
       expect(
         screen.queryByRole('link', { name: /IMDb/ }),
+      ).not.toBeInTheDocument();
+    });
+
+  it('renders the airing length in the meta row', async () => {
+    renderList('/tv/');
+    await screen.findByText('Dienas ziņas');
+    expect(screen.getByText('Length: 95 min')).toBeInTheDocument();
+  });
+
+  it('omits the length segment when duration is unknown',
+    async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          programs: [makeProgram({ duration_minutes: null })],
+        }),
+      );
+      renderList('/tv/');
+      await screen.findByText('Dienas ziņas');
+      expect(
+        screen.queryByText(/Length: /),
       ).not.toBeInTheDocument();
     });
 
