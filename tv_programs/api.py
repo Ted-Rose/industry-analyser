@@ -4,9 +4,10 @@ GET ops are public (auth=None) — the template pages they replace
 were public; the like/dislike reaction mutation keeps the default
 django_auth (session + CSRF) — a deliberate tightening vs. the old
 anonymous-write form, matching the migration README's "mutations
-keep django_auth" rule. The queryset logic mirrors the retired
-program_list view in tv_programs/views.py exactly, including the
-not_content_rating default of 'R' and the 7-day default window.
+keep django_auth" rule. The queryset logic grew out of the retired
+program_list view in tv_programs/views.py — same not_content_rating
+default of 'R' and 7-day default window — plus the newer default-on
+content (all_content) and length (min_duration) filters.
 """
 from datetime import date, timedelta
 from decimal import Decimal

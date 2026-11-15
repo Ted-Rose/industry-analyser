@@ -285,6 +285,47 @@ describe('ProgramList', () => {
       expect(screen.getByText(/· ≥80 min/)).toBeInTheDocument();
     });
 
+  it('keeps min_duration=0 on a no-op submit (the disable ' +
+    'sticks)', async () => {
+      mockedApiGet.mockResolvedValue(
+        makePrograms({
+          filters: {
+            ...makePrograms().filters,
+            min_duration: null,
+          },
+        }),
+      );
+      renderList('/tv/?min_duration=0');
+      await screen.findByText('Dienas ziņas');
+      expect(calledUrls()[0]).toContain('min_duration=0');
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('min_duration=0');
+    });
+
+  it('does not disable min_duration when Filter is pressed ' +
+    'before the first payload lands', async () => {
+      // Unresolved query: draft is '', echo hasn't filled it —
+      // an early submit must not serialize the '0' off-switch.
+      // The channel change makes the submit observable.
+      renderList('/tv/');
+      fireEvent.change(screen.getByLabelText('Channel:'), {
+        target: { value: 'tv3' },
+      });
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Filter' }),
+      );
+      await waitFor(() =>
+        expect(mockedApiGet).toHaveBeenCalledTimes(2),
+      );
+      expect(calledUrls()[1]).toContain('channel=tv3');
+      expect(calledUrls()[1]).not.toContain('min_duration');
+    });
+
   it('sends an empty not_content_rating when the input is ' +
     'cleared (disables the R exclusion)', async () => {
     renderList('/tv/');

@@ -241,7 +241,11 @@ export default function ProgramList() {
     );
     if (
       searchParams.has('min_duration') ||
-      draft.minDuration !== serverDurationDefault
+      // An empty draft only means "disable" once the echo has
+      // landed — pre-echo it means "unset", and a submit during
+      // the first load must not serialize the '0' off-switch.
+      (draft.minDuration !== serverDurationDefault &&
+        (draft.minDuration !== '' || data != null))
     ) {
       next.set('min_duration', draft.minDuration || '0');
     }

@@ -871,6 +871,27 @@ class TvApiTests(TestCase):
         self.assertIn(str(unknown_len.pk), ids)
         self.assertIsNone(body["filters"]["min_duration"])
 
+    def test_min_duration_boundary_keeps_exact(self):
+        """__gte semantics — an 80-minute slot survives the
+        80-minute default."""
+        edge = make_program(duration_minutes=80)
+        make_program(duration_minutes=79)
+        resp = self.client.get(f"{self.API}/programs/")
+        ids = [p["id"] for p in resp.json()["programs"]]
+        self.assertEqual(ids, [str(edge.pk)])
+
+    def test_min_duration_negative_disables(self):
+        """Same off-switch as 0 — a negative can't be a real
+        minimum, so it disables rather than hiding NULL rows."""
+        short = make_program(duration_minutes=10)
+        resp = self.client.get(
+            f"{self.API}/programs/", {"min_duration": "-5"}
+        )
+        body = resp.json()
+        ids = [p["id"] for p in body["programs"]]
+        self.assertIn(str(short.pk), ids)
+        self.assertIsNone(body["filters"]["min_duration"])
+
     def test_program_payload_carries_duration(self):
         prog = make_program(duration_minutes=95)
         resp = self.client.get(f"{self.API}/programs/")

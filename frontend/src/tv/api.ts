@@ -10,7 +10,8 @@ export type SpokiPageOut = components['schemas']['SpokiPageOut'];
 export type ReactionOut = components['schemas']['ReactionOut'];
 
 /** Filter state of the program feed, parsed from the URL. Mirrors
- *  the GET params of the retired program_list view/form. */
+ *  the GET params of the retired program_list view/form plus the
+ *  newer all_content/min_duration additions. */
 export interface ProgramParams {
   contentRating?: string | null;
   notContentRating?: string | null;
