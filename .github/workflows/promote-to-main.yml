@@ -179,6 +179,9 @@ jobs:
               # include this SHA — catch it via commit
               # search (also the catch-all for any manual
               # promotion shape).
+              # Search-index lag can report 0 right after a
+              # merge — a false "not in main" then just fails
+              # the later PR create (fail-closed, noise only).
               in_main=$(gh api -X GET "search/issues" \
                 -f q="repo:$REPO is:pr is:merged base:main $sha" \
                 --jq .total_count </dev/null) || {

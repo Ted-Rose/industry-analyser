@@ -60,6 +60,10 @@ jobs:
           # correctly passes. If this PR opened in the same
           # seconds as the staging merge, GitHub's commit→PR
           # association index can lag — re-run the job once.
+          # Fork PRs hard-fail by design: their head SHA is
+          # not a commit of this repo → the API lookup 404s.
+          # External contributions must land via staging
+          # first regardless of the check.
           resp=$(gh api -X GET \
             "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls" \
             -f per_page=100) || {
