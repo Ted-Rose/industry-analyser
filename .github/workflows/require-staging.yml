@@ -64,6 +64,9 @@ jobs:
             "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls" \
             -f per_page=100) || {
             echo "::error::GitHub API error listing PRs for $HEAD_SHA"
+            echo "::error::(fork PR heads are not commits of"
+            echo "::error::this repo and fail by design —"
+            echo "::error::contribute via a staging PR first)"
             exit 1
           }
           count=$(jq '[.[] | select(.merged_at != null and

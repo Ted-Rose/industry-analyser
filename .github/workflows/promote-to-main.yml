@@ -110,9 +110,12 @@ jobs:
             git fetch -q origin "$2" "$3" \
               "+refs/heads/main:refs/remotes/origin/main" \
               </dev/null || return 1
-            git checkout -q -B "$1" "$2" || return 1
-            git merge -q --no-commit origin/main \
-              </dev/null || true
+            # Only the final rev-parse may write to stdout —
+            # the caller captures it; send every status line
+            # to stderr or replay_sha becomes garbage.
+            git checkout -q -B "$1" "$2" >&2 || return 1
+            git merge --no-commit origin/main \
+              </dev/null >&2 || true
             local p
             while IFS= read -r -d '' p; do
               if git cat-file -e "$3:$p" 2>/dev/null; then
@@ -121,8 +124,8 @@ jobs:
                 git rm -q -- "$p" || return 1
               fi
             done < <(git diff -z --name-only --diff-filter=U)
-            git commit -q --no-edit </dev/null || return 1
-            git push -q origin "$1" </dev/null || return 1
+            git commit -q --no-edit </dev/null >&2 || return 1
+            git push -q origin "$1" </dev/null >&2 || return 1
             git rev-parse HEAD
           }
 
@@ -258,6 +261,10 @@ jobs:
             if [ "$head_now" != "$sha" ]; then
               echo "  !! PR head ${head_now:-unreadable} is" \
                 "not staging merge ${sha::7} — skipping"
+              gh pr close "$mpr" --repo "$REPO" \
+                --comment "Head moved past the staged SHA \
+                ($sha) — closed by Promote-to-main." \
+                </dev/null > /dev/null 2>&1 || true
               failed=$((failed+1))
               echo "- \`$title\` — FAILED (PR head moved)" \
                 >> "$GITHUB_STEP_SUMMARY"
@@ -282,19 +289,22 @@ jobs:
             for _ in $(seq 1 24); do
               gate=$(gh pr view "$mpr" \
                 --json statusCheckRollup </dev/null \
-                2>/dev/null | jq -r '[.statusCheckRollup[]
-                  | select(.name == "staging-first")
-                  | .conclusion // ""] | .[0] // ""')
-              [ -n "$gate" ] && break
+                2>/dev/null | jq -r '([.statusCheckRollup[]
+                  | select(.name == "staging-first")] | .[0])
+                  | if . == null then "__absent__"
+                    else (.conclusion // "PENDING") end' \
+                || echo "__api_error__")
+              [ "$gate" != "PENDING" ] && break
               sleep 5
             done
             echo "  staging-first=$gate"
-            # "" = the gate is not on main yet (pre-rollout)
-            # — a pass; anything but SUCCESS is fail-closed:
-            # re-run the job instead of merging past a red
-            # required check.
+            # __absent__ = the gate is not on main yet
+            # (pre-rollout) — a pass; SUCCESS obviously; any
+            # other outcome is fail-closed: re-run the job
+            # instead of merging past a red required check.
             if [ "$mergeable" = "MERGEABLE" ] && \
-               { [ -z "$gate" ] || [ "$gate" = "SUCCESS" ]; } && \
+               { [ "$gate" = "__absent__" ] || \
+                  [ "$gate" = "SUCCESS" ]; } && \
                merge_pr "$mpr" "$sha"; then
               promoted=$((promoted+1))
               echo "- \`$title\` — promoted" \
@@ -393,7 +403,7 @@ jobs:
                   </dev/null
                 unaccounted=$(git rev-list "$main_sha..$cur" \
                   | grep -vxFf <(jq -r '.[].mergeCommit.oid' \
-                    /tmp/staged.json) || true)
+                    /tmp/staged-raw.json) || true)
                 if [ -n "$unaccounted" ]; then
                   echo "::warning::staging holds" \
                     "$(wc -l <<<"$unaccounted") commit(s) no" \
