@@ -1,12 +1,12 @@
 name: OpenSpec validate
 
 # Validates the repo-root openspec/ specs and change proposals on
-# every PR and every push to main — strict mode fails on
-# requirement-format and spec/delta drift.
+# every PR and every push to main and staging — strict mode fails
+# on requirement-format and spec/delta drift.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
 
 permissions:

@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - staging
     paths:
       - '**/*.py'
       - '*.py'
@@ -202,26 +203,33 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
 
   deploy-staging:
-    # Ephemeral PRIVATE staging service for PRs
+    # PRIVATE Cloud Run staging deploys: the standing staging
+    # service (industry-analyser-staging) on every push to the
+    # `staging` branch, plus ephemeral services for PRs
     # (industry-analyser-pr-<num>) and manual runs
     # (industry-analyser<service_suffix>, default -staging). Same
     # image + env-file secret as prod; scales to zero. --no-allow-
     # unauthenticated means the URL 403s at Google's edge — a public
-    # preview cannot be abused into spend. Browse it via
-    # `gcloud run services proxy` (needs roles/run.invoker). PR
-    # previews are deleted by the cleanup job when the PR closes;
-    # manual-dispatch staging is not auto-deleted — remove it with
-    # `gcloud run services delete` when done.
+    # preview cannot be abused into spend, and the standing staging
+    # service shares the prod DB via env-file so it must stay
+    # private. Browse any of them via `gcloud run services proxy`
+    # (needs roles/run.invoker). PR previews are deleted by the
+    # cleanup job when the PR closes; manual-dispatch staging is not
+    # auto-deleted — remove it with `gcloud run services delete`
+    # when done.
     if: >
       (github.event_name == 'pull_request' &&
        github.event.action != 'closed') ||
       (github.event_name == 'workflow_dispatch' &&
-       inputs.service_suffix != '')
+       inputs.service_suffix != '') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/staging')
     runs-on: ubuntu-latest
     env:
       STAGING_NAME: >-
         ${{ github.event_name == 'pull_request' &&
         format('industry-analyser-pr-{0}', github.event.pull_request.number)
+        || github.event_name == 'push' && 'industry-analyser-staging'
         || format('industry-analyser{0}', inputs.service_suffix) }}
     steps:
       - name: Checkout

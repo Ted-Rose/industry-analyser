@@ -1,0 +1,69 @@
+name: Require staging first
+
+# Gate for PRs into `main`: production may only receive code
+# already merged into the `staging` branch — the invariant is
+# main ⊆ staging, so only staging may be ahead. The check is
+# PR-metadata-based: the PR's exact head SHA must be
+# associated with a MERGED PR into `staging`. That works with
+# squash-merged staging PRs, whose head commits never become
+# git ancestors of `staging`. See AGENTS.md
+# "Git workflow — staging-first".
+#
+# `pull_request_target` (not `pull_request`) so the gate runs
+# this file as it exists on `main` — a gated PR cannot
+# weaken the check that gates it. Safe because the job never
+# checks out PR code and the token stays read-only. `edited`
+# re-fires when a PR is retargeted to `main`. Caveat: the
+# check only runs once this file exists on `main`.
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: staging-first-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  staging-first:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify head was merged into staging
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Pulls associated with the head SHA, filtered to a
+          # MERGED staging PR — O(1) lookup, no paging over
+          # merged-PR history (per_page=100 is headroom; a
+          # commit is never in 100+ PRs). -X GET is required:
+          # bare `-f` would make gh api POST and 404. A newer
+          # head SHA that was never staged correctly fails;
+          # identical code under a different branch name
+          # correctly passes. If this PR opened in the same
+          # seconds as the staging merge, GitHub's commit→PR
+          # association index can lag — re-run the job once.
+          resp=$(gh api -X GET \
+            "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/pulls" \
+            -f per_page=100) || {
+            echo "::error::GitHub API error listing PRs for $HEAD_SHA"
+            exit 1
+          }
+          count=$(jq '[.[] | select(.merged_at != null and
+            .base.ref == "staging")] | length' <<<"$resp")
+          if [ "$count" -gt 0 ]; then
+            echo "OK: head $HEAD_SHA is already on staging."
+            exit 0
+          fi
+          echo "::error::PR targets main but head $HEAD_SHA was"
+          echo "::error::never merged into staging."
+          echo "Open a PR from this branch with --base staging,"
+          echo "merge it once checks are green, and this check"
+          echo "passes. If the branch moved since the staging"
+          echo "merge, merge the new head into staging too."
+          echo "See AGENTS.md 'Git workflow — staging-first'."
+          exit 1

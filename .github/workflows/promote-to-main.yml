@@ -1,0 +1,385 @@
+name: Promote to main
+
+# Manual release train for the staging-first workflow. For
+# every branch already merged into `staging` whose head is
+# not yet in `main` (the same association check the
+# `staging-first` gate uses), open a promotion PR to `main`
+# with the original title + body, squash-merge it, then
+# reset `staging` to `main`.
+#
+# Conflicts are resolved deterministically, not by an AI:
+# the staging squash commit's tree already holds the feature
+# integrated with everything promoted before it, so
+# conflicting paths are checked out from that tree — the
+# exact state staging validated. See AGENTS.md
+# "Git workflow — staging-first".
+#
+# Needs an admin PAT in AUTOMERGE_TOKEN (same secret the
+# dependabot automerge uses): the merges bypass `main`'s
+# review ruleset, and the staging reset bypasses the
+# non-fast-forward ruleset. With plain GITHUB_TOKEN the
+# merges will fail — that's a signal to configure the PAT.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "List pending promotions, merge nothing"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: promote-to-main
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Promote staged branches to main
+        env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          REPO="$GITHUB_REPOSITORY"
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          echo "### Promote-to-main run" > "$GITHUB_STEP_SUMMARY"
+
+          # Snapshot staging's tip BEFORE listing — a merge
+          # landing between the two is then either inside the
+          # listed set (promoted normally) or trips the
+          # moved-mid-run reset guard, never both invisible.
+          start_staging=$(gh api "repos/$REPO/branches/staging" \
+            --jq .commit.sha </dev/null)
+
+          # Latest merged staging PR per head branch, in
+          # staging-merge order — promotion follows that order
+          # so each squash commit's tree only ever holds
+          # already-promoted features plus its own. 200 is
+          # headroom (same idea as the gate's 100-per-page).
+          gh pr list --repo "$REPO" --state merged \
+            --base staging --limit 200 \
+            --json number,title,body,headRefName,headRefOid,mergedAt \
+            > /tmp/staged-raw.json
+          # The ceiling guards the RAW list: checking the
+          # deduped count would miss truncation whenever the
+          # dropped PRs shared branches with kept ones.
+          if [ "$(jq length /tmp/staged-raw.json)" -ge 200 ]
+          then
+            echo "::error::listing ceiling hit — older staged" \
+              "PRs may be missing; refusing to risk an" \
+              "incomplete release"
+            exit 1
+          fi
+          jq 'sort_by(.mergedAt)
+              | group_by(.headRefName) | map(.[-1])
+              | sort_by(.mergedAt)' /tmp/staged-raw.json \
+            > /tmp/staged.json
+          echo "== $(jq length /tmp/staged.json) staged branch(es)"
+
+          # Replay staging's resolution onto a conflicting
+          # promotion: merge CURRENT main — refreshed, since
+          # earlier merges in this run advanced it — into the
+          # feature branch and resolve conflicted paths with
+          # the staging squash commit's versions (deleted
+          # there = remove).
+          resolve_via_staging() {
+            # Isolate any half-done merge a previous replay
+            # left behind.
+            git merge --abort </dev/null 2>/dev/null || true
+            git reset -q --hard </dev/null 2>/dev/null || true
+            git fetch -q origin "$2" "$3" \
+              "+refs/heads/main:refs/remotes/origin/main" \
+              </dev/null || return 1
+            git checkout -q -B "$1" "$2" || return 1
+            git merge -q --no-commit origin/main \
+              </dev/null || true
+            local p
+            while IFS= read -r -d '' p; do
+              if git cat-file -e "$3:$p" 2>/dev/null; then
+                git checkout -q "$3" -- "$p" || return 1
+              else
+                git rm -q -- "$p" || return 1
+              fi
+            done < <(git diff -z --name-only --diff-filter=U)
+            git commit -q --no-edit </dev/null || return 1
+            git push -q origin "$1" </dev/null || return 1
+            git rev-parse HEAD
+          }
+
+          # Squash-merge a PR only if its head is exactly $2:
+          # expectedHeadOid makes the head check atomic with
+          # the merge (gh pr merge has no equivalent; this is
+          # the same mutation gh --admin runs, and the token's
+          # admin rights bypass the review ruleset).
+          merge_pr() {
+            local pr_id
+            pr_id=$(gh api graphql -f query='query($u:URI!)
+              {resource(url:$u){... on PullRequest{id}}}' \
+              -f u="$1" --jq .data.resource.id \
+              </dev/null 2>/dev/null) || return 1
+            gh api graphql -f query='mutation($id:ID!,
+              $oid:GitObjectID!){mergePullRequest(input:
+              {pullRequestId:$id,expectedHeadOid:$oid,
+              mergeMethod:SQUASH}){pullRequest{state}}}' \
+              -f id="$pr_id" -f oid="$2" \
+              </dev/null > /dev/null
+          }
+
+          promoted=0; skipped=0; replayed=0; failed=0
+          while read -r row; do
+            field() { base64 -d <<<"$row" | jq -r "$1"; }
+            sha=$(field .headRefOid)
+            branch=$(field .headRefName)
+            spr=$(field .number)
+            title=$(field .title)
+            if [ -z "$sha" ] || [ -z "$branch" ]; then
+              echo "  !! malformed staged entry ($spr)"
+              failed=$((failed+1)); continue
+            fi
+
+            # Already promoted? NOT the gate's
+            # commits/{sha}/pulls lookup — that endpoint
+            # only associates a commit with the FIRST PR
+            # that introduced it, so a promoted head SHA
+            # stays bound to its staging PR forever and the
+            # skip would never fire on reruns. Instead:
+            # a clean squash promotion leaves a merged main
+            # PR whose head IS this SHA on this branch…
+            in_main=$(gh pr list --repo "$REPO" \
+              --state merged --base main --head "$branch" \
+              --limit 100 \
+              --json headRefOid --jq --arg sha "$sha" \
+              'map(select(.headRefOid == $sha)) | length' \
+              </dev/null) || {
+              echo "  !! promoted-PR lookup failed"
+              failed=$((failed+1)); continue; }
+            if [ "$in_main" -eq 0 ]; then
+              # …and a replayed promotion merges a merge
+              # commit whose head differs but whose parents
+              # include this SHA — catch it via commit
+              # search (also the catch-all for any manual
+              # promotion shape).
+              in_main=$(gh api -X GET "search/issues" \
+                -f q="repo:$REPO is:pr is:merged base:main $sha" \
+                --jq .total_count </dev/null) || {
+                echo "  !! commit search failed"
+                failed=$((failed+1)); continue; }
+            fi
+            if [ "$in_main" -gt 0 ]; then
+              echo "skip: '$title' already in main"
+              echo "- \`$title\` — already in main" \
+                >> "$GITHUB_STEP_SUMMARY"
+              skipped=$((skipped+1)); continue
+            fi
+            echo "== promoting #$spr '$title' ($branch @ ${sha::7})"
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "- \`$title\` — pending" \
+                >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            # Recreate the head branch via the refs API: no
+            # push event fires, so no CI re-run — the SHA's
+            # existing green `test` run satisfies the required
+            # check instantly.
+            # If the branch still exists at a DIFFERENT tip,
+            # someone pushed past the staging merge — those
+            # commits were never staged, so bail rather than
+            # promote them behind the staging-first gate.
+            # ls-remote: empty output = missing ref (normal —
+            # branches auto-delete), nonzero = real failure.
+            if ! cur_ref=$(git ls-remote origin \
+                "refs/heads/$branch" </dev/null \
+                2>/dev/null | cut -f1); then
+              echo "  !! could not read remote ref state"
+              failed=$((failed+1)); continue
+            fi
+            if [ -n "$cur_ref" ] && [ "$cur_ref" != "$sha" ]
+            then
+              echo "  !! $branch tip ${cur_ref::7} moved past"
+              echo "     staging merge ${sha::7} — skipping"
+              failed=$((failed+1))
+              echo "- \`$title\` — FAILED (branch tip" \
+                "ahead of staging merge)" \
+                >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            gh api -X POST "repos/$REPO/git/refs" \
+              -f ref="refs/heads/$branch" -f sha="$sha" \
+              </dev/null > /dev/null 2>&1 || true
+
+            field '.body // ""' > /tmp/body.md
+            {
+              cat /tmp/body.md
+              printf '\n---\n_Promoted from `staging` (PR '
+              printf '#%s) by the Promote-to-main workflow._\n' \
+                "$spr"
+            } > /tmp/promo-body.md
+            mpr=$(gh pr create --repo "$REPO" --base main \
+              --head "$branch" --title "$title" \
+              --body-file /tmp/promo-body.md \
+              </dev/null 2>/dev/null) || \
+            mpr=$(gh pr list --repo "$REPO" --state open \
+              --base main --head "$branch" \
+              --json url --jq '.[0].url // ""' </dev/null) || \
+            mpr=""
+            if [ -z "$mpr" ]; then
+              echo "  !! could not open a main PR"
+              failed=$((failed+1)); continue
+            fi
+            echo "  main PR: $mpr"
+
+            # A push landing between the ref check and the
+            # PR create would bind the PR to the moved tip —
+            # assert the head is still the staged SHA, and
+            # fail closed when it can't be verified (the
+            # fallback PR could carry any head).
+            head_now=$(gh pr view "$mpr" --json headRefOid \
+              -q .headRefOid </dev/null 2>/dev/null) || \
+              head_now=""
+            if [ "$head_now" != "$sha" ]; then
+              echo "  !! PR head ${head_now:-unreadable} is" \
+                "not staging merge ${sha::7} — skipping"
+              failed=$((failed+1))
+              echo "- \`$title\` — FAILED (PR head moved)" \
+                >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            # mergeable settles async; staging-first re-runs on
+            # PR open and passes by construction.
+            mergeable=""
+            for _ in $(seq 1 24); do
+              mergeable=$(gh pr view "$mpr" --json mergeable \
+                -q .mergeable </dev/null 2>/dev/null \
+                || echo UNKNOWN)
+              [ "$mergeable" != "UNKNOWN" ] && break
+              sleep 5
+            done
+            echo "  mergeable=$mergeable"
+            if [ "$mergeable" = "MERGEABLE" ] && \
+               merge_pr "$mpr" "$sha"; then
+              promoted=$((promoted+1))
+              echo "- \`$title\` — promoted" \
+                >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            # Only a genuinely CONFLICTING PR earns the replay
+            # — and only while every earlier promotion merged:
+            # this branch's staging squash tree also contains
+            # all earlier features, so replaying it after a
+            # failure would drag unpromoted code into main.
+            mergeable=$(gh pr view "$mpr" --json mergeable \
+              -q .mergeable </dev/null 2>/dev/null \
+              || echo UNKNOWN)
+            merge_sha=$(gh pr view "$spr" --repo "$REPO" \
+              --json mergeCommit -q .mergeCommit.oid \
+              </dev/null 2>/dev/null || true)
+            if [ "$mergeable" != "CONFLICTING" ] || \
+               [ "$failed" -gt 0 ] || [ -z "$merge_sha" ]; then
+              echo "  !! merge failed (mergeable=$mergeable," \
+                "earlier_failures=$failed)"
+              failed=$((failed+1))
+              echo "- \`$title\` — FAILED" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            echo "  conflicted — replaying staging's" \
+              "resolution ($merge_sha)"
+            if ! replay_sha=$(resolve_via_staging "$branch" \
+                "$sha" "$merge_sha"); then
+              echo "  !! replay failed"
+              failed=$((failed+1))
+              echo "- \`$title\` — FAILED" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            {
+              echo "Auto-resolved: this branch conflicted with"
+              echo "\`main\`. Conflicted paths were resolved"
+              echo "with the versions from the staging squash"
+              echo "commit \`$merge_sha\` — the integration"
+              echo "state staging already validated. Merged"
+              echo "with \`--admin\`: the new head SHA cannot"
+              echo "satisfy \`staging-first\` by design."
+            } > /tmp/note.md
+            gh pr comment "$mpr" --body-file /tmp/note.md \
+              </dev/null || true
+            mergeable=""
+            for _ in $(seq 1 24); do
+              mergeable=$(gh pr view "$mpr" --json mergeable \
+                -q .mergeable </dev/null 2>/dev/null \
+                || echo UNKNOWN)
+              [ "$mergeable" != "UNKNOWN" ] && break
+              sleep 5
+            done
+            echo "  mergeable=$mergeable after replay"
+            if merge_pr "$mpr" "$replay_sha"; then
+              replayed=$((replayed+1))
+              echo "- \`$title\` — promoted (staging replay)" \
+                >> "$GITHUB_STEP_SUMMARY"
+            else
+              failed=$((failed+1))
+              echo "- \`$title\` — FAILED" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done < <(jq -r '.[] | @base64' /tmp/staged.json)
+
+          # Post-release staging reset — only on a fully clean
+          # train: a failed promotion means staging still holds
+          # unreleased work (matches AGENTS.md: "reset only
+          # once staging matches the release"). Refs API PATCH;
+          # the admin token bypasses the non-ff ruleset.
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "dry run — staging left as-is"
+          elif [ "$failed" -gt 0 ]; then
+            echo "::warning::$failed promotion(s) failed —" \
+              "staging NOT reset"
+            echo "- staging reset skipped — $failed" \
+              "failure(s)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            main_sha=$(gh api "repos/$REPO/branches/main" \
+              --jq .commit.sha </dev/null)
+            cur=$(gh api "repos/$REPO/branches/staging" \
+              --jq .commit.sha </dev/null)
+            if [ "$cur" != "$main_sha" ]; then
+              if [ "$cur" != "$start_staging" ]; then
+                echo "::warning::staging moved during the" \
+                  "run — NOT resetting; re-run the workflow"
+                echo "- staging reset skipped — staging" \
+                  "moved mid-run" >> "$GITHUB_STEP_SUMMARY"
+              elif [ "$(jq length /tmp/staged.json)" -eq 0 ]
+              then
+                echo "::warning::staging holds commits no" \
+                  "merged staging PR accounts for — NOT" \
+                  "resetting"
+                echo "- staging reset skipped —" \
+                  "unaccounted staging commits" \
+                  >> "$GITHUB_STEP_SUMMARY"
+              else
+                gh api -X PATCH \
+                  "repos/$REPO/git/refs/heads/staging" \
+                  -f sha="$main_sha" -F force=true \
+                  </dev/null > /dev/null
+                echo "staging reset $cur -> $main_sha"
+                echo "- staging reset to \`$main_sha\`" \
+                  >> "$GITHUB_STEP_SUMMARY"
+              fi
+            fi
+          fi
+          echo "== done: $promoted merged, $skipped" \
+            "already-in-main, $replayed replayed, $failed failed"
+          [ "$failed" -eq 0 ]

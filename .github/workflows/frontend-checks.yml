@@ -1,12 +1,12 @@
 name: Frontend checks
 
-# Runs the SPA toolchain on every PR and every push to main —
-# including regenerating the committed OpenAPI schema + api-types.ts
-# so schema/type drift fails the check.
+# Runs the SPA toolchain on every PR and every push to main and
+# staging — including regenerating the committed OpenAPI schema +
+# api-types.ts so schema/type drift fails the check.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, staging]
   workflow_dispatch:
 
 jobs:
