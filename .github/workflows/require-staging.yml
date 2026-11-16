@@ -36,7 +36,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
+          # A staging→main PR would pass the check below on a
+          # technicality (staging's tip IS a staging merge
+          # commit) while dragging integration noise into
+          # main — promotion goes through Promote-to-main.
+          if [ "$HEAD_REF" = "staging" ]; then
+            echo "::error::staging→main PRs are not allowed."
+            echo "::error::Promote staged branches with the"
+            echo "::error::Promote-to-main workflow instead —"
+            echo "::error::see AGENTS.md 'Git workflow —"
+            echo "::error::staging-first'."
+            exit 1
+          fi
           # Pulls associated with the head SHA, filtered to a
           # MERGED staging PR — O(1) lookup, no paging over
           # merged-PR history (per_page=100 is headroom; a
