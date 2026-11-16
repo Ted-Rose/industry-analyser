@@ -37,8 +37,11 @@ runbooks and `docs/research/` for audits/reports.
 branch — every push deploys a standing PRIVATE Cloud Run
 service `industry-analyser-staging` (reachable via
 `gcloud run services proxy industry-analyser-staging
---region=europe-north1`; it shares the prod `env-file`
-secret including the prod DB — treat it as prod data) AND a
+--region=europe-north1`; it runs `APP_ENV=staging`, so
+settings.py reads `STAGING_DATABASE_URL` — the separate
+`industryanalyser_staging` Aiven DB with a dedicated
+read/write role — and `run-migrations-staging` applies
+migrations there before the deploy) AND a
 public Vercel preview
 (`industryanalyser-git-staging-<team>.vercel.app` — the UI
 validation surface). The invariant is **`main` ⊆

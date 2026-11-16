@@ -331,8 +331,26 @@ def _database_url_default() -> str:
     )
 
 
+# Staging (APP_ENV=staging on the private staging/PR-preview
+# Cloud Run services, VERCEL_ENV=preview on Vercel) reads
+# STAGING_DATABASE_URL — a separate industryanalyser_staging
+# Aiven DB owned by a dedicated read/write role. It replaces
+# rather than merges with DATABASE_URL: the env-file secret
+# also carries the prod DSN, so `env.db('DATABASE_URL')`
+# would ignore any default. Missing STAGING_DATABASE_URL in
+# a staging context falls back to prod — keep previews
+# working until the secret ships it.
+_DB_URL_VAR = (
+    'STAGING_DATABASE_URL'
+    if (
+        os.environ.get('APP_ENV') == 'staging'
+        or os.environ.get('VERCEL_ENV') == 'preview'
+    )
+    else 'DATABASE_URL'
+)
+
 DATABASES = {
-    'default': env.db('DATABASE_URL', default=_database_url_default())
+    'default': env.db(_DB_URL_VAR, default=_database_url_default())
 }
 
 db_ssl_cert = _db_ssl_pem_from_env()

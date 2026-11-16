@@ -88,15 +88,20 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+        run: >-
+          gcloud auth configure-docker
+          ${{ env.REGION }}-docker.pkg.dev --quiet
 
       - name: Build and push web service image
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}"
-          docker build -t "${IMAGE}:web-${GITHUB_SHA}" -t "${IMAGE}:web-latest" .
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
+          AR="${AR}/industry-analyser-app"
+          IMAGE="${AR}/${SERVICE_NAME}"
+          docker build -t "${IMAGE}:web-${GITHUB_SHA}" \
+                     -t "${IMAGE}:web-latest" .
           docker push "${IMAGE}:web-${GITHUB_SHA}"
           docker push "${IMAGE}:web-latest"
 
@@ -109,7 +114,9 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}"
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
+          AR="${AR}/industry-analyser-app"
+          IMAGE="${AR}/${SERVICE_NAME}:web-${GITHUB_SHA}"
 
           # Apply migrations BEFORE the new revision serves traffic —
           # a failed migrate fails this step and aborts the deploy.
@@ -143,7 +150,9 @@ jobs:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}"
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
+          AR="${AR}/industry-analyser-app"
+          IMAGE="${AR}/${SERVICE_NAME}:web-${GITHUB_SHA}"
 
           # All runtime config lives in the single `env-file` secret
           # (full .env payload injected as DOTENV; settings.py loads it).
@@ -180,13 +189,16 @@ jobs:
           sleep 10
 
           echo "Running health check on ${SERVICE_URL}"
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" ${SERVICE_URL} || echo "000")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            ${SERVICE_URL} || echo "000")
 
-          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "301" ] || [ "$HTTP_CODE" = "302" ]; then
+          if [ "$HTTP_CODE" = "200" ] || \
+             [ "$HTTP_CODE" = "301" ] || \
+             [ "$HTTP_CODE" = "302" ]; then
             echo "✅ Health check passed (HTTP ${HTTP_CODE})"
           else
             echo "⚠️  Health check returned HTTP ${HTTP_CODE}"
-            echo "This might be expected if the home page requires authentication"
+            echo "May be expected when the home page requires auth"
           fi
 
       - name: Deployment Summary
@@ -195,7 +207,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Service**: ${SERVICE_NAME}" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Region**: ${REGION}" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Image**: ${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:web-${GITHUB_SHA}" >> $GITHUB_STEP_SUMMARY
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app"
+          echo "✅ **Image**: ${AR}/${SERVICE_NAME}:web-${GITHUB_SHA}" \
+            >> $GITHUB_STEP_SUMMARY
           echo "✅ **Min Instances**: 0" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Max Instances**: 1" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Memory**: 512Mi" >> $GITHUB_STEP_SUMMARY
@@ -210,16 +224,17 @@ jobs:
     # service (industry-analyser-staging) on every push to the
     # `staging` branch, plus ephemeral services for PRs
     # (industry-analyser-pr-<num>) and manual runs
-    # (industry-analyser<service_suffix>, default -staging). Same
+    # (industry-analyser<service_suffix>, default -manual). Same
     # image + env-file secret as prod; scales to zero. --no-allow-
     # unauthenticated means the URL 403s at Google's edge — a public
-    # preview cannot be abused into spend, and the standing staging
-    # service shares the prod DB via env-file so it must stay
-    # private. Browse any of them via `gcloud run services proxy`
-    # (needs roles/run.invoker). PR previews are deleted by the
-    # cleanup job when the PR closes; manual-dispatch staging is not
-    # auto-deleted — remove it with `gcloud run services delete`
-    # when done.
+    # preview cannot be abused into spend. APP_ENV=staging makes
+    # settings.py read STAGING_DATABASE_URL — the separate
+    # industryanalyser_staging Aiven DB — instead of prod's
+    # DATABASE_URL. Browse any of them via
+    # `gcloud run services proxy` (needs roles/run.invoker). PR
+    # previews are deleted by the cleanup job when the PR closes;
+    # manual-dispatch staging is not auto-deleted — remove it with
+    # `gcloud run services delete` when done.
     if: >
       (github.event_name == 'pull_request' &&
        github.event.action != 'closed') ||
@@ -249,23 +264,64 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+        run: >-
+          gcloud auth configure-docker
+          ${{ env.REGION }}-docker.pkg.dev --quiet
 
       - name: Build and push staging image
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}"
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
+          AR="${AR}/industry-analyser-app"
+          IMAGE="${AR}/${SERVICE_NAME}"
           docker build -t "${IMAGE}:staging-${GITHUB_SHA}" .
           docker push "${IMAGE}:staging-${GITHUB_SHA}"
+
+      - name: Run staging migrations
+        # Only branch deploys migrate: staging pushes validate
+        # migrations against the staging DB before promotion —
+        # a failed migrate aborts the deploy. PR previews
+        # share the staging DB but must not apply unmerged
+        # migration files to it. APP_ENV=staging points
+        # settings.py at STAGING_DATABASE_URL.
+        if: github.event_name == 'push'
+        env:
+          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
+          AR="${AR}/industry-analyser-app"
+          IMAGE="${AR}/${SERVICE_NAME}:staging-${GITHUB_SHA}"
+
+          gcloud run jobs deploy run-migrations-staging \
+            --image="${IMAGE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --command=python \
+            --args=manage.py,migrate \
+            --set-secrets="DOTENV=env-file:latest" \
+            --set-env-vars="APP_ENV=staging" \
+            --task-timeout=3600 \
+            --max-retries=0 \
+            --quiet
+
+          # --wait propagates the execution's exit status.
+          gcloud run jobs execute run-migrations-staging \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --wait \
+            --quiet
 
       - name: Deploy staging service
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
         run: |
           set -euo pipefail
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/industry-analyser-app/${SERVICE_NAME}:staging-${GITHUB_SHA}"
+          AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
+          AR="${AR}/industry-analyser-app"
+          IMAGE="${AR}/${SERVICE_NAME}:staging-${GITHUB_SHA}"
 
           gcloud run deploy "${STAGING_NAME}" \
             --image="${IMAGE}" \
@@ -279,6 +335,7 @@ jobs:
             --cpu=1 \
             --timeout=300 \
             --set-secrets="DOTENV=env-file:latest" \
+            --set-env-vars="APP_ENV=staging" \
             --quiet
 
       # Private service: let the deploy SA invoke it so the smoke
@@ -329,7 +386,9 @@ jobs:
             echo "✅ **Min Instances**: 0 (scales to zero)"
             echo "🔒 **Private**: unauthenticated → 403 at edge"
             echo "🌐 **Service URL**: ${SERVICE_URL}"
-            echo "Browse via \`gcloud run services proxy ${STAGING_NAME} --region=${REGION} --project=${PROJECT_ID}\`"
+            echo "Browse via \`gcloud run services proxy \"
+            echo "  ${STAGING_NAME} --region=${REGION} \"
+            echo "  --project=${PROJECT_ID}\`"
           } >> $GITHUB_STEP_SUMMARY
 
   cleanup-staging:
