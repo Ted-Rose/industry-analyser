@@ -159,12 +159,14 @@ jobs:
             # skip would never fire on reruns. Instead:
             # a clean squash promotion leaves a merged main
             # PR whose head IS this SHA on this branch…
+            # `gh pr list` has no `--arg` (gh 2.103 errors
+            # "unknown arguments"); pipe --json to plain jq
+            # instead — guaranteed on runners.
             in_main=$(gh pr list --repo "$REPO" \
               --state merged --base main --head "$branch" \
-              --limit 100 \
-              --json headRefOid --jq --arg sha "$sha" \
-              'map(select(.headRefOid == $sha)) | length' \
-              </dev/null) || {
+              --limit 100 --json headRefOid </dev/null \
+              | jq --arg sha "$sha" \
+              'map(select(.headRefOid == $sha)) | length') || {
               echo "  !! promoted-PR lookup failed"
               failed=$((failed+1)); continue; }
             if [ "$in_main" -eq 0 ]; then
