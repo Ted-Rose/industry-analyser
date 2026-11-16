@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -72,7 +72,8 @@ jobs:
           # headroom (same idea as the gate's 100-per-page).
           gh pr list --repo "$REPO" --state merged \
             --base staging --limit 200 \
-            --json number,title,body,headRefName,headRefOid,mergedAt \
+            --json number,title,body,headRefName,headRefOid,\
+            mergedAt,mergeCommit \
             > /tmp/staged-raw.json
           # The ceiling guards the RAW list: checking the
           # deduped count would miss truncation whenever the
@@ -293,7 +294,12 @@ jobs:
               sleep 5
             done
             echo "  staging-first=$gate"
+            # "" = the gate is not on main yet (pre-rollout)
+            # — a pass; anything but SUCCESS is fail-closed:
+            # re-run the job instead of merging past a red
+            # required check.
             if [ "$mergeable" = "MERGEABLE" ] && \
+               { [ -z "$gate" ] || [ "$gate" = "SUCCESS" ]; } && \
                merge_pr "$mpr" "$sha"; then
               promoted=$((promoted+1))
               echo "- \`$title\` — promoted" \
@@ -383,22 +389,33 @@ jobs:
                   "run — NOT resetting; re-run the workflow"
                 echo "- staging reset skipped — staging" \
                   "moved mid-run" >> "$GITHUB_STEP_SUMMARY"
-              elif [ "$(jq length /tmp/staged.json)" -eq 0 ]
-              then
-                echo "::warning::staging holds commits no" \
-                  "merged staging PR accounts for — NOT" \
-                  "resetting"
-                echo "- staging reset skipped —" \
-                  "unaccounted staging commits" \
-                  >> "$GITHUB_STEP_SUMMARY"
               else
-                gh api -X PATCH \
-                  "repos/$REPO/git/refs/heads/staging" \
-                  -f sha="$main_sha" -F force=true \
-                  </dev/null > /dev/null
-                echo "staging reset $cur -> $main_sha"
-                echo "- staging reset to \`$main_sha\`" \
-                  >> "$GITHUB_STEP_SUMMARY"
+                # Fail closed when staging holds commits no
+                # staged-PR merge accounts for — manual pushes
+                # or merges past the 200-PR scan window would
+                # be silently dropped by the reset.
+                git fetch -q origin "$main_sha" "$cur" \
+                  </dev/null
+                unaccounted=$(git rev-list "$main_sha..$cur" \
+                  | grep -vxFf <(jq -r '.[].mergeCommit.oid' \
+                    /tmp/staged.json) || true)
+                if [ -n "$unaccounted" ]; then
+                  echo "::warning::staging holds" \
+                    "$(wc -l <<<"$unaccounted") commit(s) no" \
+                    "staged PR merge accounts for — NOT" \
+                    "resetting"
+                  echo "- staging reset skipped —" \
+                    "unaccounted staging commits" \
+                    >> "$GITHUB_STEP_SUMMARY"
+                else
+                  gh api -X PATCH \
+                    "repos/$REPO/git/refs/heads/staging" \
+                    -f sha="$main_sha" -F force=true \
+                    </dev/null > /dev/null
+                  echo "staging reset $cur -> $main_sha"
+                  echo "- staging reset to \`$main_sha\`" \
+                    >> "$GITHUB_STEP_SUMMARY"
+                fi
               fi
             fi
           fi

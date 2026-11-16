@@ -339,14 +339,19 @@ def _database_url_default() -> str:
 # also carries the prod DSN, so `env.db('DATABASE_URL')`
 # would ignore any default. Missing STAGING_DATABASE_URL in
 # a staging context falls back to prod — keep previews
-# working until the secret ships it.
-_DB_URL_VAR = (
-    'STAGING_DATABASE_URL'
-    if (
-        os.environ.get('APP_ENV') == 'staging'
-        or os.environ.get('VERCEL_ENV') == 'preview'
+# working until the secret ships it, but never silently.
+_IS_STAGING = (
+    os.environ.get('APP_ENV') == 'staging'
+    or os.environ.get('VERCEL_ENV') == 'preview'
+)
+if _IS_STAGING and not os.environ.get('STAGING_DATABASE_URL'):
+    logging.getLogger('industry_analyser').warning(
+        'staging environment selected but STAGING_DATABASE_URL'
+        ' is unset — falling back to DATABASE_URL (production)'
+        ' until the var lands'
     )
-    else 'DATABASE_URL'
+_DB_URL_VAR = (
+    'STAGING_DATABASE_URL' if _IS_STAGING else 'DATABASE_URL'
 )
 
 DATABASES = {
