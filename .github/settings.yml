@@ -14,7 +14,7 @@ repository:
     Project for different industry analysis
 
   # Homepage URL (Vercel deployment)
-  homepage: https://industry-analyser.vercel.app
+  homepage: https://industryanalyser.vercel.app
 
   # Repository visibility (public or private)
   private: false
@@ -23,7 +23,7 @@ repository:
   has_issues: true
   has_projects: true
   has_wiki: true
-  has_downloads: true
+  has_downloads: false
 
   # Default branch
   default_branch: main
@@ -36,8 +36,8 @@ repository:
   # Automatically delete head branches after PR merge
   delete_branch_on_merge: true
 
-  # Enable automated security fixes
-  enable_automated_security_fixes: true
+  # Enable automated security fixes (disabled on the live repo)
+  enable_automated_security_fixes: false
   enable_vulnerability_alerts: true
 
 # Branch protection rules
@@ -54,7 +54,10 @@ branches:
       # workflows/require-staging.yml and AGENTS.md
       # "Git workflow — staging-first".
       required_status_checks:
-        strict: true
+        # strict: false — promotion PR heads are staged SHAs,
+        # out-of-date with main by construction; strict:true
+        # would block every Promote-to-main merge.
+        strict: false
         contexts:
           - staging-first
           - frontend

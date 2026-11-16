@@ -45,10 +45,13 @@ on:
     inputs:
       service_suffix:
         description: >-
-          Suffix appended to the staging service name
-          (industry-analyser<suffix>). Empty = deploy prod only.
+          Suffix appended to the service name for a manual
+          staging deploy (industry-analyser<suffix>). Empty =
+          deploy prod only. Default is -manual so a dispatch
+          can't clobber industry-analyser-staging, the
+          standing service the staging branch redeploys.
         required: false
-        default: '-staging'
+        default: '-manual'
 
 concurrency:
   group: deploy-web-service-${{ github.ref }}

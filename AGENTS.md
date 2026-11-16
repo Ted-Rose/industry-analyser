@@ -40,7 +40,7 @@ service `industry-analyser-staging` (reachable via
 --region=europe-north1`; it shares the prod `env-file`
 secret including the prod DB — treat it as prod data) AND a
 public Vercel preview
-(`industry-analyser-git-staging-<team>.vercel.app` — the UI
+(`industryanalyser-git-staging-<team>.vercel.app` — the UI
 validation surface). The invariant is **`main` ⊆
 `staging`**: production only receives code that has already
 soaked on staging. The `staging-first` required check
