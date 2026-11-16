@@ -75,13 +75,18 @@ jobs:
           echo "Found ${TAG_COUNT} tagged image(s) in registry"
           echo ""
           
-          # Keep every tag on the digests 'latest' and 'web-latest'
-          # point at — both deploys push those plus per-sha tags on the
-          # same image, and jobs/services may still reference the sha
-          # tags. UPDATE_TIME ordering is not reliable for "newest", so
-          # anchor on the moving tags instead of sort order.
+          # Keep every tag on the digests 'latest', 'web-latest'
+          # and 'staging-latest' point at — the deploys push those
+          # moving tags plus per-sha tags on the same image, and
+          # jobs/services may still reference the sha tags.
+          # 'staging-latest' is the standing staging service's
+          # image; without it this job deletes staging tags mid-
+          # deploy ("image not found"). UPDATE_TIME ordering is
+          # not reliable for "newest", so anchor on the moving
+          # tags instead of sort order.
           KEPT_DIGESTS=$(echo "$TAGS" | awk \
-            '$1 == "latest" || $1 == "web-latest" {print $2}')
+            '$1 == "latest" || $1 == "web-latest" ||
+             $1 == "staging-latest" {print $2}')
           
           if [ -z "$KEPT_DIGESTS" ]; then
             echo "ℹ️  No latest/web-latest tag found — nothing to clean"
