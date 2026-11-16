@@ -340,6 +340,9 @@ def _database_url_default() -> str:
 # would ignore any default. Missing STAGING_DATABASE_URL in
 # a staging context falls back to prod — keep previews
 # working until the secret ships it, but never silently.
+# Never put APP_ENV/VERCEL_ENV into the shared env-file
+# secret: prod sets neither, so doing so would flip IT to
+# the staging DB.
 _IS_STAGING = (
     os.environ.get('APP_ENV') == 'staging'
     or os.environ.get('VERCEL_ENV') == 'preview'

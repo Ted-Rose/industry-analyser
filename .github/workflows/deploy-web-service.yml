@@ -47,9 +47,10 @@ on:
         description: >-
           Suffix appended to the service name for a manual
           staging deploy (industry-analyser<suffix>). Empty =
-          deploy prod only. Default is -manual so a dispatch
-          can't clobber industry-analyser-staging, the
-          standing service the staging branch redeploys.
+          prod only on a main dispatch, no deploy at all on
+          other refs. Default is -manual so a dispatch can't
+          clobber industry-analyser-staging, the standing
+          service the staging branch redeploys.
         required: false
         default: '-manual'
 
@@ -313,7 +314,7 @@ jobs:
             --command=python \
             --args=manage.py,migrate \
             --set-secrets="DOTENV=env-file:latest" \
-            --set-env-vars="APP_ENV=staging" \
+            --set-env-vars="APP_ENV=staging,SENTRY_ENVIRONMENT=staging" \
             --task-timeout=3600 \
             --max-retries=0 \
             --quiet
@@ -346,7 +347,7 @@ jobs:
             --cpu=1 \
             --timeout=300 \
             --set-secrets="DOTENV=env-file:latest" \
-            --set-env-vars="APP_ENV=staging" \
+            --set-env-vars="APP_ENV=staging,SENTRY_ENVIRONMENT=staging" \
             --quiet
 
       # Private service: let the deploy SA invoke it so the smoke

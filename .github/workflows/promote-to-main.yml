@@ -127,21 +127,16 @@ jobs:
           }
 
           # Squash-merge a PR only if its head is exactly $2:
-          # expectedHeadOid makes the head check atomic with
-          # the merge (gh pr merge has no equivalent; this is
-          # the same mutation gh --admin runs, and the token's
-          # admin rights bypass the review ruleset).
+          # the REST merge endpoint's `sha` field ("SHA that
+          # pull request head must match") is the same atomic
+          # head check — and unlike GraphQL mergePullRequest
+          # it honors admin bypass for required reviews and
+          # checks (cli/cli#8746: the mutation fails review
+          # rulesets even for admin tokens).
           merge_pr() {
-            local pr_id
-            pr_id=$(gh api graphql -f query='query($u:URI!)
-              {resource(url:$u){... on PullRequest{id}}}' \
-              -f u="$1" --jq .data.resource.id \
-              </dev/null 2>/dev/null) || return 1
-            gh api graphql -f query='mutation($id:ID!,
-              $oid:GitObjectID!){mergePullRequest(input:
-              {pullRequestId:$id,expectedHeadOid:$oid,
-              mergeMethod:SQUASH}){pullRequest{state}}}' \
-              -f id="$pr_id" -f oid="$2" \
+            local pr_num=${1##*/}
+            gh api -X PUT "repos/$REPO/pulls/$pr_num/merge" \
+              -f merge_method=squash -f sha="$2" \
               </dev/null > /dev/null
           }
 
