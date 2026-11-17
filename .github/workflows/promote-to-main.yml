@@ -239,10 +239,14 @@ jobs:
               printf '#%s) by the Promote-to-main workflow._\n' \
                 "$spr"
             } > /tmp/promo-body.md
-            mpr=$(gh pr create --repo "$REPO" --base main \
-              --head "$branch" --title "$title" \
-              --body-file /tmp/promo-body.md \
-              </dev/null 2>/dev/null) || \
+            # REST create, not `gh pr create` — the runner
+            # checkout is detached-HEAD and gh resolves git
+            # state around the head ref, which can fail the
+            # CLI while the API stays fine.
+            mpr=$(gh api -X POST "repos/$REPO/pulls" \
+              -f head="$branch" -f base=main \
+              -f title="$title" -F body=@/tmp/promo-body.md \
+              --jq .html_url </dev/null 2>/dev/null) || \
             mpr=$(gh pr list --repo "$REPO" --state open \
               --base main --head "$branch" \
               --json url --jq '.[0].url // ""' </dev/null) || \
@@ -274,11 +278,14 @@ jobs:
               continue
             fi
 
-            # mergeable settles async; staging-first re-runs
-            # on `opened` and passes by construction on a
-            # staged SHA — but it takes seconds to spin up,
-            # so don't race merge_pr against a pending
-            # required check.
+            # mergeable settles async; the required checks
+            # re-run on `opened` — staging-first passes by
+            # construction on a staged SHA and the rest just
+            # have to conclude before the merge: a plain-token
+            # REST merge 405s on pending required checks, and
+            # an admin PAT would silently bypass a genuinely
+            # red one. Wait for the whole rollup, not just
+            # the gate.
             mergeable=""
             for _ in $(seq 1 24); do
               mergeable=$(gh pr view "$mpr" --json mergeable \
@@ -288,24 +295,50 @@ jobs:
               sleep 5
             done
             echo "  mergeable=$mergeable"
-            gate=""
-            for _ in $(seq 1 24); do
-              gate=$(gh pr view "$mpr" \
+            gate=""; pending=""; red=""; checks=""
+            for i in $(seq 1 24); do
+              checks=$(gh pr view "$mpr" \
                 --json statusCheckRollup </dev/null \
-                2>/dev/null | jq -r '([.statusCheckRollup[]
-                  | select(.name == "staging-first")] | .[0])
+                2>/dev/null || echo "__api_error__")
+              [ "$checks" = "__api_error__" ] && \
+                { gate="__api_error__"; break; }
+              # CheckRun: .name/.conclusion (null while
+              # pending); legacy status context:
+              # .context/.state — normalize both shapes.
+              gate=$(jq -r 'def res(e):
+                    (e.conclusion // e.state // "")
+                    | if . == "" then "PENDING" else . end;
+                  ([.[] | select((.name // .context)
+                    == "staging-first")] | .[0])
                   | if . == null then "__absent__"
-                    else (.conclusion // "PENDING") end' \
-                || echo "__api_error__")
-              [ "$gate" != "PENDING" ] && break
+                    else res(.) end' \
+                <<<"$checks" || echo "__api_error__")
+              pending=$(jq -r '[.[]
+                  | select((.name // .context)
+                    != "staging-first")
+                  | ((.conclusion // .state // "")
+                    | if . == "PENDING" or . == "QUEUED"
+                      or . == "IN_PROGRESS" or . == "WAITING"
+                      or . == "" then 1 else empty end)]
+                  | length' \
+                <<<"$checks" || echo "__api_error__")
+              # An absent gate is only a pass after ~30s —
+              # on a fresh PR the check run may not have
+              # registered yet.
+              [ "$gate" != "PENDING" ] && \
+                { [ "$pending" = "0" ] || \
+                  [ "$pending" = "__api_error__" ]; } && \
+                { [ "$gate" != "__absent__" ] || \
+                  [ "$i" -ge 6 ]; } && break
               sleep 5
             done
-            echo "  staging-first=$gate"
+            echo "  staging-first=$gate pending=$pending"
             # __absent__ = the gate is not on main yet
             # (pre-rollout) — a pass; SUCCESS obviously; any
             # other outcome is fail-closed: re-run the job
             # instead of merging past a red required check.
             if [ "$mergeable" = "MERGEABLE" ] && \
+               [ "$pending" = "0" ] && \
                { [ "$gate" = "__absent__" ] || \
                   [ "$gate" = "SUCCESS" ]; } && \
                merge_pr "$mpr" "$sha"; then
@@ -416,6 +449,19 @@ jobs:
                     "unaccounted staging commits" \
                     >> "$GITHUB_STEP_SUMMARY"
                 else
+                  # Re-fetch immediately before PATCH — a
+                  # staging push between the earlier read
+                  # and now must not be silently dropped.
+                  cur2=$(gh api \
+                    "repos/$REPO/branches/staging" \
+                    --jq .commit.sha </dev/null)
+                  if [ "$cur2" != "$cur" ]; then
+                    echo "::warning::staging moved during" \
+                      "the unaccounted check — NOT resetting"
+                    echo "- staging reset skipped —" \
+                      "staging moved mid-run" \
+                      >> "$GITHUB_STEP_SUMMARY"
+                  else
                   gh api -X PATCH \
                     "repos/$REPO/git/refs/heads/staging" \
                     -f sha="$main_sha" -F force=true \
@@ -423,6 +469,7 @@ jobs:
                   echo "staging reset $cur -> $main_sha"
                   echo "- staging reset to \`$main_sha\`" \
                     >> "$GITHUB_STEP_SUMMARY"
+                  fi
                 fi
               fi
             fi
