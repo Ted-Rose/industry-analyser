@@ -925,7 +925,10 @@ Push to `main` triggers GitHub Actions
 `deploy-web-service.yml`): Docker build/push to Artifact
 Registry → `python manage.py migrate` via the ad-hoc
 `run-migrations` Cloud Run job (main-only step) → update the
-`all-jobs` Cloud Run job + web service.
+`all-jobs` Cloud Run job + web service. Push to `staging`
+redeploys `industry-analyser-staging` + `run-migrations-staging`
+(staging DB) in the same workflow — see "Git workflow —
+staging-first".
 The Vercel deployment (see Known gaps — `vercel.json` +
 `.vercelignore` + `api/index.py`) is a live second target,
 not CI-managed; `cloudbuild.yaml` and `deploy-cloudrun.sh`
@@ -1094,8 +1097,9 @@ end-to-end. Prod (Cloud Run) is unaffected.
   `deploy-web-service.yml` deploys a `run-migrations` Cloud Run
   job from the just-built image and executes it before the new
   service revision goes live (a failed `migrate` aborts the
-  deploy). Manual `migrate` against prod is reserved for
-  recovery only.
+  deploy); staging pushes do the same via
+  `run-migrations-staging` against the staging DB. Manual
+  `migrate` against prod is reserved for recovery only.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate`, `.devin/config.local.json` —

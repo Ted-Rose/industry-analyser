@@ -20,5 +20,7 @@ Prod migrations are applied **by CI**: the `build-and-deploy` job in
 `.github/workflows/deploy-web-service.yml` deploys a `run-migrations`
 Cloud Run job from the just-built image and executes it before the
 new service revision goes live — a failed `migrate` aborts the
-deploy. Just ship migration files in the commit. Manual
-`python manage.py migrate` against prod is reserved for recovery.
+deploy. Staging pushes do the same via `run-migrations-staging`
+against the `industryanalyser_staging` DB. Just ship migration
+files in the commit. Manual `python manage.py migrate` against
+prod is reserved for recovery.

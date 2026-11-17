@@ -15,7 +15,7 @@ name: Promote to main
 # "Git workflow — staging-first".
 #
 # Needs an admin PAT in AUTOMERGE_TOKEN: the merges
-# bypass `main`’s
+# bypass `main`'s
 # review ruleset, and the staging reset bypasses the
 # non-fast-forward ruleset. With plain GITHUB_TOKEN the
 # merges will fail — that's a signal to configure the PAT.
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.AUTOMERGE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -72,7 +72,8 @@ jobs:
           # headroom (same idea as the gate's 100-per-page).
           gh pr list --repo "$REPO" --state merged \
             --base staging --limit 200 \
-            --json number,title,body,headRefName,headRefOid,mergedAt \
+            --json number,title,body,headRefName,headRefOid,\
+            mergedAt,mergeCommit \
             > /tmp/staged-raw.json
           # The ceiling guards the RAW list: checking the
           # deduped count would miss truncation whenever the
@@ -109,39 +110,119 @@ jobs:
             git fetch -q origin "$2" "$3" \
               "+refs/heads/main:refs/remotes/origin/main" \
               </dev/null || return 1
-            git checkout -q -B "$1" "$2" || return 1
-            git merge -q --no-commit origin/main \
-              </dev/null || true
+            # Only the final rev-parse may write to stdout —
+            # the caller captures it; send every status line
+            # to stderr or replay_sha becomes garbage.
+            git checkout -q -B "$1" "$2" >&2 || return 1
+            git merge --no-commit origin/main \
+              </dev/null >&2 || true
             local p
             while IFS= read -r -d '' p; do
               if git cat-file -e "$3:$p" 2>/dev/null; then
                 git checkout -q "$3" -- "$p" || return 1
               else
-                git rm -q -- "$p" || return 1
+                git rm -q -f -- "$p" || return 1
               fi
             done < <(git diff -z --name-only --diff-filter=U)
-            git commit -q --no-edit </dev/null || return 1
-            git push -q origin "$1" </dev/null || return 1
+            git commit -q --no-edit </dev/null >&2 || return 1
+            git push -q origin "$1" </dev/null >&2 || return 1
             git rev-parse HEAD
           }
 
           # Squash-merge a PR only if its head is exactly $2:
-          # expectedHeadOid makes the head check atomic with
-          # the merge (gh pr merge has no equivalent; this is
-          # the same mutation gh --admin runs, and the token's
-          # admin rights bypass the review ruleset).
+          # the REST merge endpoint's `sha` field ("SHA that
+          # pull request head must match") is the same atomic
+          # head check — and unlike GraphQL mergePullRequest
+          # it honors admin bypass for required reviews and
+          # checks (cli/cli#8746: the mutation fails review
+          # rulesets even for admin tokens).
           merge_pr() {
-            local pr_id
-            pr_id=$(gh api graphql -f query='query($u:URI!)
-              {resource(url:$u){... on PullRequest{id}}}' \
-              -f u="$1" --jq .data.resource.id \
-              </dev/null 2>/dev/null) || return 1
-            gh api graphql -f query='mutation($id:ID!,
-              $oid:GitObjectID!){mergePullRequest(input:
-              {pullRequestId:$id,expectedHeadOid:$oid,
-              mergeMethod:SQUASH}){pullRequest{state}}}' \
-              -f id="$pr_id" -f oid="$2" \
+            local pr_num=${1##*/}
+            gh api -X PUT "repos/$REPO/pulls/$pr_num/merge" \
+              -f merge_method=squash -f sha="$2" \
               </dev/null > /dev/null
+          }
+
+          # Poll a PR's whole check rollup until every check
+          # concludes (or ~10 min pass): required checks
+          # re-run on `opened`, a plain-token REST merge
+          # 405s on pending required checks, and an admin
+          # PAT would silently bypass a genuinely red one.
+          # Echoes "gate pending red": gate = resolved
+          # `staging-first` state (`__absent__` if it never
+          # appeared — the file may not be on main yet);
+          # pending = non-gate checks still running (a
+          # "Vercel" status context can stick at pending
+          # for hours on quota flaps — the dependabot
+          # automerge excludes it too; a CONCLUDED Vercel
+          # failure still counts in red); red = non-gate
+          # checks concluded as failures. `__api_error__`
+          # in any field = fail closed at the caller.
+          rollup_wait() {
+            local pr=$1 i checks gate pending red gate_pending
+            for i in $(seq 1 40); do
+              checks=$(gh pr view "$pr" \
+                --json statusCheckRollup \
+                --jq '.statusCheckRollup // []' \
+                </dev/null 2>/dev/null || echo "__api_error__")
+              if [ "$checks" = "__api_error__" ]; then
+                echo "__api_error__ __api_error__ __api_error__"
+                return
+              fi
+              # CheckRun shape: .name/.conclusion (null while
+              # pending); legacy status context:
+              # .context/.state — normalize both. Duplicate
+              # `staging-first` entries: any pending wins.
+              gate=$(jq -r 'def res(e):
+                    (e.conclusion // e.state // "")
+                    | if . == "" then "PENDING" else . end;
+                  ([.[] | select((.name // .context)
+                    == "staging-first")] | map(res(.)))
+                  | if . == [] then "__absent__"
+                    elif any(. == "PENDING" or . == "QUEUED"
+                      or . == "IN_PROGRESS" or . == "WAITING"
+                      or . == "EXPECTED") then "PENDING"
+                    else .[0] end' \
+                <<<"$checks" || echo "__api_error__")
+              pending=$(jq -r '[.[]
+                  | select((.name // .context)
+                    != "staging-first")
+                  | select((.name // .context) != "Vercel")
+                  | ((.conclusion // .state // "")
+                    | if . == "PENDING" or . == "QUEUED"
+                      or . == "IN_PROGRESS" or . == "WAITING"
+                      or . == "EXPECTED" or . == "" then 1
+                      else empty end)] | length' \
+                <<<"$checks" || echo "__api_error__")
+              red=$(jq -r '[.[]
+                  | select((.name // .context)
+                    != "staging-first")
+                  | ((.conclusion // .state // "")
+                    | ascii_upcase
+                    | if . == "FAILURE" or . == "ERROR"
+                      or . == "CANCELLED" or . == "TIMED_OUT"
+                      or . == "ACTION_REQUIRED" or . == "FAILED"
+                      or . == "STALE" or . == "STARTUP_FAILURE"
+                      then 1 else empty end)] | length' \
+                <<<"$checks" || echo "__api_error__")
+              gate_pending=0
+              case "$gate" in
+                PENDING|QUEUED|IN_PROGRESS|WAITING|EXPECTED)
+                  gate_pending=1 ;;
+                # An absent gate is only a pass after ~75s —
+                # the check run may not have registered yet.
+                __absent__)
+                  if [ "$i" -lt 6 ]; then
+                    gate_pending=1
+                  fi ;;
+              esac
+              # Never break on the first poll: checks can take
+              # a beat to register on a fresh PR head.
+              [ "$i" -ge 2 ] && [ "$gate_pending" = "0" ] && \
+                [ "$pending" = "0" ] && break
+              sleep 15
+            done
+            echo "$gate $pending $red"
           }
 
           promoted=0; skipped=0; replayed=0; failed=0
@@ -180,6 +261,9 @@ jobs:
               # include this SHA — catch it via commit
               # search (also the catch-all for any manual
               # promotion shape).
+              # Search-index lag can report 0 right after a
+              # merge — a false "not in main" then just fails
+              # the later PR create (fail-closed, noise only).
               in_main=$(gh api -X GET "search/issues" \
                 -f q="repo:$REPO is:pr is:merged base:main $sha" \
                 --jq .total_count </dev/null) || {
@@ -237,10 +321,14 @@ jobs:
               printf '#%s) by the Promote-to-main workflow._\n' \
                 "$spr"
             } > /tmp/promo-body.md
-            mpr=$(gh pr create --repo "$REPO" --base main \
-              --head "$branch" --title "$title" \
-              --body-file /tmp/promo-body.md \
-              </dev/null 2>/dev/null) || \
+            # REST create, not `gh pr create` — the runner
+            # checkout is detached-HEAD and gh resolves git
+            # state around the head ref, which can fail the
+            # CLI while the API stays fine.
+            mpr=$(gh api -X POST "repos/$REPO/pulls" \
+              -f head="$branch" -f base=main \
+              -f title="$title" -F body=@/tmp/promo-body.md \
+              --jq .html_url </dev/null 2>/dev/null) || \
             mpr=$(gh pr list --repo "$REPO" --state open \
               --base main --head "$branch" \
               --json url --jq '.[0].url // ""' </dev/null) || \
@@ -262,17 +350,24 @@ jobs:
             if [ "$head_now" != "$sha" ]; then
               echo "  !! PR head ${head_now:-unreadable} is" \
                 "not staging merge ${sha::7} — skipping"
+              gh pr close "$mpr" --repo "$REPO" \
+                --comment "Head moved past the staged SHA \
+                ($sha) — closed by Promote-to-main." \
+                </dev/null > /dev/null 2>&1 || true
               failed=$((failed+1))
               echo "- \`$title\` — FAILED (PR head moved)" \
                 >> "$GITHUB_STEP_SUMMARY"
               continue
             fi
 
-            # mergeable settles async; staging-first re-runs
-            # on `opened` and passes by construction on a
-            # staged SHA — but it takes seconds to spin up,
-            # so don't race merge_pr against a pending
-            # required check.
+            # mergeable settles async; the required checks
+            # re-run on `opened` — staging-first passes by
+            # construction on a staged SHA and the rest must
+            # conclude green before the merge: a plain-token
+            # REST merge 405s on pending required checks, and
+            # an admin PAT would silently bypass a genuinely
+            # red one. Wait for the whole rollup, not just
+            # the gate.
             mergeable=""
             for _ in $(seq 1 24); do
               mergeable=$(gh pr view "$mpr" --json mergeable \
@@ -282,18 +377,18 @@ jobs:
               sleep 5
             done
             echo "  mergeable=$mergeable"
-            gate=""
-            for _ in $(seq 1 24); do
-              gate=$(gh pr view "$mpr" \
-                --json statusCheckRollup </dev/null \
-                2>/dev/null | jq -r '[.statusCheckRollup[]
-                  | select(.name == "staging-first")
-                  | .conclusion // ""] | .[0] // ""')
-              [ -n "$gate" ] && break
-              sleep 5
-            done
-            echo "  staging-first=$gate"
+            read -r gate pending red \
+              <<<"$(rollup_wait "$mpr")"
+            echo "  staging-first=$gate pending=$pending" \
+              "red=$red"
+            # __absent__ = the gate is not on main yet
+            # (pre-rollout) — a pass; SUCCESS obviously; any
+            # other outcome is fail-closed: re-run the job
+            # instead of merging past a red required check.
             if [ "$mergeable" = "MERGEABLE" ] && \
+               [ "$pending" = "0" ] && [ "$red" = "0" ] && \
+               { [ "$gate" = "__absent__" ] || \
+                  [ "$gate" = "SUCCESS" ]; } && \
                merge_pr "$mpr" "$sha"; then
               promoted=$((promoted+1))
               echo "- \`$title\` — promoted" \
@@ -350,7 +445,15 @@ jobs:
               sleep 5
             done
             echo "  mergeable=$mergeable after replay"
-            if merge_pr "$mpr" "$replay_sha"; then
+            # The replayed merge commit gets a fresh CI run:
+            # `staging-first` can't pass on it by design, but
+            # the other required checks still apply — wait
+            # for them before the admin merge.
+            read -r _ pending red <<<"$(rollup_wait "$mpr")"
+            echo "  replay checks: pending=$pending red=$red"
+            if [ "$mergeable" = "MERGEABLE" ] && \
+               [ "$pending" = "0" ] && [ "$red" = "0" ] && \
+               merge_pr "$mpr" "$replay_sha"; then
               replayed=$((replayed+1))
               echo "- \`$title\` — promoted (staging replay)" \
                 >> "$GITHUB_STEP_SUMMARY"
@@ -383,22 +486,52 @@ jobs:
                   "run — NOT resetting; re-run the workflow"
                 echo "- staging reset skipped — staging" \
                   "moved mid-run" >> "$GITHUB_STEP_SUMMARY"
-              elif [ "$(jq length /tmp/staged.json)" -eq 0 ]
-              then
-                echo "::warning::staging holds commits no" \
-                  "merged staging PR accounts for — NOT" \
-                  "resetting"
-                echo "- staging reset skipped —" \
-                  "unaccounted staging commits" \
-                  >> "$GITHUB_STEP_SUMMARY"
               else
-                gh api -X PATCH \
-                  "repos/$REPO/git/refs/heads/staging" \
-                  -f sha="$main_sha" -F force=true \
-                  </dev/null > /dev/null
-                echo "staging reset $cur -> $main_sha"
-                echo "- staging reset to \`$main_sha\`" \
-                  >> "$GITHUB_STEP_SUMMARY"
+                # Fail closed when staging holds commits no
+                # staged-PR merge accounts for — manual pushes
+                # or merges past the 200-PR scan window would
+                # be silently dropped by the reset.
+                git fetch -q origin "$main_sha" "$cur" \
+                  </dev/null
+                # rev-list first — a bare `| grep || true`
+                # would also swallow a rev-list failure.
+                revs=$(git rev-list "$main_sha..$cur")
+                unaccounted=$(grep -vxFf \
+                  <(jq -r '.[].mergeCommit.oid' \
+                    /tmp/staged-raw.json) <<<"$revs" || true)
+                if [ -n "$unaccounted" ]; then
+                  echo "::warning::staging holds" \
+                    "$(wc -l <<<"$unaccounted") commit(s) no" \
+                    "staged PR merge accounts for — NOT" \
+                    "resetting"
+                  echo "- staging reset skipped —" \
+                    "unaccounted staging commits" \
+                    >> "$GITHUB_STEP_SUMMARY"
+                else
+                  # Re-fetch immediately before PATCH — a
+                  # staging push between the earlier read
+                  # and now must not be silently dropped.
+                  # (Residual ~1s TOCTOU remains — the refs
+                  # API has no compare-and-swap; accepted.)
+                  cur2=$(gh api \
+                    "repos/$REPO/branches/staging" \
+                    --jq .commit.sha </dev/null)
+                  if [ "$cur2" != "$cur" ]; then
+                    echo "::warning::staging moved during" \
+                      "the unaccounted check — NOT resetting"
+                    echo "- staging reset skipped —" \
+                      "staging moved mid-run" \
+                      >> "$GITHUB_STEP_SUMMARY"
+                  else
+                    gh api -X PATCH \
+                      "repos/$REPO/git/refs/heads/staging" \
+                      -f sha="$main_sha" -F force=true \
+                      </dev/null > /dev/null
+                    echo "staging reset $cur -> $main_sha"
+                    echo "- staging reset to \`$main_sha\`" \
+                      >> "$GITHUB_STEP_SUMMARY"
+                  fi
+                fi
               fi
             fi
           fi
