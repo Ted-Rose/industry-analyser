@@ -15,7 +15,7 @@ name: Promote to main
 # "Git workflow — staging-first".
 #
 # Needs an admin PAT in AUTOMERGE_TOKEN: the merges
-# bypass `main`’s
+# bypass `main`'s
 # review ruleset, and the staging reset bypasses the
 # non-fast-forward ruleset. With plain GITHUB_TOKEN the
 # merges will fail — that's a signal to configure the PAT.
@@ -154,11 +154,12 @@ jobs:
           # pending = non-gate checks still running (a
           # "Vercel" status context can stick at pending
           # for hours on quota flaps — the dependabot
-          # automerge excludes it too); red = non-gate
+          # automerge excludes it too; a CONCLUDED Vercel
+          # failure still counts in red); red = non-gate
           # checks concluded as failures. `__api_error__`
           # in any field = fail closed at the caller.
           rollup_wait() {
-            local pr=$1 i checks gate pending red
+            local pr=$1 i checks gate pending red gate_pending
             for i in $(seq 1 40); do
               checks=$(gh pr view "$pr" \
                 --json statusCheckRollup \
@@ -170,14 +171,18 @@ jobs:
               fi
               # CheckRun shape: .name/.conclusion (null while
               # pending); legacy status context:
-              # .context/.state — normalize both.
+              # .context/.state — normalize both. Duplicate
+              # `staging-first` entries: any pending wins.
               gate=$(jq -r 'def res(e):
                     (e.conclusion // e.state // "")
                     | if . == "" then "PENDING" else . end;
                   ([.[] | select((.name // .context)
-                    == "staging-first")] | .[0])
-                  | if . == null then "__absent__"
-                    else res(.) end' \
+                    == "staging-first")] | map(res(.)))
+                  | if . == [] then "__absent__"
+                    elif any(. == "PENDING" or . == "QUEUED"
+                      or . == "IN_PROGRESS" or . == "WAITING"
+                      or . == "EXPECTED") then "PENDING"
+                    else .[0] end' \
                 <<<"$checks" || echo "__api_error__")
               pending=$(jq -r '[.[]
                   | select((.name // .context)
@@ -192,26 +197,28 @@ jobs:
               red=$(jq -r '[.[]
                   | select((.name // .context)
                     != "staging-first")
-                  | select((.name // .context) != "Vercel")
                   | ((.conclusion // .state // "")
                     | ascii_upcase
                     | if . == "FAILURE" or . == "ERROR"
                       or . == "CANCELLED" or . == "TIMED_OUT"
                       or . == "ACTION_REQUIRED" or . == "FAILED"
+                      or . == "STALE" or . == "STARTUP_FAILURE"
                       then 1 else empty end)] | length' \
                 <<<"$checks" || echo "__api_error__")
               gate_pending=0
               case "$gate" in
                 PENDING|QUEUED|IN_PROGRESS|WAITING|EXPECTED)
                   gate_pending=1 ;;
-                # An absent gate is only a pass after ~90s —
+                # An absent gate is only a pass after ~75s —
                 # the check run may not have registered yet.
                 __absent__)
                   if [ "$i" -lt 6 ]; then
                     gate_pending=1
                   fi ;;
               esac
-              [ "$gate_pending" = "0" ] && \
+              # Never break on the first poll: checks can take
+              # a beat to register on a fresh PR head.
+              [ "$i" -ge 2 ] && [ "$gate_pending" = "0" ] && \
                 [ "$pending" = "0" ] && break
               sleep 15
             done
@@ -444,7 +451,8 @@ jobs:
             # for them before the admin merge.
             read -r _ pending red <<<"$(rollup_wait "$mpr")"
             echo "  replay checks: pending=$pending red=$red"
-            if [ "$pending" = "0" ] && [ "$red" = "0" ] && \
+            if [ "$mergeable" = "MERGEABLE" ] && \
+               [ "$pending" = "0" ] && [ "$red" = "0" ] && \
                merge_pr "$mpr" "$replay_sha"; then
               replayed=$((replayed+1))
               echo "- \`$title\` — promoted (staging replay)" \
