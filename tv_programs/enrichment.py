@@ -28,6 +28,12 @@ from django.utils import timezone
 from ai_providers import errors as ai_errors
 from ai_providers.types import GenerationOptions, PromptSpec
 from scrape_jobs.db import retry_on_connection_loss
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
 
 logger = logging.getLogger('tv_programs')
 
@@ -311,6 +317,21 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
             "Enrichment failed for show '%s': %s", show.title_lv, e
         )
         show.enrichment_status = 'failed'
+        if not already_reported(e):
+            # AIJobError subclasses (cap reached, disabled or
+            # unseeded job) are expected run outcomes — never
+            # sent; an AIAllModelsFailedError arrives already
+            # reported by JobClient. Provider/model/retryable AI
+            # errors are the upstream side (warning) — a rate
+            # limit or dead model endpoint is not our bug.
+            if is_upstream_error(e) or isinstance(e, (
+                ai_errors.AIProviderError,
+                ai_errors.AIRetryableError,
+                ai_errors.AIModelError,
+            )):
+                capture_provider_exception(e, 'provider_error')
+            elif not isinstance(e, ai_errors.AIJobError):
+                capture_internal_exception(e)
     logger.info(
         "Enriched '%s': status=%s source=%s title_eng=%r imdb_id=%s "
         "rating=%s pg=%s",

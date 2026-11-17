@@ -12,6 +12,12 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from oauthlib.oauth2 import OAuth2Error
 from requests.exceptions import RequestException
 
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
+
 from .signin import resolve_google_user
 from .utils import (
     GOOGLE_SIGNIN_SCOPES,
@@ -164,6 +170,12 @@ def _fetch_userinfo(flow):
         return response.json()
     except Exception as e:
         logger.warning(f'Userinfo fetch failed: {e}')
+        # The None fallback silently degrades sign-in to the
+        # sub-resolution path — keep the failure observable.
+        if is_upstream_error(e):
+            capture_provider_exception(e, 'provider_error')
+        else:
+            capture_internal_exception(e)
         return None
 
 

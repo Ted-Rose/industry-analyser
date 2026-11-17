@@ -9,6 +9,11 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from google_api.utils import GOOGLE_TASKS_SCOPES, get_user_credentials
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
 
 from .backfill import normalize_link
 from .models import NewsDigestSubscription, NewsDigestTask
@@ -62,6 +67,18 @@ def _record_failure(digest, user, error):
         )
 
 
+def _capture_task_failure(exc):
+    """Classify a caught Google-task failure for Sentry.
+
+    Google's HttpError and the network types below it are the
+    upstream side (warning); anything else is our bug (error).
+    """
+    if isinstance(exc, HttpError) or is_upstream_error(exc):
+        capture_provider_exception(exc, 'provider_error')
+    else:
+        capture_internal_exception(exc)
+
+
 def _record_update_error(digest, user, link, error):
     """Record a failed in-place refresh on a 'created' link
     row. The row keeps its status and task_id — the remote
@@ -70,6 +87,7 @@ def _record_update_error(digest, user, link, error):
     Google task. The next build retries the patch instead."""
     link.error = str(error)
     link.save(update_fields=['error', 'updated_at'])
+    _capture_task_failure(error)
     logger.exception(
         'Google task %s refresh failed for digest %s user %s',
         link.task_id,
@@ -242,8 +260,10 @@ def create_digest_task(digest):
                     digest.date,
                     subscription.user.username,
                 )
+                _capture_task_failure(e)
                 _record_failure(digest, subscription.user, e)
-    except Exception:
+    except Exception as e:
         logger.exception(
             'Google task fan-out failed for digest %s', digest.date
         )
+        _capture_task_failure(e)

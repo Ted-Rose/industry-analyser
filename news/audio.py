@@ -32,6 +32,12 @@ from langdetect import (
 
 from django.conf import settings
 
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
+
 logger = logging.getLogger('news')
 
 # langdetect is probabilistic — a fixed seed keeps the pick
@@ -112,8 +118,12 @@ def _evict_oldest(bucket, keep=_MAX_OBJECTS):
         )
         for stale in blobs[:max(len(blobs) - keep + 1, 0)]:
             stale.delete()
-    except Exception:
+    except Exception as e:
         logger.warning('audio clip eviction failed', exc_info=True)
+        if is_upstream_error(e):
+            capture_provider_exception(e, 'provider_error')
+        else:
+            capture_internal_exception(e)
 
 
 def text_to_audio(text, lang=None, filename=None):

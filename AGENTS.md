@@ -964,10 +964,21 @@ agent-fixable bugs only:
 
 - Unhandled 500s — `DjangoIntegration`, level error.
 - Caught API/job bugs — `capture_internal_exception`, level
-  error, tag `error_code:internal_error`.
+  error, tag `error_code:internal_error`. Sites: the uniform
+  API 500 handler, every scrape command's top-level catch (the
+  `CommandError` re-raise loses the real traceback), failed
+  `run_all_jobs` sub-jobs, `ScrapeJobRunner.item_failed`
+  per-item failures, per-record refetch catches
+  (`BaseRefetchCommand`, `refetch_vacancies`), and the
+  receipts-sync per-message catch — all carry
+  `scrape_job`/`scrape_item` tags where known.
 - Browser exceptions — `captureException`, level error.
 - Scraper/AI upstream — `capture_provider_exception`, level
   warning, tag `error_code:rate_limited` / `provider_error`.
+  `is_upstream_error` (urllib3/http.client/socket/ssl/
+  builtin network types) is the shared classifier call sites
+  branch on — `item_failed`, `refetch_single`, `enrich_show`
+  and the Google-tasks fan-out all use it.
 - Deploy schema lag — `capture_schema_lag`, level warning, tag
   `error_code:schema_lag` (the API also answers 503 +
   Retry-After; a permanently missing column must not go dark).
@@ -976,7 +987,29 @@ agent-fixable bugs only:
 
 Logs are breadcrumbs only (`event_level=None`) — the per-app
 loggers emit a lot of DEBUG/INFO; none become events. Expected
-outcomes (AI cap reached, empty scrape results) are never sent.
+outcomes (AI cap reached, empty scrape results, `AIJobError`
+subclasses like disabled/unseeded jobs) are never sent —
+`mark_handled(exc)` flags an expected abort (e.g. the receipts
+sync's `AIJobError` run-abort) so orchestration layers skip it
+the same way they skip already-captured failures.
+
+One failure = one event: every `capture_*` helper marks the
+exception it reported, and `already_reported(exc)` walks the
+`__cause__`/`__context__` chain so a `CommandError` wrapping an
+already-captured crash (`scrape_news` → `news_pipeline` →
+`run_all_jobs`) is not filed as a second, traceback-poor issue.
+Callers check it before capturing a possibly-wrapped exception.
+
+**Local opt-in**: the checkout's `.env` ships `SENTRY_DSN=` /
+`SENTRY_WEB_DSN=` EMPTY — local `manage.py` runs (scrapers
+included) produce zero Sentry traffic by default. Fill
+`SENTRY_DSN` with the backend project DSN (the value lives in
+the `env-file` secret / Sentry project settings) and local
+runs — including `scrape_*` commands and `run_all_jobs` —
+report with `environment:development`, which stays out of the
+`environment:production` fix queue. Verified working from this
+machine; if egress ever silently drops events, set
+`SSL_CERT_FILE` to the combined CA bundle (the quirk below).
 
 REST ops (the agent fix queue) — `source
 ~/.config/devin/sentry.env` (exports `SENTRY_API_TOKEN`), then:
@@ -992,12 +1025,13 @@ That issue list IS the fix queue; `GET
 /issues/<id>/` with `{"status":"resolvedInNextRelease"}` — only
 after the fix merges.
 
-Local-only quirk: Python→Sentry egress fails SILENTLY from
+Local-only quirk: Python→Sentry egress can fail SILENTLY from
 this machine (`flush()` returns but events never arrive)
 behind the TLS-intercepting proxy — the `SSL_CERT_FILE`
-CA-bundle fix lives in the global machine-environment notes
-(`~/.config/devin/AGENTS.md`). Prod (Cloud Run) is
-unaffected.
+CA-bundle fix (combined certifi + `nscacert.pem`) lives in the
+global machine-environment notes (`~/.config/devin/AGENTS.md`);
+the agent shells already export it, so delivery was verified
+end-to-end. Prod (Cloud Run) is unaffected.
 
 ## Guardrails
 

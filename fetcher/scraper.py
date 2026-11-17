@@ -31,6 +31,7 @@ from ai_providers import errors as ai_errors
 from ai_providers.client import get_job_client
 from ai_providers.types import ImagePart, PromptSpec
 from core_scraper.base import BaseScraper
+from industry_analyser.sentry import capture_internal_exception
 
 logger = logging.getLogger('fetcher')
 
@@ -905,12 +906,13 @@ class VacancyScrapper(BaseScraper):
                 company_linking.apply_employer_detail(
                     company, detail, now=now
                 )
-            except Exception:
+            except Exception as e:
                 logger.exception(
                     f"apply_employer_detail failed for "
                     f"employer_id {employer_id} (company "
                     f"{company.pk}) — continuing batch"
                 )
+                capture_internal_exception(e)
                 continue
             detailed_pks.add(company.pk)
             if company.about:

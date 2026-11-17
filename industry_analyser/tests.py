@@ -4,11 +4,17 @@ misses under prefixes owned by earlier mounts (/api/, /admin/,
 /static/).
 """
 
+import http.client
 import json
 import re
+import socket
+import ssl
 from unittest.mock import patch
 
+import urllib3.exceptions
+
 from django.contrib.auth import get_user_model
+from django.core.management.base import CommandError
 from django.db.utils import ProgrammingError
 from django.test import (
     RequestFactory,
@@ -19,8 +25,10 @@ from django.test import (
 
 from industry_analyser import api as api_module
 from industry_analyser.sentry import (
+    already_reported,
     capture_internal_exception,
     capture_provider_exception,
+    is_upstream_error,
     sentry_before_send,
 )
 from industry_analyser.templatetags.design_system import ds_head
@@ -356,6 +364,77 @@ class SentryHelpersTests(SimpleTestCase):
             event = {'request': dict(request)}
             result = sentry_before_send(event, {})
             self.assertNotIn('data', result['request'], request)
+
+    def test_is_upstream_error_classifies_remote_failures(self):
+        """Remote-side types → provider stream; code bugs and
+        filesystem errors stay internal."""
+        for exc in (
+            urllib3.exceptions.MaxRetryError(None, 'http://x'),
+            urllib3.exceptions.LocationParseError('bad'),
+            http.client.RemoteDisconnected('gone'),
+            socket.gaierror('dns'),
+            socket.timeout('slow'),
+            ssl.SSLError('cert'),
+            ConnectionError('refused'),
+            TimeoutError('timed out'),
+        ):
+            self.assertTrue(is_upstream_error(exc), exc)
+        for exc in (
+            RuntimeError('bug'),
+            KeyError('k'),
+            FileNotFoundError('missing config'),
+            ValueError('bad'),
+        ):
+            self.assertFalse(is_upstream_error(exc), exc)
+
+    def test_already_reported_marks_and_dedupes_wrappers(self):
+        """The capture helpers mark the exception they reported;
+        a CommandError wrapping a marked cause (via ``from`` or
+        implicit ``__context__``) is then seen as already
+        reported — one failure, one Sentry event."""
+        # Fresh exception: nothing reported yet.
+        self.assertFalse(already_reported(RuntimeError('new')))
+        # With no DSN the SDK call is a no-op, but the mark is
+        # applied either way.
+        orig = RuntimeError('original crash')
+        capture_internal_exception(orig)
+        self.assertTrue(already_reported(orig))
+        # Explicit ``raise ... from`` chain.
+        try:
+            raise CommandError('scrape failed') from orig
+        except CommandError as ce:
+            self.assertTrue(already_reported(ce))
+            # The wrapper is marked too, so wrappers further up
+            # the chain dedupe as well.
+            try:
+                raise CommandError('pipeline aborted') from ce
+            except CommandError as outer:
+                self.assertTrue(already_reported(outer))
+        # Implicit ``__context__`` (bare raise inside except).
+        orig2 = RuntimeError('context crash')
+        capture_internal_exception(orig2)
+        try:
+            try:
+                raise orig2
+            except RuntimeError:
+                raise CommandError('scrape failed')
+        except CommandError as ce2:
+            self.assertTrue(already_reported(ce2))
+
+    def test_capture_helpers_accept_extra_tags(self):
+        # ``**tags`` must not break the no-DSN no-op path.
+        self.assertIsNone(
+            capture_internal_exception(
+                RuntimeError('x'),
+                scrape_job='test.job', scrape_item='a',
+            )
+        )
+        self.assertIsNone(
+            capture_provider_exception(
+                ConnectionError('down'), 'provider_error',
+                scrape_job='test.job',
+            )
+        )
 
 
 class UnhandledApiErrorTests(SimpleTestCase):

@@ -22,6 +22,12 @@ from django.utils import timezone
 
 from ai_providers.client import get_job_client
 from ai_providers.errors import AIJobError
+from industry_analyser.sentry import (
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+    mark_handled,
+)
 
 from receipts.ai_jobs import RECEIPT_EXTRACT
 from receipts.imap_client import connect, iter_messages, mark_seen
@@ -125,7 +131,16 @@ class Command(BaseCommand):
         try:
             imap = connect()
         except Exception as e:
-            raise CommandError(f'IMAP connect/login failed: {e}')
+            # The CommandError loses the real traceback — report
+            # the original: a dead/refusing inbox is upstream,
+            # anything else (bad config, our socket code) is ours.
+            if is_upstream_error(e):
+                capture_provider_exception(e, 'provider_error')
+            else:
+                capture_internal_exception(e)
+            raise CommandError(
+                f'IMAP connect/login failed: {e}'
+            ) from e
 
         counts = {
             'messages': 0,
@@ -164,6 +179,13 @@ class Command(BaseCommand):
                         counts['errors'] += partial.errors
                         counts['ai_pending'] += partial.ai_pending
                     aborted = e
+                    # AIJobError is an expected run outcome (cap
+                    # reached, disabled/unseeded job) or already
+                    # sent by JobClient (AIAllModelsFailedError) —
+                    # mark it so run_all_jobs does not file the
+                    # CommandError below as a second event. The run
+                    # still exits non-zero.
+                    mark_handled(e)
                     logger.error(
                         'message %s aborted the run: %s',
                         num, e)
@@ -179,6 +201,7 @@ class Command(BaseCommand):
                         'message %s failed unrecoverably: %s',
                         num, e, exc_info=True,
                     )
+                    capture_internal_exception(e)
                     if not dry_run:
                         message_id = (
                             msg.get('Message-ID') or '')[:255]
@@ -227,4 +250,4 @@ class Command(BaseCommand):
             raise CommandError(
                 f'run aborted after {counts["messages"]} '
                 f'message(s): {aborted}'
-            )
+            ) from aborted

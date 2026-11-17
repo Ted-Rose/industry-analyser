@@ -8,6 +8,7 @@ from django.utils import timezone
 from news.backfill import NewsBackfillScraper
 from news.feeds import ensure_seeded
 from news.scraper import NewsScraper
+from industry_analyser.sentry import capture_internal_exception
 from scrape_jobs.runner import (
     ScrapeJobRunner,
     cooldown_skip_reason,
@@ -196,6 +197,9 @@ class Command(BaseCommand):
             )
 
         except Exception as e:
+            # The CommandError loses the real traceback — report
+            # the original failure here.
+            capture_internal_exception(e, scrape_job=JOB_SLUG)
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running news scraper")
@@ -203,7 +207,7 @@ class Command(BaseCommand):
             self.stderr.write(str(e))
             raise CommandError(
                 f"Error running news scraper: {str(e)}"
-            )
+            ) from e
 
     def _handle_backfill(self, options, start_time):
         """--backfill: sitemap/archive walk under job slug
@@ -277,6 +281,11 @@ class Command(BaseCommand):
             )
 
         except Exception as e:
+            # The CommandError loses the real traceback — report
+            # the original failure here.
+            capture_internal_exception(
+                e, scrape_job=BACKFILL_JOB_SLUG
+            )
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running news backfill")
@@ -284,4 +293,4 @@ class Command(BaseCommand):
             self.stderr.write(str(e))
             raise CommandError(
                 f"Error running news backfill: {str(e)}"
-            )
+            ) from e

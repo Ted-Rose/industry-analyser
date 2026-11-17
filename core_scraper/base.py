@@ -10,7 +10,12 @@ import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
 
-from industry_analyser.sentry import capture_provider_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
 
 logger = logging.getLogger('core_scraper')
 
@@ -280,6 +285,13 @@ class BaseScraper(abc.ABC):
             logger.error(
                 f"Error refetching {existing_resource.link}: {e}"
             )
+            if not already_reported(e):
+                # A remote-side fetch failure is an upstream
+                # outage; anything else is a detail-parse bug.
+                if is_upstream_error(e):
+                    capture_provider_exception(e, 'provider_error')
+                else:
+                    capture_internal_exception(e)
             return None
 
     def _parse_detail_for_refetch(self, response):

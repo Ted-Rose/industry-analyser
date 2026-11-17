@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 
+from industry_analyser.sentry import capture_internal_exception
+
 logger = logging.getLogger('core_scraper')
 
 
@@ -245,6 +247,12 @@ class BaseRefetchCommand(BaseCommand, ABC):
                     self.style.ERROR(
                         f"  Error processing {record.ad_id}: {e}"
                     )
+                )
+                # refetch_single swallows its own failures (and
+                # reports them), so an exception reaching here is
+                # an apply/bulk bug — an internal error.
+                capture_internal_exception(
+                    e, scrape_item=record.ad_id
                 )
 
         if batch:

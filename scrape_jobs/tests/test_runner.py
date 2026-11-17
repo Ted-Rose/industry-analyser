@@ -8,6 +8,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from core_scraper.base import BaseScraper
+from industry_analyser.sentry import capture_internal_exception
 from scrape_jobs.db import retry_on_connection_loss
 from scrape_jobs.models import (
     ScrapeJob,
@@ -602,3 +603,68 @@ class ConnectionRetryTests(TestCase):
             run=runner.run, item=items[0]
         )
         self.assertEqual(run_item.status, ScrapeJobRunItem.FAILED)
+
+
+class ItemFailedSentryTests(TestCase):
+    """item_failed reports to Sentry: remote-side failures are
+    warning-level provider events, everything else is an
+    error-level internal bug — both tagged with the job slug and
+    item key; a failure already captured deeper in the chain is
+    not re-reported."""
+
+    def setUp(self):
+        self.runner = _make_runner()
+        self.items = self.runner.sync_items(_entries(('a', 0)))
+
+    def _captures(self):
+        return (
+            mock.patch(
+                'scrape_jobs.runner.capture_internal_exception'
+            ),
+            mock.patch(
+                'scrape_jobs.runner.capture_provider_exception'
+            ),
+        )
+
+    def test_internal_bug_reports_at_error_level_with_tags(self):
+        exc = RuntimeError('parse broke')
+        cap_int, cap_prov = self._captures()
+        with cap_int as internal, cap_prov as provider:
+            self.runner.item_failed(self.items[0], exc)
+        internal.assert_called_once_with(
+            exc, scrape_job='test.job', scrape_item='a'
+        )
+        provider.assert_not_called()
+
+    def test_upstream_failure_reports_at_warning_level(self):
+        exc = ConnectionError('feed unreachable')
+        cap_int, cap_prov = self._captures()
+        with cap_int as internal, cap_prov as provider:
+            self.runner.item_failed(self.items[0], exc)
+        provider.assert_called_once_with(
+            exc, 'provider_error',
+            scrape_job='test.job', scrape_item='a',
+        )
+        internal.assert_not_called()
+
+    def test_already_reported_failure_is_not_recaptured(self):
+        """A CommandError wrapping an already-captured cause —
+        the news_pipeline phase-abort shape — records FAILED but
+        sends no second event."""
+        from django.core.management.base import CommandError
+
+        orig = RuntimeError('original crash')
+        capture_internal_exception(orig)  # marks orig (no-DSN no-op)
+        try:
+            raise CommandError('phase failed') from orig
+        except CommandError as ce:
+            wrapped = ce
+        cap_int, cap_prov = self._captures()
+        with cap_int as internal, cap_prov as provider:
+            self.runner.item_failed(self.items[0], wrapped)
+        internal.assert_not_called()
+        provider.assert_not_called()
+        ri = ScrapeJobRunItem.objects.get(
+            run=self.runner.run, item=self.items[0]
+        )
+        self.assertEqual(ri.status, ScrapeJobRunItem.FAILED)
