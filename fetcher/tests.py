@@ -47,6 +47,10 @@ from fetcher.professions import (
     normalize_title,
 )
 from fetcher.scraper import VacancyScrapper
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.models import ScrapeJob, ScrapeJobRun
 from scrape_jobs.runner import iso_week_cycle_key
 
@@ -2929,6 +2933,27 @@ class ScrapeVacanciesGateTests(TestCase):
         self.assertIs(
             scraper_cls.return_value._ocr_unavailable, True
         )
+
+    def test_failure_summary_chains_reported_cause(self):
+        """The per-portal crash is reported inside the loop; the
+        summary CommandError chains ``from`` it so the
+        already_reported check up the chain (run_all_jobs)
+        files no second event for the same failure."""
+        orig = RuntimeError('portal died')
+        capture_internal_exception(orig)  # marks; no-DSN no-op
+        with mock.patch(
+            f'{self.MODULE}.detect_executed_by',
+            return_value='local',
+        ), mock.patch(f'{self.MODULE}.VacancyScrapper') as cls:
+            cls.return_value.run.side_effect = orig
+            with self.assertRaises(CommandError) as ctx:
+                call_command(
+                    'scrape_vacancies', 1,
+                    ignore_cooldown=True,
+                    stdout=io.StringIO(),
+                )
+        self.assertIs(ctx.exception.__cause__, orig)
+        self.assertTrue(already_reported(ctx.exception))
 
     def test_gcp_portals_gate_independently(self):
         # Portal 1 cooled down by a recent SUCCESS, portal 2 with

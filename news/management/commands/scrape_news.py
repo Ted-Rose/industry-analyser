@@ -5,6 +5,10 @@ from datetime import date, timedelta
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from news.backfill import NewsBackfillScraper
 from news.feeds import ensure_seeded
 from news.scraper import NewsScraper
@@ -196,6 +200,13 @@ class Command(BaseCommand):
             )
 
         except Exception as e:
+            # The CommandError loses the real traceback — report
+            # the original failure here, unless something deeper
+            # already did (already_reported dedupes wrappers —
+            # e.g. a 'retries exhausted' RuntimeError chained
+            # from the MaxRetryError make_request reported).
+            if not already_reported(e):
+                capture_internal_exception(e, scrape_job=JOB_SLUG)
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running news scraper")
@@ -203,7 +214,7 @@ class Command(BaseCommand):
             self.stderr.write(str(e))
             raise CommandError(
                 f"Error running news scraper: {str(e)}"
-            )
+            ) from e
 
     def _handle_backfill(self, options, start_time):
         """--backfill: sitemap/archive walk under job slug
@@ -277,6 +288,14 @@ class Command(BaseCommand):
             )
 
         except Exception as e:
+            # The CommandError loses the real traceback — report
+            # the original failure here, unless something deeper
+            # already did (the partition-enumeration RuntimeError
+            # chains the marked retry failure).
+            if not already_reported(e):
+                capture_internal_exception(
+                    e, scrape_job=BACKFILL_JOB_SLUG
+                )
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running news backfill")
@@ -284,4 +303,4 @@ class Command(BaseCommand):
             self.stderr.write(str(e))
             raise CommandError(
                 f"Error running news backfill: {str(e)}"
-            )
+            ) from e

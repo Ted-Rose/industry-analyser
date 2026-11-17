@@ -20,6 +20,10 @@ import logging
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.models import ScrapeJob, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
 
@@ -158,6 +162,8 @@ class Command(BaseCommand):
             # until the next invocation's stale sweep.
             if not options['dry_run']:
                 runner.finish('FAILED', str(e))
+            if not already_reported(e):
+                capture_internal_exception(e, scrape_job=JOB_SLUG)
             raise CommandError(str(e)) from e
 
     def _print_dry_run(self, runner, items, pending):

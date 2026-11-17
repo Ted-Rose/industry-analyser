@@ -4,11 +4,19 @@ misses under prefixes owned by earlier mounts (/api/, /admin/,
 /static/).
 """
 
+import http.client
+import imaplib
 import json
 import re
+import socket
+import ssl
+import time
 from unittest.mock import patch
 
+import urllib3.exceptions
+
 from django.contrib.auth import get_user_model
+from django.core.management.base import CommandError
 from django.db.utils import ProgrammingError
 from django.test import (
     RequestFactory,
@@ -18,9 +26,12 @@ from django.test import (
 )
 
 from industry_analyser import api as api_module
+from industry_analyser import sentry as sentry_module
 from industry_analyser.sentry import (
+    already_reported,
     capture_internal_exception,
     capture_provider_exception,
+    is_upstream_error,
     sentry_before_send,
 )
 from industry_analyser.templatetags.design_system import ds_head
@@ -270,6 +281,16 @@ class SentryHelpersTests(SimpleTestCase):
     """sentry.py capture helpers are complete no-ops when the SDK
     was never initialized (no SENTRY_DSN — always true in tests)."""
 
+    def setUp(self):
+        # The per-scope send/suppress counters are module-level —
+        # reset so each test sees a fresh cap budget.
+        sentry_module._internal_sent.clear()
+        sentry_module._internal_suppressed.clear()
+
+    def tearDown(self):
+        sentry_module._internal_sent.clear()
+        sentry_module._internal_suppressed.clear()
+
     def test_capture_helpers_noop_without_dsn(self):
         # No exception, no configured transport — the calls must
         # simply return None.
@@ -356,6 +377,180 @@ class SentryHelpersTests(SimpleTestCase):
             event = {'request': dict(request)}
             result = sentry_before_send(event, {})
             self.assertNotIn('data', result['request'], request)
+
+    def test_is_upstream_error_classifies_remote_failures(self):
+        """Remote-side types → provider stream; code bugs and
+        filesystem errors stay internal."""
+        for exc in (
+            urllib3.exceptions.MaxRetryError(None, 'http://x'),
+            urllib3.exceptions.LocationParseError('bad'),
+            http.client.RemoteDisconnected('gone'),
+            socket.gaierror('dns'),
+            socket.timeout('slow'),
+            ssl.SSLError('cert'),
+            ConnectionError('refused'),
+            TimeoutError('timed out'),
+            # A server-side BYE dropped the IMAP session —
+            # upstream, like a dead feed.
+            imaplib.IMAP4.abort('bye'),
+        ):
+            self.assertTrue(is_upstream_error(exc), exc)
+        for exc in (
+            RuntimeError('bug'),
+            KeyError('k'),
+            FileNotFoundError('missing config'),
+            ValueError('bad'),
+            # A refused IMAP login/select is a config bug, not
+            # an outage — deliberately internal.
+            imaplib.IMAP4.error('no'),
+        ):
+            self.assertFalse(is_upstream_error(exc), exc)
+
+    def test_already_reported_marks_and_dedupes_wrappers(self):
+        """The capture helpers mark the exception they reported;
+        a CommandError wrapping a marked cause (via ``from`` or
+        implicit ``__context__``) is then seen as already
+        reported — one failure, one Sentry event."""
+        # Fresh exception: nothing reported yet.
+        self.assertFalse(already_reported(RuntimeError('new')))
+        # With no DSN the SDK call is a no-op, but the mark is
+        # applied either way.
+        orig = RuntimeError('original crash')
+        capture_internal_exception(orig)
+        self.assertTrue(already_reported(orig))
+        # Explicit ``raise ... from`` chain.
+        try:
+            raise CommandError('scrape failed') from orig
+        except CommandError as ce:
+            self.assertTrue(already_reported(ce))
+            # The wrapper is marked too, so wrappers further up
+            # the chain dedupe as well.
+            try:
+                raise CommandError('pipeline aborted') from ce
+            except CommandError as outer:
+                self.assertTrue(already_reported(outer))
+        # Implicit ``__context__`` (bare raise inside except).
+        orig2 = RuntimeError('context crash')
+        capture_internal_exception(orig2)
+        try:
+            try:
+                raise orig2
+            except RuntimeError:
+                raise CommandError('scrape failed')
+        except CommandError as ce2:
+            self.assertTrue(already_reported(ce2))
+
+    def test_capture_helpers_accept_extra_tags(self):
+        # ``**tags`` must not break the no-DSN no-op path.
+        self.assertIsNone(
+            capture_internal_exception(
+                RuntimeError('x'),
+                scrape_job='test.job', scrape_item='a',
+            )
+        )
+        self.assertIsNone(
+            capture_provider_exception(
+                ConnectionError('down'), 'provider_error',
+                scrape_job='test.job',
+            )
+        )
+
+    def test_internal_error_cap_bounds_sends_per_scope(self):
+        """The N+1th identical failure under one scrape_job scope
+        is counted but not sent — a systematic bug (DB down, a
+        parse crash on every item) yields the cap, not one event
+        per item."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 5):
+                capture_internal_exception(
+                    RuntimeError('same bug'), scrape_job='test.job'
+                )
+        self.assertEqual(capture.call_count, cap)
+        window, suppressed = sentry_module._internal_suppressed[
+            ('test.job', 'RuntimeError')
+        ]
+        self.assertEqual(suppressed, 5)
+
+    def test_internal_error_cap_is_per_scope(self):
+        """Distinct scrape_job scopes get independent budgets."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 1):
+                capture_internal_exception(
+                    RuntimeError('x'), scrape_job='job.a'
+                )
+                capture_internal_exception(
+                    RuntimeError('y'), scrape_job='job.b'
+                )
+        self.assertEqual(capture.call_count, 2 * cap)
+
+    def test_internal_error_cap_is_per_exception_class(self):
+        """Distinct bugs under one scope get independent
+        budgets — a shared bucket would let a noisy known bug
+        silence a new one (e.g. the uniform API-500 handler's
+        untagged 'internal' scope)."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 1):
+                capture_internal_exception(
+                    RuntimeError('x'), scrape_job='job.a'
+                )
+                capture_internal_exception(
+                    KeyError('y'), scrape_job='job.a'
+                )
+        self.assertEqual(capture.call_count, 2 * cap)
+
+    def test_internal_error_cap_resets_each_window(self):
+        """The budget re-opens every _INTERNAL_ERROR_WINDOW
+        seconds — a long-lived process (the gunicorn web
+        worker) is never permanently capped."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 1):
+                capture_internal_exception(
+                    RuntimeError('bug'), scrape_job='job.a'
+                )
+            self.assertEqual(capture.call_count, cap)
+            later = (
+                time.monotonic()
+                + sentry_module._INTERNAL_ERROR_WINDOW
+                + 1
+            )
+            with patch(
+                'industry_analyser.sentry.time.monotonic',
+                return_value=later,
+            ):
+                capture_internal_exception(
+                    RuntimeError('bug'), scrape_job='job.a'
+                )
+        self.assertEqual(capture.call_count, cap + 1)
+
+    def test_internal_error_cap_still_marks_exception(self):
+        """A dropped event still marks the exception so a
+        CommandError wrapping it dedupes up the chain as usual."""
+        window = int(
+            time.monotonic() // sentry_module._INTERNAL_ERROR_WINDOW
+        )
+        sentry_module._internal_sent[
+            ('internal', 'RuntimeError')
+        ] = (window, sentry_module._INTERNAL_ERROR_CAP)
+        exc = RuntimeError('over cap')
+        with patch('sentry_sdk.capture_exception') as capture:
+            capture_internal_exception(exc)
+        capture.assert_not_called()
+        self.assertTrue(already_reported(exc))
+
+    def test_provider_exceptions_are_uncapped(self):
+        """WARNING-level provider events never hit the cap — the
+        volume is the outage trend signal."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 5):
+                capture_provider_exception(
+                    ConnectionError('down'), 'provider_error'
+                )
+        self.assertEqual(capture.call_count, cap + 5)
 
 
 class UnhandledApiErrorTests(SimpleTestCase):

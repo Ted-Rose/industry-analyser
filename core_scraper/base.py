@@ -10,7 +10,12 @@ import json
 from urllib3.util.retry import Retry
 from urllib3.exceptions import MaxRetryError
 
-from industry_analyser.sentry import capture_provider_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
 
 logger = logging.getLogger('core_scraper')
 
@@ -38,6 +43,13 @@ class BaseScraper(abc.ABC):
         self.default_domain = 'default'
         self.last_search_had_results = True
         self.stop_on_redirect = False
+        # The MaxRetryError make_request() reported before
+        # returning None. Callers that synthesize their own
+        # failure for a dead fetch (e.g. the news backfill's
+        # 'retries exhausted' RuntimeError) chain ``from`` it
+        # so already_reported dedupes the wrapper — one
+        # outage, one event.
+        self.last_request_error = None
 
         retry_strategy = Retry(
             total=3,
@@ -201,12 +213,17 @@ class BaseScraper(abc.ABC):
             method (str): HTTP method (GET, POST, etc.)
 
         Returns:
-            urllib3.response.HTTPResponse: The response object
+            urllib3.response.HTTPResponse: The response object, or
+            None when retries were exhausted — the reported failure
+            is then stashed on ``self.last_request_error`` so a
+            caller synthesizing its own exception can chain
+            ``from`` it and stay deduped via ``already_reported``.
         """
         headers = headers or self.default_headers
 
         domain = urlparse(url).netloc
         self.sleep(domain=domain)
+        self.last_request_error = None
 
         try:
             response = self.http.request(method, url, headers=headers)
@@ -223,6 +240,7 @@ class BaseScraper(abc.ABC):
                 else 'provider_error'
             )
             capture_provider_exception(e, error_code)
+            self.last_request_error = e
             return None
 
     def parse_json(self, content):
@@ -280,6 +298,13 @@ class BaseScraper(abc.ABC):
             logger.error(
                 f"Error refetching {existing_resource.link}: {e}"
             )
+            if not already_reported(e):
+                # A remote-side fetch failure is an upstream
+                # outage; anything else is a detail-parse bug.
+                if is_upstream_error(e):
+                    capture_provider_exception(e, 'provider_error')
+                else:
+                    capture_internal_exception(e)
             return None
 
     def _parse_detail_for_refetch(self, response):

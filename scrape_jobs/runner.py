@@ -27,6 +27,13 @@ from datetime import timedelta
 
 from django.utils import timezone
 
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
+
 from .db import retry_on_connection_loss
 from .models import (
     ScrapeJob,
@@ -379,14 +386,37 @@ class ScrapeJobRunner:
 
     def item_failed(self, item, exc):
         """Record ``item`` FAILED, emit the SCRAPE_ITEM_FAILED marker
-        (the log-based alert policy mails on it), and heartbeat — the
-        caller then continues with the next item."""
+        (the log-based alert policy mails on it), report to Sentry,
+        and heartbeat — the caller then continues with the next item.
+
+        Sentry classification: a remote-side failure type
+        (``is_upstream_error`` — dead feed, portal 5xx/timeout) is a
+        warning-level ``provider_error``; anything else is a code bug
+        at error level. ``scrape_job``/``scrape_item`` tags keep the
+        event attributable. ``already_reported`` dedupes wrappers —
+        e.g. ``news_pipeline`` receives the ``CommandError`` a
+        delegated command already reported.
+        """
         self.failed_item_count += 1
         logger.error(
             '%s job=%s item=%s err=%s',
             ITEM_FAILURE_MARKER, self.slug, item.key, exc,
             exc_info=True,
         )
+        if not already_reported(exc):
+            if is_upstream_error(exc):
+                capture_provider_exception(
+                    exc, 'provider_error',
+                    scrape_job=self.slug, scrape_item=item.key,
+                )
+            else:
+                capture_internal_exception(
+                    exc,
+                    scrape_job=self.slug, scrape_item=item.key,
+                )
+        # Reporting runs even under --dry-run on purpose — a
+        # dry-run crash is a real failure; only the bookkeeping
+        # writes below are skipped.
         if self.dry_run:
             return
         self._record_item_failed(item, str(exc)[:2000])

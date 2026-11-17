@@ -247,6 +247,31 @@ class RunAllJobsTests(SimpleTestCase):
             capture.call_args.args[0], RuntimeError
         )
 
+    def test_already_reported_failure_is_not_recaptured(self):
+        # A CommandError wrapping an already-captured cause — the
+        # shape of a sub-command that reported its original
+        # exception then re-raised as CommandError — is recorded
+        # as a failure but not reported again: one bug, one
+        # event (the dedup contract in sentry.py).
+        from industry_analyser.sentry import (
+            capture_internal_exception as real_capture,
+        )
+        orig = RuntimeError('original crash')
+        real_capture(orig)  # no DSN in tests — marks only
+        try:
+            raise CommandError('scrape failed') from orig
+        except CommandError as ce:
+            wrapped = ce
+        with _patched_today(date(2026, 10, 19)):
+            with mock.patch.object(Command, '_run_entry') as run:
+                run.side_effect = [wrapped] + [None] * 5
+                with mock.patch(
+                    f'{MODULE}.capture_internal_exception'
+                ) as capture:
+                    with self.assertRaises(CommandError):
+                        call_command('run_all_jobs')
+        capture.assert_not_called()
+
     def test_system_exit_in_subjob_does_not_abort_pass(self):
         # A sub-command calling sys.exit() is recorded as a failure,
         # not allowed to abort the remaining entries.

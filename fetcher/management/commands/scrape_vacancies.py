@@ -4,6 +4,10 @@ import traceback
 from django.core.management.base import BaseCommand, CommandError
 
 from fetcher.scraper import VacancyScrapper, load_portals_config
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.runner import (
     ScrapeJobRunner,
     cooldown_skip_reason,
@@ -82,6 +86,7 @@ class Command(BaseCommand):
         # run_all_jobs).
         executed_by = detect_executed_by()
         failed = []
+        last_exc = None
         for pid in portal_ids:
             slug = f'fetcher.vacancies.{pid}'
             if not (
@@ -121,8 +126,17 @@ class Command(BaseCommand):
                     scraper._ocr_unavailable = True
                 scraper.run()
             except Exception as e:
+                # The CommandError raised below loses the real
+                # traceback — report the original failure here,
+                # unless something deeper already did
+                # (already_reported dedupes wrappers; the
+                # ``from last_exc`` chain below keeps the summary
+                # deduped either way).
+                if not already_reported(e):
+                    capture_internal_exception(e, scrape_job=slug)
                 runner.finish('FAILED', traceback.format_exc())
                 failed.append(pid)
+                last_exc = e
                 self.stdout.write(
                     self.style.ERROR(
                         f"Error running vacancy scraper for "
@@ -137,7 +151,11 @@ class Command(BaseCommand):
                 )
             )
         if failed:
+            # ``from last_exc`` keeps the summary dedupable:
+            # every portal crash was already reported above, so
+            # run_all_jobs sees the marked cause in the chain
+            # and files no second event for the same failure.
             raise CommandError(
                 f"Vacancy scrape failed for portal(s): "
                 f"{', '.join(map(str, failed))}"
-            )
+            ) from last_exc

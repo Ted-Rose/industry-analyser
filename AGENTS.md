@@ -964,10 +964,51 @@ agent-fixable bugs only:
 
 - Unhandled 500s — `DjangoIntegration`, level error.
 - Caught API/job bugs — `capture_internal_exception`, level
-  error, tag `error_code:internal_error`.
+  error, tag `error_code:internal_error`. Sites: the uniform
+  API 500 handler, every scrape command's top-level catch (the
+  `CommandError` re-raise loses the real traceback), failed
+  `run_all_jobs` sub-jobs, `ScrapeJobRunner.item_failed`
+  per-item failures, per-record refetch catches
+  (`BaseRefetchCommand`, `refetch_vacancies`), the
+  receipts-sync per-message catch, `enrich_show`'s AI-error
+  split (`tv_programs/enrichment.py`), the Google-OAuth
+  userinfo fallback (`google_api/views.py`), the digest-task
+  fan-out (`news/tasks.py`), the audio-clip eviction sweep
+  (`news/audio.py`), the employer-detail batch catch
+  (`fetcher/scraper.py`) and the receipt ingest catches —
+  the per-attachment parse/reconcile catch and the
+  category-rules warning (`receipts/ingest.py`). Tags vary by
+  site: command-level catches and `item_failed` tag
+  `scrape_job` (`item_failed` adds `scrape_item`),
+  `BaseRefetchCommand` and `enrich_show` tag `scrape_item`
+  only, and `refetch_vacancies`, the employer-detail catch
+  and the receipts/OAuth/task/audio catches tag nothing.
+  Error-level sends are capped at `_INTERNAL_ERROR_CAP` (10)
+  per (`scrape_job` scope, exception class) per
+  `_INTERNAL_ERROR_WINDOW` (1h) — a systematic bug (DB down,
+  a parse crash on every item) yields a bounded handful of
+  events, not one per item; keying on the exception class
+  keeps a noisy known bug from starving a distinct new one in
+  the same scope (worst case: the uniform API-500 handler's
+  untagged `internal` scope in the long-lived gunicorn
+  worker), and the hourly window reset means no process is
+  ever permanently capped. Dict get/set is not atomic across
+  gunicorn threads, so the cap is approximate — a
+  blast-radius bound, not an exact count. Drops are counted
+  in `sentry.py`'s `_internal_suppressed` and logged. The
+  WARNING streams are deliberately uncapped — provider-event
+  volume is the outage trend signal.
 - Browser exceptions — `captureException`, level error.
 - Scraper/AI upstream — `capture_provider_exception`, level
   warning, tag `error_code:rate_limited` / `provider_error`.
+  `is_upstream_error` (urllib3/http.client/socket/ssl/
+  builtin network types, `imaplib.IMAP4.abort` server-side
+  disconnects — `IMAP4.error` stays internal) is the shared
+  classifier call sites branch on — `item_failed`,
+  `refetch_single`, `refetch_vacancies`' per-vacancy catch,
+  `enrich_show`, the receipts IMAP `connect()` catch, the
+  Google-OAuth `_fetch_userinfo`, the Google-tasks fan-out
+  and the audio `_evict_oldest` all use it.
 - Deploy schema lag — `capture_schema_lag`, level warning, tag
   `error_code:schema_lag` (the API also answers 503 +
   Retry-After; a permanently missing column must not go dark).
@@ -976,7 +1017,43 @@ agent-fixable bugs only:
 
 Logs are breadcrumbs only (`event_level=None`) — the per-app
 loggers emit a lot of DEBUG/INFO; none become events. Expected
-outcomes (AI cap reached, empty scrape results) are never sent.
+outcomes (AI cap reached, empty scrape results, `AIJobError`
+subclasses like disabled/unseeded jobs) are never sent —
+`mark_handled(exc)` flags an expected abort (e.g. the receipts
+sync's `AIJobError` run-abort) so orchestration layers skip it
+the same way they skip already-captured failures.
+
+One failure = one event: every `capture_*` helper marks the
+exception it reported, and `already_reported(exc)` walks the
+`__cause__`/`__context__` chain so a `CommandError` wrapping an
+already-captured crash (`scrape_news` → `news_pipeline` →
+`run_all_jobs`) is not filed as a second, traceback-poor issue.
+Callers check it before capturing a possibly-wrapped exception.
+Two caveats: `__context__` traversal means an *unrelated* crash
+raised inside an except block of a reported failure also dedupes
+(accepted — one incident, one event); and marks are in-process
+only — a `run_all_jobs` 'script'-kind entry's subprocess reports
+its own crash while the parent's `CommandError('… exited with
+status N')` files its own event (two events is correct there —
+the subprocess may have died before reporting). Code that turns
+a `make_request()` None return into its own exception must chain
+`raise … from _request_error_cause(scraper)` (the reported
+MaxRetryError make_request stashes on `last_request_error` —
+the helper guards the chain so a non-exception stash can't
+TypeError-mask the RuntimeError) or the synthesized wrapper
+double-reports — see the news backfill's 'retries exhausted'
+RuntimeErrors.
+
+**Local opt-in**: the checkout's `.env` ships `SENTRY_DSN=` /
+`SENTRY_WEB_DSN=` EMPTY — local `manage.py` runs (scrapers
+included) produce zero Sentry traffic by default. Fill
+`SENTRY_DSN` with the backend project DSN (the value lives in
+the `env-file` secret / Sentry project settings) and local
+runs — including `scrape_*` commands and `run_all_jobs` —
+report with `environment:development`, which stays out of the
+`environment:production` fix queue. Verified working from this
+machine; if egress ever silently drops events, set
+`SSL_CERT_FILE` to the combined CA bundle (the quirk below).
 
 REST ops (the agent fix queue) — `source
 ~/.config/devin/sentry.env` (exports `SENTRY_API_TOKEN`), then:
@@ -992,12 +1069,13 @@ That issue list IS the fix queue; `GET
 /issues/<id>/` with `{"status":"resolvedInNextRelease"}` — only
 after the fix merges.
 
-Local-only quirk: Python→Sentry egress fails SILENTLY from
+Local-only quirk: Python→Sentry egress can fail SILENTLY from
 this machine (`flush()` returns but events never arrive)
 behind the TLS-intercepting proxy — the `SSL_CERT_FILE`
-CA-bundle fix lives in the global machine-environment notes
-(`~/.config/devin/AGENTS.md`). Prod (Cloud Run) is
-unaffected.
+CA-bundle fix (combined certifi + `nscacert.pem`) lives in the
+global machine-environment notes (`~/.config/devin/AGENTS.md`);
+the agent shells already export it, so delivery was verified
+end-to-end. Prod (Cloud Run) is unaffected.
 
 ## Guardrails
 

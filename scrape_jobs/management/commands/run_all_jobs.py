@@ -29,7 +29,10 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
-from industry_analyser.sentry import capture_internal_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.runner import detect_executed_by
 
 logger = logging.getLogger('scrape_jobs')
@@ -272,8 +275,16 @@ class Command(BaseCommand):
                 # sys.exit() is recorded as a failure instead of
                 # aborting the whole pass. KeyboardInterrupt and
                 # GeneratorExit still propagate.
+                # already_reported: a CommandError from a
+                # sub-command usually wraps a failure that command
+                # already captured at its source — reporting the
+                # wrapper would file a second, traceback-poor issue
+                # for the same bug.
                 logger.exception('job %s failed', label)
-                capture_internal_exception(e)
+                if not already_reported(e):
+                    capture_internal_exception(
+                        e, scrape_job=f'run_all_jobs:{label}'
+                    )
                 failed.append(label)
                 continue
             logger.info('finished %s', label)

@@ -46,6 +46,12 @@ from fetcher.models import (
     VacancyProfession,
 )
 from fetcher.scraper import VacancyScrapper
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+    capture_provider_exception,
+    is_upstream_error,
+)
 
 logger = logging.getLogger('fetcher')
 
@@ -319,11 +325,18 @@ class Command(BaseCommand):
                 return self._apply_fresh(
                     vacancy, fresh, timezone.now(), counts
                 )
-        except Exception:
+        except Exception as e:
             logger.exception(
                 f"Refetch failed for vacancy "
                 f"{vacancy.vacancy_portal_id}"
             )
+            if not already_reported(e):
+                # A remote-side fetch failure is an upstream
+                # outage; anything else is a refetch bug.
+                if is_upstream_error(e):
+                    capture_provider_exception(e, 'provider_error')
+                else:
+                    capture_internal_exception(e)
             return 'error'
 
     @staticmethod

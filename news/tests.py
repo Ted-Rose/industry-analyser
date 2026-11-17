@@ -24,7 +24,12 @@ from google_api.utils import GOOGLE_TASKS_SCOPES
 from googleapiclient.errors import HttpError
 from langdetect import LangDetectException
 from langdetect.lang_detect_exception import ErrorCode
+from urllib3.exceptions import MaxRetryError
 
+from industry_analyser.sentry import (
+    already_reported,
+    capture_provider_exception,
+)
 from scrape_jobs.models import (
     ScrapeJob,
     ScrapeJobItem,
@@ -3649,6 +3654,41 @@ class PartitionEnumerationTests(TestCase):
         with self.assertRaises(RuntimeError):
             strategy.iter_article_urls(scraper, partition)
 
+    def test_dead_listing_chains_marked_retry_error(self):
+        """The 'retries exhausted' RuntimeError chains ``from``
+        the MaxRetryError make_request already reported and
+        stashed — already_reported then suppresses the
+        wrapper upstream instead of filing a second,
+        error-level event per dead partition."""
+        err = MaxRetryError(None, 'https://x.lv/dead')
+        capture_provider_exception(err, 'provider_error')
+        scraper = SimpleNamespace(
+            make_request=Mock(return_value=None),
+            last_request_error=err,
+        )
+        strategy = BACKFILL_STRATEGIES['lsm']
+        partition = Partition(key='k', label='l', url='u')
+        with self.assertRaises(RuntimeError) as ctx:
+            strategy.iter_article_urls(scraper, partition)
+        self.assertIs(ctx.exception.__cause__, err)
+        self.assertTrue(already_reported(ctx.exception))
+
+    def test_dead_listing_without_retry_error_stays_reportable(
+            self):
+        """A dead fetch NOT backed by a reported retry error
+        (a make_request override returning None directly)
+        keeps its own event — the RuntimeError is not
+        suppressed."""
+        scraper = SimpleNamespace(
+            make_request=Mock(return_value=None)
+        )
+        strategy = BACKFILL_STRATEGIES['lsm']
+        partition = Partition(key='k', label='l', url='u')
+        with self.assertRaises(RuntimeError) as ctx:
+            strategy.iter_article_urls(scraper, partition)
+        self.assertIsNone(ctx.exception.__cause__)
+        self.assertFalse(already_reported(ctx.exception))
+
     def test_lvportals_dead_first_page_raises(self):
         """A dead fetch on the FIRST archive page raises —
         'no links found' (a real but empty page) would return
@@ -4130,6 +4170,43 @@ class BackfillRunnerTests(TestCase):
             statuses.get('lsm:2026-W02'), ScrapeJobRunItem.FAILED
         )
 
+    def test_dead_listing_reports_once_via_marked_chain(self):
+        """End to end with the real make_request: its warning
+        is the single event for a dead host — the 'retries
+        exhausted' RuntimeError chains ``from`` the stashed
+        (already-reported) MaxRetryError, so item_failed's
+        already_reported check files no second event while
+        still recording the partition FAILED."""
+
+        def _dead(method, url, **kwargs):
+            raise MaxRetryError(None, url)
+
+        # Patch at the PoolManager layer so the real
+        # make_request runs — capture + last_request_error
+        # stash included.
+        self.scraper.sleep = lambda **kw: None
+        with (
+            patch.object(
+                self.scraper.http, 'request', side_effect=_dead
+            ),
+            patch(
+                'scrape_jobs.runner.capture_internal_exception'
+            ) as internal,
+            patch(
+                'scrape_jobs.runner.capture_provider_exception'
+            ) as provider,
+        ):
+            self.scraper.run()
+        statuses = {
+            ri.item.key: ri.status
+            for ri in ScrapeJobRunItem.objects.all()
+        }
+        self.assertEqual(
+            statuses.get('lsm:2026-W02'), ScrapeJobRunItem.FAILED
+        )
+        internal.assert_not_called()
+        provider.assert_not_called()
+
     def test_failed_partition_records_failed_continues(self):
         scraper = NewsBackfillScraper(
             runner=self.runner,
@@ -4304,6 +4381,45 @@ class BackfillCommandTests(TestCase):
                 status=ScrapeJobRunItem.DONE,
             ).exists()
         )
+
+    def test_dead_index_reports_once_via_marked_chain(self):
+        """End to end through the command: every make_request
+        dies on retries (real method — the MaxRetryError is
+        reported + stashed), so the partition-enumeration
+        RuntimeError reaches scrape_news's top-level catch
+        chained to a marked exception and already_reported
+        suppresses the second event; the run still fails."""
+        with (
+            patch.object(NewsBackfillScraper, 'sleep'),
+            patch(
+                'urllib3.PoolManager.request',
+                side_effect=MaxRetryError(None, 'https://x.lv/'),
+            ),
+            patch(
+                'news.management.commands.scrape_news'
+                '.capture_internal_exception'
+            ) as internal,
+            # Every item fails loudly by design here — capture
+            # the per-app failure logs instead of dumping
+            # hundreds of expected tracebacks to stderr.
+            self.assertLogs('news', level='INFO'),
+            self.assertLogs('core_scraper', level='INFO'),
+            self.assertLogs('scrape_jobs', level='INFO'),
+            self.assertRaises(CommandError),
+        ):
+            # --since/--until bound the processed partitions —
+            # enumeration still covers every source, so the
+            # dead sitemap indexes still collect their
+            # failures and re-raise at the end.
+            call_command(
+                'scrape_news',
+                backfill=True,
+                since='2026-11-10',
+                until='2026-11-17',
+                stdout=StringIO(),
+                stderr=StringIO(),
+            )
+        internal.assert_not_called()
 
     def test_zero_budget_ends_partial(self):
         with patch.object(

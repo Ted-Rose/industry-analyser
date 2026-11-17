@@ -43,6 +43,7 @@ from ai_providers.types import (
     ImagePart,
     PromptSpec,
 )
+from industry_analyser.sentry import capture_internal_exception
 from pypdf import PdfReader
 
 from .models import CategoryRule, Product, Receipt, ReceiptItem, Store
@@ -519,10 +520,13 @@ def _process_attachment(user, pdf_bytes, filename, message_id,
             return
         try:
             apply_category_rules(user, receipt)
-        except Exception:
+        except Exception as e:
             logger.warning(
                 'category pass failed for receipt %s', receipt.pk,
                 exc_info=True)
+            # A systematic rules bug degrades every receipt
+            # silently — the per-class cap bounds the repeats.
+            capture_internal_exception(e)
         result.created += 1
     except AIJobError as e:
         deterministic = (
@@ -551,9 +555,14 @@ def _process_attachment(user, pdf_bytes, filename, message_id,
         # run and re-paying the failing call every day.
         _record_parse_error(
             user, sha, filename, message_id, dry_run, result)
-    except Exception:
+    except Exception as e:
         _record_parse_error(
             user, sha, filename, message_id, dry_run, result)
+        # The parse_error row is the ONLY trace of a systematic
+        # parse/reconcile bug — process_message does not
+        # re-raise, so the command-level catch never sees it.
+        # The per-class cap bounds one-event-per-receipt spam.
+        capture_internal_exception(e)
 
 
 def process_message(user, email_msg, get_ai_client=None, dry_run=False):
