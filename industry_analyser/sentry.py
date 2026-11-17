@@ -32,9 +32,21 @@ Two cross-cutting rules keep the streams actionable:
     already-captured exception must not spawn a second issue for
     the same failure — e.g. ``scrape_news`` captures its crash,
     wraps it in ``CommandError``, and ``news_pipeline``/
-    ``run_all_jobs`` see the wrapper up the chain.
+    ``run_all_jobs`` see the wrapper up the chain. The
+    ``__context__`` hop is deliberate overreach: a *different*
+    crash raised while handling a reported failure inherits the
+    marked context and dedupes too — accepted, since a second
+    crash during failure-handling is still one incident.
+*   Dedup marks live in-process only. A ``run_all_jobs``
+    'script'-kind entry runs a subprocess that reports its own
+    crash, then the parent's ``CommandError('… exited with
+    status N')`` files its own event — two events for one
+    failure is correct there: the subprocess may have died
+    before reporting, and the exit status is the parent's only
+    signal.
 """
 import http.client
+import imaplib
 import socket
 import ssl
 from urllib.parse import urlparse
@@ -77,6 +89,11 @@ _UPSTREAM_ERROR_TYPES = (
     http.client.HTTPException,
     google.api_core.exceptions.GoogleAPIError,
     requests.exceptions.RequestException,
+    # Server-side IMAP disconnect (a BYE response) — the remote
+    # dropped the session. ``imaplib.IMAP4.error`` stays out on
+    # purpose: a refused login/select is a config bug and
+    # correctly reports as internal.
+    imaplib.IMAP4.abort,
     socket.timeout,
     socket.gaierror,
     ssl.SSLError,

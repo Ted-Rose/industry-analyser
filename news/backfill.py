@@ -183,10 +183,14 @@ class BackfillStrategy(ABC):
         listing still yields [], completing the partition."""
         response = scraper.make_request(partition.url)
         if response is None:
+            # ``from`` chains the retry failure make_request
+            # already reported — the wrapper dedupes via
+            # already_reported instead of filing a second
+            # error-level event for the same outage.
             raise RuntimeError(
                 f'{partition.key}: listing fetch failed '
                 f'({partition.url}) — retries exhausted'
-            )
+            ) from getattr(scraper, 'last_request_error', None)
         entries = scraper.parse_results(response)
         return [
             {'link': e['link'], 'news_pubdate': e['news_pubdate']}
@@ -360,11 +364,15 @@ class SitemapIndexStrategy(BackfillStrategy):
             # (dead index, non-XML error page) — raising fails
             # the run before sync_items, where returning []
             # would deactivate every existing item instead.
+            # ``from`` chains the retry failure make_request
+            # already reported so the wrapper dedupes; a
+            # missing stash (indexes answered but none
+            # matched) keeps the RuntimeError its own event.
             raise RuntimeError(
                 f'{source.slug}: no sitemap index yielded '
                 f'children matching '
                 f'{self.child_regex.pattern!r}'
-            )
+            ) from getattr(scraper, 'last_request_error', None)
         children.sort(
             key=lambda c: (c[0] or 0, c[1] or 0), reverse=True,
         )
@@ -443,10 +451,12 @@ class ArchiveMonthStrategy(BackfillStrategy):
                 # the partition item (first page or mid-walk)
                 # so the month retries next run instead of
                 # burning to DONE on a transient outage.
+                # ``from`` chains the already-reported retry
+                # failure so the wrapper dedupes.
                 raise RuntimeError(
                     f'{partition.key}: archive page {page} '
                     'fetch failed — retries exhausted'
-                )
+                ) from getattr(scraper, 'last_request_error', None)
             new = [
                 link for link in self._article_links(response)
                 if link not in seen

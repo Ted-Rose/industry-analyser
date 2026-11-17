@@ -8,7 +8,10 @@ from django.utils import timezone
 from news.backfill import NewsBackfillScraper
 from news.feeds import ensure_seeded
 from news.scraper import NewsScraper
-from industry_analyser.sentry import capture_internal_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.runner import (
     ScrapeJobRunner,
     cooldown_skip_reason,
@@ -198,8 +201,12 @@ class Command(BaseCommand):
 
         except Exception as e:
             # The CommandError loses the real traceback — report
-            # the original failure here.
-            capture_internal_exception(e, scrape_job=JOB_SLUG)
+            # the original failure here, unless something deeper
+            # already did (already_reported dedupes wrappers —
+            # e.g. a 'retries exhausted' RuntimeError chained
+            # from the MaxRetryError make_request reported).
+            if not already_reported(e):
+                capture_internal_exception(e, scrape_job=JOB_SLUG)
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running news scraper")
@@ -282,10 +289,13 @@ class Command(BaseCommand):
 
         except Exception as e:
             # The CommandError loses the real traceback — report
-            # the original failure here.
-            capture_internal_exception(
-                e, scrape_job=BACKFILL_JOB_SLUG
-            )
+            # the original failure here, unless something deeper
+            # already did (the partition-enumeration RuntimeError
+            # chains the marked retry failure).
+            if not already_reported(e):
+                capture_internal_exception(
+                    e, scrape_job=BACKFILL_JOB_SLUG
+                )
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running news backfill")

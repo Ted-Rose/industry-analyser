@@ -43,6 +43,13 @@ class BaseScraper(abc.ABC):
         self.default_domain = 'default'
         self.last_search_had_results = True
         self.stop_on_redirect = False
+        # The MaxRetryError make_request() reported before
+        # returning None. Callers that synthesize their own
+        # failure for a dead fetch (e.g. the news backfill's
+        # 'retries exhausted' RuntimeError) chain ``from`` it
+        # so already_reported dedupes the wrapper — one
+        # outage, one event.
+        self.last_request_error = None
 
         retry_strategy = Retry(
             total=3,
@@ -206,12 +213,17 @@ class BaseScraper(abc.ABC):
             method (str): HTTP method (GET, POST, etc.)
 
         Returns:
-            urllib3.response.HTTPResponse: The response object
+            urllib3.response.HTTPResponse: The response object, or
+            None when retries were exhausted — the reported failure
+            is then stashed on ``self.last_request_error`` so a
+            caller synthesizing its own exception can chain
+            ``from`` it and stay deduped via ``already_reported``.
         """
         headers = headers or self.default_headers
 
         domain = urlparse(url).netloc
         self.sleep(domain=domain)
+        self.last_request_error = None
 
         try:
             response = self.http.request(method, url, headers=headers)
@@ -228,6 +240,7 @@ class BaseScraper(abc.ABC):
                 else 'provider_error'
             )
             capture_provider_exception(e, error_code)
+            self.last_request_error = e
             return None
 
     def parse_json(self, content):

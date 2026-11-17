@@ -10,6 +10,7 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
+from ai_providers import errors as ai_errors
 from scrape_jobs.models import ScrapeJobRun, ScrapeJobRunItem
 from scrape_jobs.runner import ScrapeJobRunner
 from tv_programs.classification import EXCLUDED_LOCAL_SHOWS, classify
@@ -583,6 +584,45 @@ class EnrichShowTests(TestCase):
         enrich_show(show, omdb=Boom())
         show.refresh_from_db()
         self.assertEqual(show.enrichment_status, "failed")
+
+    def test_ai_auth_error_reports_internal_not_provider(self):
+        """AIAuthError is an AIProviderError subclass, but a
+        missing/invalid API key is a deploy config bug — it
+        must land on the internal error stream, not the
+        warning-level provider stream."""
+        show = Show.objects.create(title_lv="Sliktais", dedup_key="k5")
+
+        class BadKey:
+            def search_title(self, *a, **k):
+                raise ai_errors.AIAuthError("HTTP 401 bad key")
+
+        with mock.patch(
+            'tv_programs.enrichment.capture_internal_exception'
+        ) as internal, mock.patch(
+            'tv_programs.enrichment.capture_provider_exception'
+        ) as provider:
+            enrich_show(show, omdb=BadKey())
+        internal.assert_called_once()
+        provider.assert_not_called()
+
+    def test_ai_provider_outage_stays_provider_stream(self):
+        """A non-auth AIProviderError (e.g. quota) is still a
+        warning-level provider event — only the auth/config
+        subclasses reclassify to internal."""
+        show = Show.objects.create(title_lv="Kvota", dedup_key="k6")
+
+        class Quota:
+            def search_title(self, *a, **k):
+                raise ai_errors.AIQuotaError("HTTP 402 no credits")
+
+        with mock.patch(
+            'tv_programs.enrichment.capture_internal_exception'
+        ) as internal, mock.patch(
+            'tv_programs.enrichment.capture_provider_exception'
+        ) as provider:
+            enrich_show(show, omdb=Quota())
+        provider.assert_called_once()
+        internal.assert_not_called()
 
 
 def make_channel(name="ltv1_hd"):

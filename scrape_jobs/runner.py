@@ -414,6 +414,9 @@ class ScrapeJobRunner:
                     exc,
                     scrape_job=self.slug, scrape_item=item.key,
                 )
+        # Reporting runs even under --dry-run on purpose — a
+        # dry-run crash is a real failure; only the bookkeeping
+        # writes below are skipped.
         if self.dry_run:
             return
         self._record_item_failed(item, str(exc)[:2000])

@@ -5,6 +5,7 @@ misses under prefixes owned by earlier mounts (/api/, /admin/,
 """
 
 import http.client
+import imaplib
 import json
 import re
 import socket
@@ -377,6 +378,9 @@ class SentryHelpersTests(SimpleTestCase):
             ssl.SSLError('cert'),
             ConnectionError('refused'),
             TimeoutError('timed out'),
+            # A server-side BYE dropped the IMAP session —
+            # upstream, like a dead feed.
+            imaplib.IMAP4.abort('bye'),
         ):
             self.assertTrue(is_upstream_error(exc), exc)
         for exc in (
@@ -384,6 +388,9 @@ class SentryHelpersTests(SimpleTestCase):
             KeyError('k'),
             FileNotFoundError('missing config'),
             ValueError('bad'),
+            # A refused IMAP login/select is a config bug, not
+            # an outage — deliberately internal.
+            imaplib.IMAP4.error('no'),
         ):
             self.assertFalse(is_upstream_error(exc), exc)
 

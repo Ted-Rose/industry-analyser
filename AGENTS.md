@@ -976,9 +976,11 @@ agent-fixable bugs only:
 - Scraper/AI upstream — `capture_provider_exception`, level
   warning, tag `error_code:rate_limited` / `provider_error`.
   `is_upstream_error` (urllib3/http.client/socket/ssl/
-  builtin network types) is the shared classifier call sites
-  branch on — `item_failed`, `refetch_single`, `enrich_show`
-  and the Google-tasks fan-out all use it.
+  builtin network types, `imaplib.IMAP4.abort` server-side
+  disconnects — `IMAP4.error` stays internal) is the shared
+  classifier call sites branch on — `item_failed`,
+  `refetch_single`, `enrich_show` and the Google-tasks
+  fan-out all use it.
 - Deploy schema lag — `capture_schema_lag`, level warning, tag
   `error_code:schema_lag` (the API also answers 503 +
   Retry-After; a permanently missing column must not go dark).
@@ -999,6 +1001,18 @@ exception it reported, and `already_reported(exc)` walks the
 already-captured crash (`scrape_news` → `news_pipeline` →
 `run_all_jobs`) is not filed as a second, traceback-poor issue.
 Callers check it before capturing a possibly-wrapped exception.
+Two caveats: `__context__` traversal means an *unrelated* crash
+raised inside an except block of a reported failure also dedupes
+(accepted — one incident, one event); and marks are in-process
+only — a `run_all_jobs` 'script'-kind entry's subprocess reports
+its own crash while the parent's `CommandError('… exited with
+status N')` files its own event (two events is correct there —
+the subprocess may have died before reporting). Code that turns
+a `make_request()` None return into its own exception must chain
+`raise … from scraper.last_request_error` (the reported
+MaxRetryError make_request stashes) or the synthesized wrapper
+double-reports — see the news backfill's 'retries exhausted'
+RuntimeErrors.
 
 **Local opt-in**: the checkout's `.env` ships `SENTRY_DSN=` /
 `SENTRY_WEB_DSN=` EMPTY — local `manage.py` runs (scrapers

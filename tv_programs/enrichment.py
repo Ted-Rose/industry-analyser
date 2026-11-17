@@ -27,13 +27,13 @@ from django.utils import timezone
 
 from ai_providers import errors as ai_errors
 from ai_providers.types import GenerationOptions, PromptSpec
-from scrape_jobs.db import retry_on_connection_loss
 from industry_analyser.sentry import (
     already_reported,
     capture_internal_exception,
     capture_provider_exception,
     is_upstream_error,
 )
+from scrape_jobs.db import retry_on_connection_loss
 
 logger = logging.getLogger('tv_programs')
 
@@ -323,8 +323,15 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
             # sent; an AIAllModelsFailedError arrives already
             # reported by JobClient. Provider/model/retryable AI
             # errors are the upstream side (warning) — a rate
-            # limit or dead model endpoint is not our bug.
-            if is_upstream_error(e) or isinstance(e, (
+            # limit or dead model endpoint is not our bug —
+            # EXCEPT the auth/config subclasses: a missing or
+            # invalid API key is a deploy config bug (internal).
+            if isinstance(e, (
+                ai_errors.AIAuthError,
+                ai_errors.AIProviderNotConfiguredError,
+            )):
+                capture_internal_exception(e)
+            elif is_upstream_error(e) or isinstance(e, (
                 ai_errors.AIProviderError,
                 ai_errors.AIRetryableError,
                 ai_errors.AIModelError,
