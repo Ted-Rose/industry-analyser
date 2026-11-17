@@ -123,6 +123,7 @@ def _cap_count(counters, scope_key, window):
     stored_window, count = counters.get(scope_key, (window, 0))
     return count if stored_window == window else 0
 
+
 # Exception types that mean "the remote side failed", not "our code
 # has a bug": urllib3 covers every fetch through BaseScraper's
 # PoolManager (MaxRetryError, NewConnectionError, SSLError,
