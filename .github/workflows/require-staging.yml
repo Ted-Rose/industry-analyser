@@ -38,17 +38,22 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          # A staging→main PR would pass the check below on a
-          # technicality (staging's tip IS a staging merge
-          # commit) while dragging integration noise into
-          # main — promotion goes through Promote-to-main.
-          # Also blocks staging2→main: any branch whose head
-          # IS the staging tip would pass the SHA check on a
-          # technicality while dragging integration noise
-          # into main — promotion goes through Promote-to-main.
+          # A staging→main PR — or a `staging2`-style branch
+          # whose head IS the staging tip — would pass the
+          # SHA check below on a technicality (the tip IS a
+          # staging merge commit) while dragging integration
+          # noise into main; promotion goes through
+          # Promote-to-main. The tip lookup fails closed:
+          # an empty stg_tip would silently skip the guard
+          # and the fallback check below would then pass a
+          # staging merge commit via its own staging PR.
           stg_tip=$(gh api \
             "repos/$GITHUB_REPOSITORY/branches/staging" \
-            --jq .commit.sha </dev/null 2>/dev/null || echo "")
+            --jq .commit.sha </dev/null) || {
+            echo "::error::staging-tip lookup failed —"
+            echo "::error::failing closed; re-run the job."
+            exit 1
+          }
           if [ "$HEAD_REF" = "staging" ] || \
              [ "$HEAD_SHA" = "$stg_tip" ]; then
             echo "::error::staging→main PRs are not allowed."
@@ -82,7 +87,7 @@ jobs:
             exit 1
           }
           count=$(jq '[.[] | select(.merged_at != null and
-            .base.ref == "staging")] | length' <<<"$resp")
+            .base.ref == "staging")] | length' <<<"$resp" || echo 0)
           if [ "$count" -gt 0 ]; then
             echo "OK: head $HEAD_SHA is already on staging."
             exit 0

@@ -296,15 +296,18 @@ jobs:
           AR="${AR}/industry-analyser-app"
           IMAGE="${AR}/${SERVICE_NAME}:staging-${GITHUB_SHA}"
 
-          # Fail CLOSED when env-file lacks the staging DSN:
-          # settings.py falls back to prod for resilience, but
-          # migrations must never silently run against it.
-          gcloud secrets versions access latest \
-            --secret=env-file --project="${PROJECT_ID}" \
-            | grep -q '^STAGING_DATABASE_URL=' || {
-              echo "::error::STAGING_DATABASE_URL missing"
-              echo "::error::from env-file — refusing to run"
-              echo "::error::staging migrations on prod."
+          # Fail CLOSED when env-file lacks a non-empty staging
+          # DSN: settings.py falls back to prod for resilience,
+          # but migrations must never silently run against it.
+          # (Capture to a var first — `grep -q` can SIGPIPE the
+          # gcloud read into a false "missing" under pipefail.)
+          DOTENV_VAL=$(gcloud secrets versions access latest \
+            --secret=env-file --project="${PROJECT_ID}")
+          grep -qE '^STAGING_DATABASE_URL=\S' \
+            <<<"$DOTENV_VAL" || {
+              echo "::error::STAGING_DATABASE_URL missing or"
+              echo "::error::empty in env-file — refusing to"
+              echo "::error::run staging migrations on prod."
               exit 1; }
 
           gcloud run jobs deploy run-migrations-staging \
