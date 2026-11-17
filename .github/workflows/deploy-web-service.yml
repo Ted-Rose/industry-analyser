@@ -276,8 +276,10 @@ jobs:
           AR="${REGION}-docker.pkg.dev/${PROJECT_ID}"
           AR="${AR}/industry-analyser-app"
           IMAGE="${AR}/${SERVICE_NAME}"
-          docker build -t "${IMAGE}:staging-${GITHUB_SHA}" .
+          docker build -t "${IMAGE}:staging-${GITHUB_SHA}" \
+            -t "${IMAGE}:staging-latest" .
           docker push "${IMAGE}:staging-${GITHUB_SHA}"
+          docker push "${IMAGE}:staging-latest"
 
       - name: Run staging migrations
         # Only branch deploys migrate: staging pushes validate
