@@ -10,6 +10,7 @@ import json
 import re
 import socket
 import ssl
+import time
 from unittest.mock import patch
 
 import urllib3.exceptions
@@ -466,9 +467,10 @@ class SentryHelpersTests(SimpleTestCase):
                     RuntimeError('same bug'), scrape_job='test.job'
                 )
         self.assertEqual(capture.call_count, cap)
-        self.assertEqual(
-            sentry_module._internal_suppressed['test.job'], 5
-        )
+        window, suppressed = sentry_module._internal_suppressed[
+            ('test.job', 'RuntimeError')
+        ]
+        self.assertEqual(suppressed, 5)
 
     def test_internal_error_cap_is_per_scope(self):
         """Distinct scrape_job scopes get independent budgets."""
@@ -483,12 +485,56 @@ class SentryHelpersTests(SimpleTestCase):
                 )
         self.assertEqual(capture.call_count, 2 * cap)
 
+    def test_internal_error_cap_is_per_exception_class(self):
+        """Distinct bugs under one scope get independent
+        budgets — a shared bucket would let a noisy known bug
+        silence a new one (e.g. the uniform API-500 handler's
+        untagged 'internal' scope)."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 1):
+                capture_internal_exception(
+                    RuntimeError('x'), scrape_job='job.a'
+                )
+                capture_internal_exception(
+                    KeyError('y'), scrape_job='job.a'
+                )
+        self.assertEqual(capture.call_count, 2 * cap)
+
+    def test_internal_error_cap_resets_each_window(self):
+        """The budget re-opens every _INTERNAL_ERROR_WINDOW
+        seconds — a long-lived process (the gunicorn web
+        worker) is never permanently capped."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 1):
+                capture_internal_exception(
+                    RuntimeError('bug'), scrape_job='job.a'
+                )
+            self.assertEqual(capture.call_count, cap)
+            later = (
+                time.monotonic()
+                + sentry_module._INTERNAL_ERROR_WINDOW
+                + 1
+            )
+            with patch(
+                'industry_analyser.sentry.time.monotonic',
+                return_value=later,
+            ):
+                capture_internal_exception(
+                    RuntimeError('bug'), scrape_job='job.a'
+                )
+        self.assertEqual(capture.call_count, cap + 1)
+
     def test_internal_error_cap_still_marks_exception(self):
         """A dropped event still marks the exception so a
         CommandError wrapping it dedupes up the chain as usual."""
-        sentry_module._internal_sent['internal'] = (
-            sentry_module._INTERNAL_ERROR_CAP
+        window = int(
+            time.monotonic() // sentry_module._INTERNAL_ERROR_WINDOW
         )
+        sentry_module._internal_sent[
+            ('internal', 'RuntimeError')
+        ] = (window, sentry_module._INTERNAL_ERROR_CAP)
         exc = RuntimeError('over cap')
         with patch('sentry_sdk.capture_exception') as capture:
             capture_internal_exception(exc)

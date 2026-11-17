@@ -3,7 +3,10 @@ from abc import ABC, abstractmethod
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
 
-from industry_analyser.sentry import capture_internal_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 
 logger = logging.getLogger('core_scraper')
 
@@ -250,10 +253,12 @@ class BaseRefetchCommand(BaseCommand, ABC):
                 )
                 # refetch_single swallows its own failures (and
                 # reports them), so an exception reaching here is
-                # an apply/bulk bug — an internal error.
-                capture_internal_exception(
-                    e, scrape_item=record.ad_id
-                )
+                # an apply/bulk bug — an internal error — unless
+                # it was already captured up the chain.
+                if not already_reported(e):
+                    capture_internal_exception(
+                        e, scrape_item=record.ad_id
+                    )
 
         if batch:
             model.all_objects.bulk_update(

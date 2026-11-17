@@ -974,17 +974,28 @@ agent-fixable bugs only:
   split (`tv_programs/enrichment.py`), the Google-OAuth
   userinfo fallback (`google_api/views.py`), the digest-task
   fan-out (`news/tasks.py`), the audio-clip eviction sweep
-  (`news/audio.py`) and the employer-detail batch catch
-  (`fetcher/scraper.py`). Tags vary by site: command-level
-  catches and `item_failed` tag `scrape_job` (`item_failed`
-  adds `scrape_item`), `BaseRefetchCommand` tags `scrape_item`
-  only, and `refetch_vacancies`, the employer-detail catch and
-  the receipts/OAuth/task/audio catches tag nothing.
+  (`news/audio.py`), the employer-detail batch catch
+  (`fetcher/scraper.py`) and the receipt ingest catches —
+  the per-attachment parse/reconcile catch and the
+  category-rules warning (`receipts/ingest.py`). Tags vary by
+  site: command-level catches and `item_failed` tag
+  `scrape_job` (`item_failed` adds `scrape_item`),
+  `BaseRefetchCommand` and `enrich_show` tag `scrape_item`
+  only, and `refetch_vacancies`, the employer-detail catch
+  and the receipts/OAuth/task/audio catches tag nothing.
   Error-level sends are capped at `_INTERNAL_ERROR_CAP` (10)
-  per `scrape_job` scope per process — a systematic bug (DB
-  down, a parse crash on every item) yields a bounded handful
-  of events, not one per item; drops are counted in
-  `sentry.py`'s `_internal_suppressed` and logged. The
+  per (`scrape_job` scope, exception class) per
+  `_INTERNAL_ERROR_WINDOW` (1h) — a systematic bug (DB down,
+  a parse crash on every item) yields a bounded handful of
+  events, not one per item; keying on the exception class
+  keeps a noisy known bug from starving a distinct new one in
+  the same scope (worst case: the uniform API-500 handler's
+  untagged `internal` scope in the long-lived gunicorn
+  worker), and the hourly window reset means no process is
+  ever permanently capped. Dict get/set is not atomic across
+  gunicorn threads, so the cap is approximate — a
+  blast-radius bound, not an exact count. Drops are counted
+  in `sentry.py`'s `_internal_suppressed` and logged. The
   WARNING streams are deliberately uncapped — provider-event
   volume is the outage trend signal.
 - Browser exceptions — `captureException`, level error.
@@ -1026,8 +1037,10 @@ its own crash while the parent's `CommandError('… exited with
 status N')` files its own event (two events is correct there —
 the subprocess may have died before reporting). Code that turns
 a `make_request()` None return into its own exception must chain
-`raise … from scraper.last_request_error` (the reported
-MaxRetryError make_request stashes) or the synthesized wrapper
+`raise … from _request_error_cause(scraper)` (the reported
+MaxRetryError make_request stashes on `last_request_error` —
+the helper guards the chain so a non-exception stash can't
+TypeError-mask the RuntimeError) or the synthesized wrapper
 double-reports — see the news backfill's 'retries exhausted'
 RuntimeErrors.
 

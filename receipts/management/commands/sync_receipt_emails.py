@@ -23,6 +23,7 @@ from django.utils import timezone
 from ai_providers.client import get_job_client
 from ai_providers.errors import AIJobError
 from industry_analyser.sentry import (
+    already_reported,
     capture_internal_exception,
     capture_provider_exception,
     is_upstream_error,
@@ -205,7 +206,8 @@ class Command(BaseCommand):
                         'message %s failed unrecoverably: %s',
                         num, e, exc_info=True,
                     )
-                    capture_internal_exception(e)
+                    if not already_reported(e):
+                        capture_internal_exception(e)
                     if not dry_run:
                         message_id = (
                             msg.get('Message-ID') or '')[:255]

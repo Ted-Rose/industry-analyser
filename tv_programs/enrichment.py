@@ -335,7 +335,7 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
                 ai_errors.AIProviderNotConfiguredError,
                 ai_errors.AIBadRequestError,
             )):
-                capture_internal_exception(e)
+                capture_internal_exception(e, scrape_item=show.pk)
             elif isinstance(e, ai_errors.AIRateLimitError):
                 capture_provider_exception(e, 'rate_limited')
             elif is_upstream_error(e) or isinstance(e, (
@@ -345,7 +345,7 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
             )):
                 capture_provider_exception(e, 'provider_error')
             elif not isinstance(e, ai_errors.AIJobError):
-                capture_internal_exception(e)
+                capture_internal_exception(e, scrape_item=show.pk)
     logger.info(
         "Enriched '%s': status=%s source=%s title_eng=%r imdb_id=%s "
         "rating=%s pg=%s",

@@ -22,7 +22,7 @@ Event-stream contract (documented in AGENTS.md):
         ``error_code:schema_lag``. Expected transient state, but
         kept observable in case the schema never catches up.
 
-Two cross-cutting rules keep the streams actionable:
+Three cross-cutting rules keep the streams actionable:
 
 *   ``is_upstream_error`` classifies a caught exception — network/
     HTTP failures are scrape-target or provider problems (warning),
@@ -50,18 +50,25 @@ systematic bug (a DB outage, a parse crash on every scrape
 item) would otherwise file one event per failed item —
 hundreds of near-identical error events grouping into a
 single issue and burning quota for no extra signal. The first
-``_INTERNAL_ERROR_CAP`` events per scope (the ``scrape_job``
-tag, ``'internal'`` when untagged) send normally; the rest
-are counted in ``_internal_suppressed`` and dropped, with a
-warning logged when the cap first trips. WARNING-level
-streams stay uncapped — provider-event volume is the outage
-trend signal (see ``ai_providers/client.py``).
+``_INTERNAL_ERROR_CAP`` events per (scope, exception class)
+per ``_INTERNAL_ERROR_WINDOW``-second window send normally —
+scope is the ``scrape_job`` tag (``'internal'`` when
+untagged), so identical repeats dedupe while distinct bugs
+under one scope each get a budget, and the window reset keeps
+a long-lived process (the gunicorn web worker, whose uniform
+API-500 handler captures untagged) from going permanently
+dark after ten events. The rest are counted in
+``_internal_suppressed`` and dropped, with a warning logged
+when the cap first trips in a window. WARNING-level streams
+stay uncapped — provider-event volume is the outage trend
+signal (see ``ai_providers/client.py``).
 """
 import http.client
 import imaplib
 import logging
 import socket
 import ssl
+import time
 from urllib.parse import urlparse
 
 import google.api_core.exceptions
@@ -90,13 +97,31 @@ _SENSITIVE_PATH_PREFIXES = (
 # the queryable contract for "upstream broke, not our bug".
 _PROVIDER_ERROR_CODES = frozenset({'rate_limited', 'provider_error'})
 
-# Per-process cap on error-level captures, keyed on the
-# ``scrape_job`` tag (``'internal'`` when untagged). See the
-# module docstring — only the ERROR stream is capped; the
-# WARNING provider stream's volume is the trend signal.
+# Per-process cap on error-level captures, keyed on
+# (``scrape_job`` tag or 'internal', exception class) and
+# bucketed into _INTERNAL_ERROR_WINDOW-second monotonic
+# windows — distinct bugs under one scope get independent
+# budgets and a long-lived process re-opens each window
+# instead of staying capped for the rest of its lifetime.
+# Dict get/set is not atomic under gunicorn threads, so the
+# cap is approximate — a blast-radius bound, not an exact
+# count. See the module docstring — only the ERROR stream is
+# capped; the WARNING provider stream's volume is the trend
+# signal.
 _INTERNAL_ERROR_CAP = 10
+_INTERNAL_ERROR_WINDOW = 3600
+# {scope_key: (window_index, count)} — one entry per key,
+# reset lazily when the stored window_index goes stale.
 _internal_sent = {}
 _internal_suppressed = {}
+
+
+def _cap_count(counters, scope_key, window):
+    """The scope's count for the CURRENT window — a stale
+    window_index means the bucket rolled over and the count
+    re-opens at zero."""
+    stored_window, count = counters.get(scope_key, (window, 0))
+    return count if stored_window == window else 0
 
 # Exception types that mean "the remote side failed", not "our code
 # has a bug": urllib3 covers every fetch through BaseScraper's
@@ -225,18 +250,27 @@ def capture_internal_exception(exc, **tags):
     untagged via ``DjangoIntegration``). Extra ``**tags`` (e.g.
     ``scrape_job``, ``scrape_item``) attach context to the event.
 
-    Sends are capped at ``_INTERNAL_ERROR_CAP`` per ``scrape_job``
-    scope per process — see the module docstring. A dropped call
-    still marks ``exc`` so wrappers up the chain dedupe as usual.
+    Sends are capped at ``_INTERNAL_ERROR_CAP`` per
+    (``scrape_job`` scope, exception class) per
+    ``_INTERNAL_ERROR_WINDOW``-second window — see the module
+    docstring. A dropped call still marks ``exc`` so wrappers
+    up the chain dedupe as usual.
     """
-    scope_key = tags.get('scrape_job') or 'internal'
-    if _internal_sent.get(scope_key, 0) >= _INTERNAL_ERROR_CAP:
-        suppressed = _internal_suppressed.get(scope_key, 0) + 1
-        _internal_suppressed[scope_key] = suppressed
+    scope_key = (
+        tags.get('scrape_job') or 'internal',
+        type(exc).__name__,
+    )
+    window = int(time.monotonic() // _INTERNAL_ERROR_WINDOW)
+    sent = _cap_count(_internal_sent, scope_key, window)
+    if sent >= _INTERNAL_ERROR_CAP:
+        suppressed = (
+            _cap_count(_internal_suppressed, scope_key, window) + 1
+        )
+        _internal_suppressed[scope_key] = (window, suppressed)
         if suppressed == 1:
             logger.warning(
                 'Sentry internal_error cap (%s) reached for scope '
-                '%r — further failures this process are counted '
+                '%r — further failures this window are counted '
                 'but not sent', _INTERNAL_ERROR_CAP, scope_key,
             )
         else:
@@ -246,7 +280,7 @@ def capture_internal_exception(exc, **tags):
             )
         _mark_captured(exc)
         return
-    _internal_sent[scope_key] = _internal_sent.get(scope_key, 0) + 1
+    _internal_sent[scope_key] = (window, sent + 1)
     with sentry_sdk.new_scope() as scope:
         scope.set_tag('error_code', 'internal_error')
         _set_tags(scope, tags)

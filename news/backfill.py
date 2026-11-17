@@ -58,6 +58,18 @@ from .scraper import (
 logger = logging.getLogger('news')
 
 
+def _request_error_cause(scraper):
+    """The stashed retry failure for ``raise … from`` chaining.
+
+    ``last_request_error`` is a duck-typed attribute — a test
+    double or foreign scraper can leave a non-exception there,
+    and ``raise … from <non-exception>`` is itself a TypeError
+    that would mask the intended RuntimeError.
+    """
+    cause = getattr(scraper, 'last_request_error', None)
+    return cause if isinstance(cause, BaseException) else None
+
+
 @dataclass
 class Partition:
     """One listing chunk — one ScrapeJobItem of the backfill job.
@@ -190,7 +202,7 @@ class BackfillStrategy(ABC):
             raise RuntimeError(
                 f'{partition.key}: listing fetch failed '
                 f'({partition.url}) — retries exhausted'
-            ) from getattr(scraper, 'last_request_error', None)
+            ) from _request_error_cause(scraper)
         entries = scraper.parse_results(response)
         return [
             {'link': e['link'], 'news_pubdate': e['news_pubdate']}
@@ -372,7 +384,7 @@ class SitemapIndexStrategy(BackfillStrategy):
                 f'{source.slug}: no sitemap index yielded '
                 f'children matching '
                 f'{self.child_regex.pattern!r}'
-            ) from getattr(scraper, 'last_request_error', None)
+            ) from _request_error_cause(scraper)
         children.sort(
             key=lambda c: (c[0] or 0, c[1] or 0), reverse=True,
         )
@@ -456,7 +468,7 @@ class ArchiveMonthStrategy(BackfillStrategy):
                 raise RuntimeError(
                     f'{partition.key}: archive page {page} '
                     'fetch failed — retries exhausted'
-                ) from getattr(scraper, 'last_request_error', None)
+                ) from _request_error_cause(scraper)
             new = [
                 link for link in self._article_links(response)
                 if link not in seen
