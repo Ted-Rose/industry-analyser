@@ -134,6 +134,10 @@ class Command(BaseCommand):
             # The CommandError loses the real traceback — report
             # the original: a dead/refusing inbox is upstream,
             # anything else (bad config, our socket code) is ours.
+            # This config-vs-outage split lives ONLY at connect:
+            # an IMAP4.abort escaping search/store mid-sync skips
+            # this branch and reaches run_all_jobs as
+            # internal_error — rare and one event, so accepted.
             if is_upstream_error(e):
                 capture_provider_exception(e, 'provider_error')
             else:

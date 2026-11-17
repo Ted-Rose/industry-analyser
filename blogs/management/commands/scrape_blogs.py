@@ -8,7 +8,10 @@ from django.db.models import Q
 import logging
 import traceback
 
-from industry_analyser.sentry import capture_internal_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.runner import ScrapeJobRunner
 
 logger = logging.getLogger(__name__)
@@ -149,6 +152,11 @@ class Command(BaseCommand):
             # landing in this block is an unexpected failure:
             # report it (the CommandError loses the traceback)
             # and exit non-zero like the sibling scrape commands
-            # instead of silently returning a success exit code.
-            capture_internal_exception(e, scrape_job='blogs.blog_posts')
+            # instead of silently returning a success exit code —
+            # unless something deeper already reported it
+            # (already_reported dedupes wrappers).
+            if not already_reported(e):
+                capture_internal_exception(
+                    e, scrape_job='blogs.blog_posts'
+                )
             raise CommandError(f'Blog scraping failed: {e}') from e

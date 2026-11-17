@@ -969,9 +969,24 @@ agent-fixable bugs only:
   `CommandError` re-raise loses the real traceback), failed
   `run_all_jobs` sub-jobs, `ScrapeJobRunner.item_failed`
   per-item failures, per-record refetch catches
-  (`BaseRefetchCommand`, `refetch_vacancies`), and the
-  receipts-sync per-message catch — all carry
-  `scrape_job`/`scrape_item` tags where known.
+  (`BaseRefetchCommand`, `refetch_vacancies`), the
+  receipts-sync per-message catch, `enrich_show`'s AI-error
+  split (`tv_programs/enrichment.py`), the Google-OAuth
+  userinfo fallback (`google_api/views.py`), the digest-task
+  fan-out (`news/tasks.py`), the audio-clip eviction sweep
+  (`news/audio.py`) and the employer-detail batch catch
+  (`fetcher/scraper.py`). Tags vary by site: command-level
+  catches and `item_failed` tag `scrape_job` (`item_failed`
+  adds `scrape_item`), `BaseRefetchCommand` tags `scrape_item`
+  only, and `refetch_vacancies`, the employer-detail catch and
+  the receipts/OAuth/task/audio catches tag nothing.
+  Error-level sends are capped at `_INTERNAL_ERROR_CAP` (10)
+  per `scrape_job` scope per process — a systematic bug (DB
+  down, a parse crash on every item) yields a bounded handful
+  of events, not one per item; drops are counted in
+  `sentry.py`'s `_internal_suppressed` and logged. The
+  WARNING streams are deliberately uncapped — provider-event
+  volume is the outage trend signal.
 - Browser exceptions — `captureException`, level error.
 - Scraper/AI upstream — `capture_provider_exception`, level
   warning, tag `error_code:rate_limited` / `provider_error`.
@@ -979,8 +994,10 @@ agent-fixable bugs only:
   builtin network types, `imaplib.IMAP4.abort` server-side
   disconnects — `IMAP4.error` stays internal) is the shared
   classifier call sites branch on — `item_failed`,
-  `refetch_single`, `enrich_show` and the Google-tasks
-  fan-out all use it.
+  `refetch_single`, `refetch_vacancies`' per-vacancy catch,
+  `enrich_show`, the receipts IMAP `connect()` catch, the
+  Google-OAuth `_fetch_userinfo`, the Google-tasks fan-out
+  and the audio `_evict_oldest` all use it.
 - Deploy schema lag — `capture_schema_lag`, level warning, tag
   `error_code:schema_lag` (the API also answers 503 +
   Retry-After; a permanently missing column must not go dark).

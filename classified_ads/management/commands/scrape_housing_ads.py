@@ -4,7 +4,10 @@ import traceback
 from django.core.management.base import BaseCommand, CommandError
 
 from classified_ads.housing_scraper import HousingAdScraper
-from industry_analyser.sentry import capture_internal_exception
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.runner import (
     ScrapeJobRunner,
     cooldown_skip_reason,
@@ -99,8 +102,10 @@ class Command(BaseCommand):
             scraper.run()
         except Exception as e:
             # The CommandError loses the real traceback — report
-            # the original failure here.
-            capture_internal_exception(e, scrape_job=JOB_SLUG)
+            # the original failure here, unless something deeper
+            # already did (already_reported dedupes wrappers).
+            if not already_reported(e):
+                capture_internal_exception(e, scrape_job=JOB_SLUG)
             runner.finish('FAILED', traceback.format_exc())
             raise CommandError(f'Scraping failed: {e}') from e
         runner.finish()

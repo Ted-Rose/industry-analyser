@@ -44,9 +44,22 @@ Two cross-cutting rules keep the streams actionable:
     failure is correct there: the subprocess may have died
     before reporting, and the exit status is the parent's only
     signal.
+
+A per-process cap bounds the ERROR stream's blast radius: a
+systematic bug (a DB outage, a parse crash on every scrape
+item) would otherwise file one event per failed item —
+hundreds of near-identical error events grouping into a
+single issue and burning quota for no extra signal. The first
+``_INTERNAL_ERROR_CAP`` events per scope (the ``scrape_job``
+tag, ``'internal'`` when untagged) send normally; the rest
+are counted in ``_internal_suppressed`` and dropped, with a
+warning logged when the cap first trips. WARNING-level
+streams stay uncapped — provider-event volume is the outage
+trend signal (see ``ai_providers/client.py``).
 """
 import http.client
 import imaplib
+import logging
 import socket
 import ssl
 from urllib.parse import urlparse
@@ -55,6 +68,8 @@ import google.api_core.exceptions
 import requests.exceptions
 import sentry_sdk
 import urllib3.exceptions
+
+logger = logging.getLogger('industry_analyser')
 
 # Paths whose request bodies can carry credentials: admin login
 # posts passwords under /admin/login/ (covered by the /admin/
@@ -74,6 +89,14 @@ _SENSITIVE_PATH_PREFIXES = (
 # Allowed ``error_code`` values for ``capture_provider_exception`` —
 # the queryable contract for "upstream broke, not our bug".
 _PROVIDER_ERROR_CODES = frozenset({'rate_limited', 'provider_error'})
+
+# Per-process cap on error-level captures, keyed on the
+# ``scrape_job`` tag (``'internal'`` when untagged). See the
+# module docstring — only the ERROR stream is capped; the
+# WARNING provider stream's volume is the trend signal.
+_INTERNAL_ERROR_CAP = 10
+_internal_sent = {}
+_internal_suppressed = {}
 
 # Exception types that mean "the remote side failed", not "our code
 # has a bug": urllib3 covers every fetch through BaseScraper's
@@ -157,6 +180,14 @@ def already_reported(exc):
         if getattr(node, '_sentry_captured', False):
             _mark_captured(exc)
             return True
+        # ``__cause__ or __context__`` follows ONE hop: an
+        # explicit ``from`` wins over the implicit context, so a
+        # wrapper ``from unreported`` raised inside the except
+        # block of a *reported* exception misses the marked
+        # context node entirely (``__cause__`` is followed,
+        # ``__context__`` never visited). Latent — no current
+        # call site chains a fresh cause over a reported
+        # context.
         node = node.__cause__ or node.__context__
     return False
 
@@ -193,7 +224,29 @@ def capture_internal_exception(exc, **tags):
     handled-but-buggy failures from unhandled 500s (which arrive
     untagged via ``DjangoIntegration``). Extra ``**tags`` (e.g.
     ``scrape_job``, ``scrape_item``) attach context to the event.
+
+    Sends are capped at ``_INTERNAL_ERROR_CAP`` per ``scrape_job``
+    scope per process — see the module docstring. A dropped call
+    still marks ``exc`` so wrappers up the chain dedupe as usual.
     """
+    scope_key = tags.get('scrape_job') or 'internal'
+    if _internal_sent.get(scope_key, 0) >= _INTERNAL_ERROR_CAP:
+        suppressed = _internal_suppressed.get(scope_key, 0) + 1
+        _internal_suppressed[scope_key] = suppressed
+        if suppressed == 1:
+            logger.warning(
+                'Sentry internal_error cap (%s) reached for scope '
+                '%r — further failures this process are counted '
+                'but not sent', _INTERNAL_ERROR_CAP, scope_key,
+            )
+        else:
+            logger.info(
+                'suppressed %s internal_error Sentry event(s) '
+                'for scope %r', suppressed, scope_key,
+            )
+        _mark_captured(exc)
+        return
+    _internal_sent[scope_key] = _internal_sent.get(scope_key, 0) + 1
     with sentry_sdk.new_scope() as scope:
         scope.set_tag('error_code', 'internal_error')
         _set_tags(scope, tags)

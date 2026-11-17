@@ -25,6 +25,7 @@ from django.test import (
 )
 
 from industry_analyser import api as api_module
+from industry_analyser import sentry as sentry_module
 from industry_analyser.sentry import (
     already_reported,
     capture_internal_exception,
@@ -279,6 +280,16 @@ class SentryHelpersTests(SimpleTestCase):
     """sentry.py capture helpers are complete no-ops when the SDK
     was never initialized (no SENTRY_DSN — always true in tests)."""
 
+    def setUp(self):
+        # The per-scope send/suppress counters are module-level —
+        # reset so each test sees a fresh cap budget.
+        sentry_module._internal_sent.clear()
+        sentry_module._internal_suppressed.clear()
+
+    def tearDown(self):
+        sentry_module._internal_sent.clear()
+        sentry_module._internal_suppressed.clear()
+
     def test_capture_helpers_noop_without_dsn(self):
         # No exception, no configured transport — the calls must
         # simply return None.
@@ -442,6 +453,58 @@ class SentryHelpersTests(SimpleTestCase):
                 scrape_job='test.job',
             )
         )
+
+    def test_internal_error_cap_bounds_sends_per_scope(self):
+        """The N+1th identical failure under one scrape_job scope
+        is counted but not sent — a systematic bug (DB down, a
+        parse crash on every item) yields the cap, not one event
+        per item."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 5):
+                capture_internal_exception(
+                    RuntimeError('same bug'), scrape_job='test.job'
+                )
+        self.assertEqual(capture.call_count, cap)
+        self.assertEqual(
+            sentry_module._internal_suppressed['test.job'], 5
+        )
+
+    def test_internal_error_cap_is_per_scope(self):
+        """Distinct scrape_job scopes get independent budgets."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 1):
+                capture_internal_exception(
+                    RuntimeError('x'), scrape_job='job.a'
+                )
+                capture_internal_exception(
+                    RuntimeError('y'), scrape_job='job.b'
+                )
+        self.assertEqual(capture.call_count, 2 * cap)
+
+    def test_internal_error_cap_still_marks_exception(self):
+        """A dropped event still marks the exception so a
+        CommandError wrapping it dedupes up the chain as usual."""
+        sentry_module._internal_sent['internal'] = (
+            sentry_module._INTERNAL_ERROR_CAP
+        )
+        exc = RuntimeError('over cap')
+        with patch('sentry_sdk.capture_exception') as capture:
+            capture_internal_exception(exc)
+        capture.assert_not_called()
+        self.assertTrue(already_reported(exc))
+
+    def test_provider_exceptions_are_uncapped(self):
+        """WARNING-level provider events never hit the cap — the
+        volume is the outage trend signal."""
+        cap = sentry_module._INTERNAL_ERROR_CAP
+        with patch('sentry_sdk.capture_exception') as capture:
+            for _ in range(cap + 5):
+                capture_provider_exception(
+                    ConnectionError('down'), 'provider_error'
+                )
+        self.assertEqual(capture.call_count, cap + 5)
 
 
 class UnhandledApiErrorTests(SimpleTestCase):

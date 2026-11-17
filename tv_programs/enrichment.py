@@ -324,13 +324,20 @@ def enrich_show(show, omdb=None, ai_client=None, request_fn=None):
             # reported by JobClient. Provider/model/retryable AI
             # errors are the upstream side (warning) — a rate
             # limit or dead model endpoint is not our bug —
-            # EXCEPT the auth/config subclasses: a missing or
-            # invalid API key is a deploy config bug (internal).
+            # EXCEPT the auth/config subclasses (a missing or
+            # invalid API key is a deploy config bug) and
+            # AIBadRequestError (HTTP 400/422 — the request shape
+            # we sent was rejected, typically our bug): both
+            # internal. A bare AIRateLimitError tags
+            # 'rate_limited', matching JobClient's own split.
             if isinstance(e, (
                 ai_errors.AIAuthError,
                 ai_errors.AIProviderNotConfiguredError,
+                ai_errors.AIBadRequestError,
             )):
                 capture_internal_exception(e)
+            elif isinstance(e, ai_errors.AIRateLimitError):
+                capture_provider_exception(e, 'rate_limited')
             elif is_upstream_error(e) or isinstance(e, (
                 ai_errors.AIProviderError,
                 ai_errors.AIRetryableError,

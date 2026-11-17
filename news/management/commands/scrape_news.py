@@ -5,13 +5,13 @@ from datetime import date, timedelta
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
-from news.backfill import NewsBackfillScraper
-from news.feeds import ensure_seeded
-from news.scraper import NewsScraper
 from industry_analyser.sentry import (
     already_reported,
     capture_internal_exception,
 )
+from news.backfill import NewsBackfillScraper
+from news.feeds import ensure_seeded
+from news.scraper import NewsScraper
 from scrape_jobs.runner import (
     ScrapeJobRunner,
     cooldown_skip_reason,

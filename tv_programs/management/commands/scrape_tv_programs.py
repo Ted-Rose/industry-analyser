@@ -6,8 +6,11 @@ from django.utils import timezone
 import logging
 import traceback
 
+from industry_analyser.sentry import (
+    already_reported,
+    capture_internal_exception,
+)
 from scrape_jobs.runner import ScrapeJobRunner, detect_executed_by
-from industry_analyser.sentry import capture_internal_exception
 from tv_programs.models import Program
 from tv_programs.scraper import CHANNELS, TVProgramScraper
 
@@ -139,10 +142,12 @@ class Command(BaseCommand):
 
         except Exception as e:
             # The CommandError loses the real traceback — report
-            # the original failure here.
-            capture_internal_exception(
-                e, scrape_job='tv_programs.guide'
-            )
+            # the original failure here, unless something deeper
+            # already did (already_reported dedupes wrappers).
+            if not already_reported(e):
+                capture_internal_exception(
+                    e, scrape_job='tv_programs.guide'
+                )
             runner.finish('FAILED', traceback.format_exc())
             self.stdout.write(
                 self.style.ERROR("Error running TV program scraper")
