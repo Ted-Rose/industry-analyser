@@ -49,17 +49,10 @@ branches:
       required_pull_request_reviews: null
 
       # Require status checks to pass before merging.
-      # `frontend` and `openspec-validate` run on every PR;
-      # `staging-first` is the staging-first gate — see
-      # workflows/require-staging.yml and AGENTS.md
-      # "Git workflow — staging-first".
+      # `frontend` and `openspec-validate` run on every PR.
       required_status_checks:
-        # strict: false — promotion PR heads are staged SHAs,
-        # out-of-date with main by construction; strict:true
-        # would block every Promote-to-main merge.
         strict: false
         contexts:
-          - staging-first
           - frontend
           - openspec-validate
 
@@ -73,23 +66,4 @@ branches:
       allow_force_pushes: false
 
       # Allow deletions
-      allow_deletions: false
-
-  # Integration branch for the staging-first workflow —
-  # see AGENTS.md "Git workflow — staging-first". PRs
-  # squash-merge here on green; the post-release reset
-  # force-pushes it back to `main`.
-  - name: staging
-    protection:
-      required_pull_request_reviews: null
-      required_status_checks:
-        strict: false
-        contexts:
-          - frontend
-          - openspec-validate
-      enforce_admins: false
-      required_linear_history: false
-      # Allow force pushes for the post-release `staging`
-      # reset (in practice admins).
-      allow_force_pushes: true
       allow_deletions: false
