@@ -22,100 +22,38 @@ infra in `terraform/`.
 Single git repo: `origin` is the user's own
 `Ted-Rose/industry-analyser` (verified NOT a fork), default
 branch `main`. CI/deploy: `.github/workflows/` on push to
-`main`/`staging` + `frontend-checks.yml` on every PR — see
-"Git workflow — staging-first" below.
+`main` + `frontend-checks.yml` on every PR — see
+"Git workflow — trunk-based" below.
 
 Start with `LOCAL_SETUP.md` for setup, `docs/plans/` for
 historical design plans (frozen — see rule 11), `docs/` for
 runbooks and `docs/research/` for audits/reports.
 `DOCUMENTATION_INDEX.md` is the doc map.
 
-## Git workflow — staging-first
+## Git workflow — trunk-based
 
 `main` is production (Cloud Run `industry-analyser` +
-`industryanalyser.vercel.app`); `staging` is the integration
-branch — every push deploys a standing PRIVATE Cloud Run
-service `industry-analyser-staging` (reachable via
-`gcloud run services proxy industry-analyser-staging
---region=europe-north1`; it runs `APP_ENV=staging`, so
-settings.py reads `STAGING_DATABASE_URL` — the separate
-`industryanalyser_staging` Aiven DB with a dedicated
-read/write role — and `run-migrations-staging` applies
-migrations there before the deploy) AND a
-public Vercel preview
-(`industryanalyser-git-staging-<team>.vercel.app` — the UI
-validation surface). The invariant is **`main` ⊆
-`staging`**: production only receives code that has already
-soaked on staging. The `staging-first` required check
-(`.github/workflows/require-staging.yml`) fails `main` PRs
-whose head SHA was never merged into `staging`, and the
-repo allows squash merges only.
+`industryanalyser.vercel.app`). Trunk-based flow: branch off
+`origin/main`, open the PR with `--base main`, then
+squash-merge once checks are green and the reviewer loop
+is clean — agents merge without asking (the repo allows
+squash merges only). GitHub auto-deletes the head branch
+on merge; expected.
 
-- **Features/fixes**: branch off `origin/main` — never
-  `staging`; the branch must carry no unverified staging
-  noise. Open the PR with `--base staging`, then
-  squash-merge once checks are green and the reviewer loop
-  is clean — agents merge into `staging` without asking.
-  GitHub auto-deletes the head branch on merge; expected.
-- **Staging fixes**: commit them on the ORIGINAL feature
-  branch (push it again if auto-deleted — same SHAs are
-  fine; after auto-delete, restore it with
-  `git push origin <sha>:refs/heads/<branch>` where `<sha>`
-  is the merged staging PR's `headRefOid`), then merge
-  into `staging` via the still-open staging PR or a new
-  one.
-- **Promotion to `main`** — only when the user asks to
-  release or merge to main. The `Promote to main` workflow
-  (`.github/workflows/promote-to-main.yml`) automates it:
-  `gh workflow run "Promote to main"` (or the Actions tab;
-  `-f dry_run=true` lists pending promotions). It opens a
-  `main` PR per staged branch — oldest staging-merge
-  first, original title + body + a promotion footer —
-  squash-merges each, then resets `staging` to `main`
-  (skipped entirely if any promotion fails — staging then
-  still holds unreleased work). Conflicting promotions are
-  resolved from the staging squash commit's tree — the
-  validated integration state, never guessed; a replay is
-  only attempted while all earlier promotions succeeded,
-  since a squash tree also carries their code. A branch
-  whose remote tip moved past its staging merge is skipped
-  — those commits were never staged. The scan covers the
-  200 most recent merged staging PRs. Manual
-  equivalent, per branch: re-push it if auto-deleted
-  (`git push origin <headRefOid>:refs/heads/<branch>`),
-  open a PR with `--base main` (same title + body — keep
-  `Closes #<N>` links so issues auto-close), then
-  `gh pr merge <N> --squash --admin`; then reset staging
-  (`git fetch origin && git push --force-with-lease origin
-  origin/main:refs/heads/staging` — the only sanctioned
-  force-push; the workflow does it via the refs API
-  instead). NEVER open `staging`→`main` PRs — that drags
-  integration noise into prod history. The reset discards
-  anything still on `staging` that was not promoted —
-  reset only once staging matches the release, and
-  re-merge leftovers to `staging` afterwards (re-pushing
-  the same SHAs still satisfies the check). The workflow
-  prefers the `AUTOMERGE_TOKEN` admin PAT but falls back
-  to `GITHUB_TOKEN` — sufficient here since `main` has no
-  review requirement, though the PAT is more robust
-  against future protection tightening.
-- **"Merge straight to main" requests**: merge the branch
-  into `staging` first anyway, then the `main` PR — the
-  check blocks anything else, keeping `main` ⊆ `staging`
-  even for urgent merges. If the `main` PR's check already
-  ran red before the staging merge, re-run the failed job
-  after it (`gh run rerun <run-id> --failed` or a push).
 - **Vercel deploys are whitelisted** — `vercel.json`'s
-  `git.deploymentEnabled` builds only `main` and `staging`;
-  feature branches and PRs no longer get Vercel previews
-  (quota saving — the Cloud Run private previews in
-  `deploy-web-service.yml` cover PR validation). Caveat:
-  Vercel reads `git.deploymentEnabled` from the PUSHED
-  commit's `vercel.json`, so branches cut before this file
-  landed still deploy previews until rebased.
-- **`deploy-scraper-jobs.yml` stays `main`-only** —
-  staging pushes build and deploy only the web service;
-  Cloud Run jobs / Terraform never see staging code.
+  `git.deploymentEnabled` builds only `main`; feature
+  branches and PRs get no Vercel previews (quota saving).
+  Caveat: Vercel reads `git.deploymentEnabled` from the
+  PUSHED commit's `vercel.json`, so branches cut before
+  this file landed still deploy previews until rebased.
+- **Leftover staging infrastructure** (nothing deploys to
+  it anymore): the private `industry-analyser-staging`
+  Cloud Run service, the `run-migrations-staging` Cloud
+  Run job, the `industryanalyser_staging` Aiven DB and the
+  `STAGING_DATABASE_URL`/`APP_ENV=staging` code path in
+  settings.py. Safe to delete manually if desired —
+  `cleanup-artifacts.yml` still protects the
+  `staging-latest` image tag while the service exists.
 
 ## Layout (actual)
 
@@ -925,10 +863,7 @@ Push to `main` triggers GitHub Actions
 `deploy-web-service.yml`): Docker build/push to Artifact
 Registry → `python manage.py migrate` via the ad-hoc
 `run-migrations` Cloud Run job (main-only step) → update the
-`all-jobs` Cloud Run job + web service. Push to `staging`
-redeploys `industry-analyser-staging` + `run-migrations-staging`
-(staging DB) in the same workflow — see "Git workflow —
-staging-first".
+`all-jobs` Cloud Run job + web service.
 The Vercel deployment (see Known gaps — `vercel.json` +
 `.vercelignore` + `api/index.py`) is a live second target,
 not CI-managed; `cloudbuild.yaml` and `deploy-cloudrun.sh`
@@ -1097,9 +1032,8 @@ end-to-end. Prod (Cloud Run) is unaffected.
   `deploy-web-service.yml` deploys a `run-migrations` Cloud Run
   job from the just-built image and executes it before the new
   service revision goes live (a failed `migrate` aborts the
-  deploy); staging pushes do the same via
-  `run-migrations-staging` against the staging DB. Manual
-  `migrate` against prod is reserved for recovery only.
+  deploy). Manual `migrate` against prod is reserved for
+  recovery only.
 - **Never commit** `.env`, `ca.pem`, `private_settings.json`,
   `db.sqlite3`, `fetcher/config_v2.json`, `blogs/config.yaml`,
   `terraform/*.tfvars`/`tfstate`, `.devin/config.local.json` —
